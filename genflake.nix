@@ -1,18 +1,5 @@
 let
-  inherit (builtins)
-    readFile
-    toFile
-    toJSON
-    ;
-
-  inherit (pkgs)
-    bash
-    coreutils
-    gnused
-    lib
-    nix
-    nixfmt-rfc-style
-    ;
+  inherit (pkgs) lib;
 
   inherit (lib)
     attrNames
@@ -33,7 +20,6 @@ let
     self = ./.;
   };
 
-  aagl = cfg.applications.aagl;
   channels = cfg.system.channels;
 
   chaotic = (
@@ -57,11 +43,7 @@ let
   users = attrNames cfg.system.users;
   zen-browser = cfg.applications.zen-browser.enable;
 
-  externalModulesOutputs =
-    map
-    icedosLib.getExternalModuleOutputs
-    cfg.externalModuleRepositories;
-
+  externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.externalModuleRepositories;
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
 in
 {
@@ -121,18 +103,6 @@ in
 
         # Apps
         ${
-          if (aagl) then
-            ''
-              aagl = {
-                url = "github:ezKEa/aagl-gtk-on-nix";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
-        ${
           if (librewolf) then
             ''
               pipewire-screenaudio = {
@@ -165,7 +135,6 @@ in
           nerivations,
           nixpkgs,
           self,
-          ${if (aagl) then ''aagl,'' else ""}
           ${if (chaotic) then ''chaotic,'' else ""}
           ${if (librewolf) then ''pipewire-screenaudio,'' else ""}
           ${if (steam-session) then ''steam-session,'' else ""}
@@ -306,19 +275,6 @@ in
                   ''
                     steam-session.nixosModules.default
                     ./system/desktop/steam-session
-                  ''
-                else
-                  ""
-              }
-
-              ${
-                if (aagl) then
-                  ''
-                    aagl.nixosModules.default
-                    {
-                      nix.settings = aagl.nixConfig; # Set up Cachix
-                      programs.anime-game-launcher.enable = true; # Adds launcher and /etc/hosts rules
-                    }
                   ''
                 else
                   ""

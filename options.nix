@@ -35,7 +35,6 @@ in
   options = {
     icedos = {
       applications = {
-        aagl = mkBoolOption;
         android-tools = mkBoolOption;
         celluloid = mkBoolOption;
         clamav = mkBoolOption;
