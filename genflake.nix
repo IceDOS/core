@@ -1,15 +1,27 @@
 let
+  inherit (pkgs)
+    lib
+    ;
+
   inherit (lib)
     attrNames
     boolToString
     concatImapStrings
     concatMapStrings
     fileContents
+    map
     pathExists
     ;
 
-  cfg = (import ./options.nix { inherit lib; }).config.icedos;
-  lib = import <nixpkgs/lib>;
+  system = "x86_64-linux";
+  cfg = (fromTOML (fileContents ./config.toml)).icedos;
+  pkgs = import <nixpkgs> { inherit system; };
+
+  icedosLib = import ./lib.nix {
+    inherit lib pkgs;
+    config = cfg;
+    self = ./.;
+  };
 
   channels = cfg.system.channels or [ ];
 
@@ -23,16 +35,9 @@ let
   isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
   users = attrNames cfg.users;
 
-  injectIfExists =
-    file:
-    if (pathExists file) then
-      ''
-        (
-          ${fileContents file}
-        )
-      ''
-    else
-      "";
+  externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.externalModuleRepositories;
+
+  extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
 in
 {
   flake.nix = ''
@@ -95,12 +100,39 @@ in
           ${if chaotic then ''chaotic,'' else ""}
           ...
         }@inputs:
-        {
-          nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
-            system = "x86_64-linux";
+        let
+          system = "${system}";
 
+          inherit (builtins) fromTOML;
+          inherit (lib) fileContents flatten map;
+          inherit (pkgs) lib;
+
+          cfg = (fromTOML (fileContents ./config.toml)).icedos;
+          pkgs = nixpkgs.legacyPackages.''${system};
+
+          icedosLib = import ./lib.nix {
+            inherit lib pkgs;
+            config = cfg;
+            self = ./.;
+          };
+
+          externalModulesOutputs =
+            map
+            icedosLib.getExternalModuleOutputs
+            cfg.externalModuleRepositories;
+
+          extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
+
+          extraNixosModules = flatten (map (mod: mod.nixosModules { inherit inputs; }) externalModulesOutputs);
+        in {
+          apps.''${system}.init = {
+            type = "app";
+            program = toString (with pkgs; writeShellScript "icedos-flake-init" "exit");
+          };
+
+          nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
-              inherit inputs;
+              inherit icedosLib inputs;
             };
 
             modules = [
@@ -174,9 +206,9 @@ in
                 user: if (pathExists "${configurationLocation}/users/${user}") then "./users/${user}\n" else ""
               ) users}
 
-              ${injectIfExists "/etc/nixos/hardware-configuration.nix"}
-              ${injectIfExists "/etc/nixos/extras.nix"}
-            ];
+              ${icedosLib.injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
+              ${icedosLib.injectIfExists { file = "/etc/nixos/extras.nix"; }}
+            ] ++ extraOptions ++ extraNixosModules;
           };
         };
     }
