@@ -19,11 +19,7 @@ let
   getModules =
     path:
     map (dir: ./. + ("/modules/" + dir)) (
-      attrNames (
-        filterAttrs (n: v: v == "directory" && !(n == "lsfg-vk") && !(n == "zen-browser")) (
-          builtins.readDir path
-        )
-      )
+      attrNames (filterAttrs (n: v: v == "directory" && !(n == "zen-browser")) (builtins.readDir path))
     );
 
   pkgMapper =

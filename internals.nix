@@ -1,11 +1,13 @@
 {
   config,
   lib,
+  pkgs,
+  self,
   ...
 }:
 
 let
-  inherit (lib) mkOption types;
+  inherit (lib) mapAttrs mkOption types;
   cfg = config.icedos;
 
   mkStrOption =
@@ -17,6 +19,13 @@ let
 
   mkBoolOption = default: mkOption { type = types.bool; };
 
+  mkFunctionOption =
+    default:
+    mkOption {
+      type = types.function;
+      default = default;
+    };
+
   mkSubmoduleListOption =
     options:
     mkOption {
@@ -26,6 +35,8 @@ let
         }
       );
     };
+
+  libFile = import ./lib.nix { inherit self pkgs lib; config = config.icedos; };
 in
 {
   options.icedos.internals = {
@@ -54,5 +65,7 @@ in
       command = mkStrOption ("");
       help = mkStrOption ("");
     });
+
+    icedosLib = mapAttrs (_: v: mkFunctionOption v) libFile;
   };
 }

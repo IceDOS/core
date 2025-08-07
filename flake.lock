@@ -79,6 +79,41 @@
         "type": "github"
       }
     },
+    "icedos-icedos-modules-0": {
+      "locked": {
+        "lastModified": 1754574489,
+        "narHash": "sha256-N//kp/qad4N1Q3fcOsXFNynzgpmjCoWRYq0oH9rURk0=",
+        "owner": "IceDOS",
+        "repo": "modules",
+        "rev": "c88f1e033d5d7c1609c3a94d3facb4fceef5b12a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "IceDOS",
+        "repo": "modules",
+        "type": "github"
+      }
+    },
+    "icedos-icedos-modules-lsfg-vk-lsfg-vk": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1753938292,
+        "narHash": "sha256-akeUWgvIIi163s/femzvTOuqqOiOB/8US5ioHsNqhYY=",
+        "owner": "pabloaul",
+        "repo": "lsfg-vk-flake",
+        "rev": "081cd66b1369188777ea146a759d35e99ea6b031",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pabloaul",
+        "repo": "lsfg-vk-flake",
+        "type": "github"
+      }
+    },
     "jovian": {
       "inputs": {
         "nix-github-actions": "nix-github-actions",
@@ -101,26 +136,6 @@
         "type": "github"
       }
     },
-    "lsfg-vk": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1753895646,
-        "narHash": "sha256-jnENj5xF24epGCW7AnpG7HB3/6TQjHt8EzSu6vNWtOE=",
-        "owner": "pabloaul",
-        "repo": "lsfg-vk-flake",
-        "rev": "6e5f2362dc9941b8fe3670c988bf9b413ab4e6e9",
-        "type": "github"
-      },
-      "original": {
-        "owner": "pabloaul",
-        "repo": "lsfg-vk-flake",
-        "type": "github"
-      }
-    },
     "nerivations": {
       "inputs": {
         "nixpkgs": [
@@ -128,11 +143,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1753307987,
-        "narHash": "sha256-+yRh1eqsPd+F/I8992EHAVSAmm/EMzDaFY0Lj6iQUww=",
+        "lastModified": 1754407466,
+        "narHash": "sha256-6s2TUlTUP6f7r386JY6J2CXwlh37ApH5clYj9TwTE8E=",
         "owner": "icedborn",
         "repo": "nerivations",
-        "rev": "ae23114d011e6852b9369520104cb3f71500e665",
+        "rev": "e7ce2aef30e2db46d06af11f95328d5dec11d4b7",
         "type": "github"
       },
       "original": {
@@ -187,7 +202,8 @@
           "chaotic",
           "home-manager"
         ],
-        "lsfg-vk": "lsfg-vk",
+        "icedos-icedos-modules-0": "icedos-icedos-modules-0",
+        "icedos-icedos-modules-lsfg-vk-lsfg-vk": "icedos-icedos-modules-lsfg-vk-lsfg-vk",
         "nerivations": "nerivations",
         "nixpkgs": [
           "chaotic",

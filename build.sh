@@ -9,10 +9,16 @@ globalBuildArgs=()
 nhBuildArgs=()
 nixBuildArgs=()
 
+set -e
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --boot)
       action="boot"
+      shift
+      ;;
+    --build)
+      action="build"
       shift
       ;;
     --update)
@@ -47,8 +53,9 @@ printf "$PWD" > "$CONFIG"
 
 # Generate flake.nix
 [ -f "$FLAKE" ] && rm -f "$FLAKE"
-nix eval --extra-experimental-features nix-command --write-to "$FLAKE" --file "genflake.nix" "$FLAKE"
+nix eval --option build-use-sandbox false --show-trace --extra-experimental-features nix-command --write-to "$FLAKE" --file "genflake.nix" "$FLAKE"
 nixfmt "$FLAKE"
+nix run .#init
 
 [ "$update" == "1" ] && nix flake update
 
