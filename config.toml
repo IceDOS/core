@@ -1,3 +1,8 @@
+[[icedos.externalModuleRepositories]]
+name = "icedos-modules"
+url = "github:IceDOS/modules"
+modules = ["lsfg-vk"]
+
 [icedos.applications]
 extraPackages = []
 insecurePackages = []
@@ -194,11 +199,11 @@ endHeight = 1440
 [icedos.hardware]
 bluetooth = true
 
-[[icedos.hardware.mounts]]
-path = "/"
-device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb"
-fsType = "btrfs"
-flags = ["compress=zstd", "nofail", "x-gvfs-show"]
+# [[icedos.hardware.mounts]]
+# path = "/"
+# device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb"
+# fsType = "btrfs"
+# flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.mounts]]
 path = "/mnt/games"

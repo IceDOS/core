@@ -1,14 +1,37 @@
 let
+  inherit (builtins)
+    readFile
+    toFile
+    toJSON
+    ;
+
+  inherit (pkgs)
+    bash
+    coreutils
+    gnused
+    lib
+    nix
+    nixfmt-rfc-style
+    ;
+
   inherit (lib)
     attrNames
     boolToString
     concatImapStrings
     fileContents
+    map
     pathExists
     ;
 
-  cfg = (import ./options.nix { inherit lib; }).config.icedos;
-  lib = import <nixpkgs/lib>;
+  system = "x86_64-linux";
+  cfg = (fromTOML (fileContents ./config.toml)).icedos;
+  pkgs = import <nixpkgs> { inherit system; };
+
+  icedosLib = import ./lib.nix {
+    inherit lib pkgs;
+    config = cfg;
+    self = ./.;
+  };
 
   aagl = cfg.applications.aagl;
   channels = cfg.system.channels;
@@ -28,23 +51,18 @@ let
   hyprland = cfg.desktop.hyprland.enable;
   isFirstBuild = !pathExists "/run/current-system/source" || cfg.system.forceFirstBuild;
   librewolf = cfg.applications.librewolf;
-  lsfg-vk = cfg.applications.lsfg-vk;
   ryzen = cfg.hardware.cpus.ryzen.enable;
   server = cfg.hardware.devices.server;
   steam-session = cfg.applications.steam.session.enable;
   users = attrNames cfg.system.users;
   zen-browser = cfg.applications.zen-browser.enable;
 
-  injectIfExists =
-    file:
-    if (pathExists file) then
-      ''
-        (
-          ${fileContents file}
-        )
-      ''
-    else
-      "";
+  externalModulesOutputs =
+    map
+    icedosLib.getExternalModuleOutputs
+    cfg.externalModuleRepositories;
+
+  extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
 in
 {
   flake.nix = ''
@@ -115,18 +133,6 @@ in
         }
 
         ${
-          if (lsfg-vk) then
-            ''
-              lsfg-vk = {
-                url = "github:pabloaul/lsfg-vk-flake";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
-        ${
           if (librewolf) then
             ''
               pipewire-screenaudio = {
@@ -149,6 +155,8 @@ in
           else
             ""
         }
+
+        ${extraInputs}
       };
 
       outputs =
@@ -160,17 +168,43 @@ in
           ${if (aagl) then ''aagl,'' else ""}
           ${if (chaotic) then ''chaotic,'' else ""}
           ${if (librewolf) then ''pipewire-screenaudio,'' else ""}
-          ${if (lsfg-vk) then ''lsfg-vk,'' else ""}
           ${if (steam-session) then ''steam-session,'' else ""}
           ${if (zen-browser) then ''zen-browser,'' else ""}
           ...
         }@inputs:
-        {
-          nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
-            system = "x86_64-linux";
+        let
+          system = "${system}";
 
+          inherit (builtins) fromTOML;
+          inherit (lib) fileContents flatten map;
+          inherit (pkgs) lib;
+
+          cfg = (fromTOML (fileContents ./config.toml)).icedos;
+          pkgs = nixpkgs.legacyPackages.''${system};
+
+          icedosLib = import ./lib.nix {
+            inherit lib pkgs;
+            config = cfg;
+            self = ./.;
+          };
+
+          externalModulesOutputs =
+            map
+            icedosLib.getExternalModuleOutputs
+            cfg.externalModuleRepositories;
+
+          extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
+
+          extraNixosModules = flatten (map (mod: mod.nixosModules { inherit inputs; }) externalModulesOutputs);
+        in {
+          apps.''${system}.init = {
+            type = "app";
+            program = toString (with pkgs; writeShellScript "icedos-flake-init" "exit");
+          };
+
+          nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
-              inherit inputs;
+              inherit icedosLib inputs;
             };
 
             modules = [
@@ -291,16 +325,6 @@ in
               }
 
               ${
-                if (lsfg-vk) then
-                  ''
-                    lsfg-vk.nixosModules.default
-                    ./system/applications/modules/lsfg-vk
-                  ''
-                else
-                  ""
-              }
-
-              ${
                 if (hyprland) then
                   ''
                     ./system/desktop/hyprland
@@ -328,9 +352,9 @@ in
                   ""
               ) users}
 
-              ${injectIfExists "/etc/nixos/hardware-configuration.nix"}
-              ${injectIfExists "/etc/nixos/extras.nix"}
-            ];
+              ${icedosLib.injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
+              ${icedosLib.injectIfExists { file = "/etc/nixos/extras.nix"; }}
+            ] ++ extraOptions ++ extraNixosModules;
           };
         };
     }

@@ -60,7 +60,6 @@ in
 
         lact = mkBoolOption;
         librewolf = mkBoolOption;
-        lsfg-vk = mkBoolOption;
 
         mangohud = {
           enable = mkBoolOption;
@@ -437,6 +436,12 @@ in
         };
 
         version = mkStrOption;
+      };
+
+      externalModuleRepositories = mkSubmoduleListOption {
+        name = mkStrOption;
+        url = mkStrOption;
+        modules = mkStrListOption;
       };
     };
   };
