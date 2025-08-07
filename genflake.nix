@@ -162,7 +162,7 @@ in
             icedosLib.getExternalModuleOutputs
             cfg.externalModuleRepositories;
 
-          extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
+          extraOptions = flatten (map (mod: (mod.options or { })) externalModulesOutputs);
 
           extraNixosModules = flatten (map (mod: mod.nixosModules { inherit inputs; }) externalModulesOutputs);
         in {
