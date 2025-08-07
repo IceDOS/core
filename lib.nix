@@ -167,14 +167,19 @@ let
             name = getFullSubmoduleName { name = mod.name; };
             value = { inherit (mod) url; };
           }
-        ] ++ moduleInputs;
+        ]
+        ++ moduleInputs;
 
-        options = map (
-          { options, ... }:
-          {
-            inherit options;
-          }
-        ) modules;
+        options =
+          let
+            inherit (builtins) hasAttr;
+          in
+          map (
+            { options, ... }:
+            {
+              inherit options;
+            }
+          ) (filter (module: hasAttr "options" module) modules);
 
         nixosModules =
           { inputs, ... }:
@@ -189,9 +194,12 @@ let
             maskedInputs = {
               inherit (inputs) nixpkgs;
               self = inputs.${getFullSubmoduleName { name = mod.name; }};
-            } // remappedInputs;
+            }
+            // remappedInputs;
           in
-          flatten (map (mod: mod { inputs = maskedInputs; }) (flatten (map (mod: mod.outputs.nixosModules) modules)));
+          flatten (
+            map (mod: mod { inputs = maskedInputs; }) (flatten (map (mod: mod.outputs.nixosModules) modules))
+          );
       in
       {
         inherit inputs options nixosModules;
