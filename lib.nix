@@ -166,7 +166,7 @@ let
               }-${i}";
               value = inputs.${i};
             }) (attrNames inputs)
-          ) modules
+          ) (filterByAttrs [ "inputs" ] modules)
         );
 
         inputs = [
