@@ -6,9 +6,10 @@ let
   inherit (lib)
     attrNames
     boolToString
-    concatImapStrings
     concatMapStrings
+    concatStringsSep
     fileContents
+    flatten
     map
     pathExists
     ;
@@ -38,6 +39,7 @@ let
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.externalModuleRepositories;
 
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
+  nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
 in
 {
   flake.nix = ''
@@ -60,8 +62,8 @@ in
             ''url = "github:NixOS/nixpkgs/nixos-unstable";''
         }
 
-        ${concatImapStrings (
-          i: channel: ''"${channel}".url = github:NixOS/nixpkgs/${channel};''\n''
+        ${concatMapStrings (
+          channel: ''"${channel}".url = github:NixOS/nixpkgs/${channel};''\n''
         ) channels}
 
         # Modules
@@ -189,7 +191,7 @@ in
 
               home-manager.nixosModules.home-manager
 
-              ${concatImapStrings (i: channel: ''
+              ${concatMapStrings (channel: ''
                 (
                   {config, ...}: {
                     nixpkgs.config.packageOverrides."${channel}" = import inputs."${channel}" {
@@ -205,6 +207,8 @@ in
               ${concatMapStrings (
                 user: if (pathExists "${configurationLocation}/users/${user}") then "./users/${user}\n" else ""
               ) users}
+
+              ${concatStringsSep "\n" (map (text: "(${text})") nixosModulesText)}
 
               ${icedosLib.injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
               ${icedosLib.injectIfExists { file = "/etc/nixos/extras.nix"; }}
