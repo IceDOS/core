@@ -10,6 +10,15 @@ let
   myLib = rec {
     INPUTS_PREFIX = "icedos";
 
+    filterByAttrs =
+      let
+        inherit (lib)
+          filter
+          hasAttrByPath
+          ;
+      in
+      path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
+
     getFullSubmoduleName =
       {
         name,
@@ -74,7 +83,6 @@ let
         inherit (builtins)
           fromJSON
           getFlake
-          hasAttr
           pathExists
           readFile
           ;
@@ -124,7 +132,6 @@ let
         inherit (builtins)
           attrNames
           elem
-          isFunction
           ;
 
         inherit (lib)
@@ -170,16 +177,12 @@ let
         ]
         ++ moduleInputs;
 
-        options =
-          let
-            inherit (builtins) hasAttr;
-          in
-          map (
-            { options, ... }:
-            {
-              inherit options;
-            }
-          ) (filter (module: hasAttr "options" module) modules);
+        options = map (
+          { options, ... }:
+          {
+            inherit options;
+          }
+        ) (filterByAttrs [ "options" ] modules);
 
         nixosModules =
           { inputs, ... }:
@@ -200,9 +203,18 @@ let
           flatten (
             map (mod: mod { inputs = maskedInputs; }) (flatten (map (mod: mod.outputs.nixosModules) modules))
           );
+
+        nixosModulesText = flatten (
+          map (mod: mod.outputs.nixosModulesText) (filterByAttrs [ "outputs" "nixosModulesText" ] modules)
+        );
       in
       {
-        inherit inputs options nixosModules;
+        inherit
+          inputs
+          nixosModules
+          nixosModulesText
+          options
+          ;
       };
 
     serializeAllExternalInputs =
