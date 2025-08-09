@@ -12,31 +12,37 @@ let
 
     inherit (lib) mkOption types;
 
-    mkBoolOption = mkOption { type = types.bool; };
-    mkLinesOption = mkOption { type = types.lines; };
-    mkNumberOption = mkOption { type = types.number; };
-    mkStrListOption = mkOption { type = with types; listOf str; };
-    mkStrOption = mkOption { type = types.str; };
+    mkBoolOption = args: mkOption (args // { type = types.bool; });
+    mkLinesOption = args: mkOption (args // { type = types.lines; });
+    mkNumberOption = args: mkOption (args // { type = types.number; });
+    mkStrListOption = args: mkOption (args // { type = with types; listOf str; });
+    mkStrOption = args: mkOption (args // { type = types.str; });
 
     mkSubmoduleAttrsOption =
-      options:
-      mkOption {
-        type = types.attrsOf (
-          types.submodule {
-            options = options;
-          }
-        );
-      };
+      args: options:
+      mkOption (
+        args
+        // {
+          type = types.attrsOf (
+            types.submodule {
+              options = options;
+            }
+          );
+        }
+      );
 
     mkSubmoduleListOption =
-      options:
-      mkOption {
-        type = types.listOf (
-          types.submodule {
-            options = options;
-          }
-        );
-      };
+      args: options:
+      mkOption (
+        args
+        // {
+          type = types.listOf (
+            types.submodule {
+              options = options;
+            }
+          );
+        }
+      );
 
     filterByAttrs =
       let
