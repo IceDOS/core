@@ -1,0 +1,209 @@
+[[icedos.repositories]]
+name = "apps"
+url = "github:icedos/apps"
+modules = [
+  "bash",
+  "btop",
+  "celluloid",
+  "direnv",
+  "faugus-launcher",
+  "gamemode",
+  "gamescope",
+  "git",
+  "input-remapper",
+  "kitty",
+  "lact",
+  "lsfg-vk",
+  "mangohud",
+  "nautilus",
+  "ncdu",
+  "network-manager",
+  "nh",
+  "nix",
+  "nix-health",
+  "nixfmt",
+  "obs",
+  "proton-launch",
+  "sd-inhibitor",
+  "solaar",
+  "ssh",
+  "steam",
+  "sunshine",
+  "toolset",
+  "wg-quick",
+  "zed",
+  "zen",
+  "zenergy",
+  "zenstates",
+  "zsh",
+]
+
+[[icedos.repositories]]
+name = "desktop"
+url = "github:icedos/desktop"
+modules = ["adwaita-qt", "clear-xdg-portals", "displays", "gdm"]
+
+[[icedos.repositories]]
+name = "hardware"
+url = "github:icedos/hardware"
+modules = [
+  "bluetooth",
+  "disable-ipv6",
+  "graphics",
+  "kernel",
+  "mesa-unstable",
+  "monitors",
+  "mounts",
+  "pipewire",
+  "radeon",
+  "systemd-boot",
+  "uinput",
+  "upower",
+  "xpadneo",
+  "zram",
+]
+
+[[icedos.repositories]]
+name = "hyprland"
+url = "github:icedos/hyprland"
+
+[[icedos.repositories]]
+name = "tweaks"
+url = "github:icedos/tweaks"
+modules = ["gaming", "kernel"]
+
+[[icedos.repositories]]
+name = "users"
+url = "github:icedos/users"
+
+[icedos.applications]
+defaultBrowser = "zen.desktop"
+defaultEditor = "dev.zed.Zed.desktop"
+extraPackages = [
+  "appimage-run",
+  "blanket",
+  "faugus-launcher",
+  "fragments",
+  "gimp3",
+  "harmony-music",
+  "newsflash",
+  "signal-desktop",
+  "umu-launcher",
+  "warp",
+]
+insecurePackages = []
+
+[icedos.applications.git.users.icedborn]
+username = "IceDBorn"
+email = "git.outsider841@simplelogin.fr"
+
+[icedos.applications.mangohud]
+fpsLimit = "144,60,0"
+
+[icedos.applications.network-manager]
+applet = true
+
+[icedos.applications.sd-inhibitor.users.icedborn.watchers.pipewire]
+inputsToIgnore = ["Noise Canceling source", "Peak detect", "cava"]
+outputsToIgnore = ["Discord", "Element"]
+
+[icedos.applications.steam]
+beta = true
+downloadsWorkaround = true
+
+[icedos.applications.wg-quick]
+interfaces = ["protonvpn"]
+
+[[icedos.applications.zen.profiles]]
+default = true
+exec = "default"
+privacy = true
+
+[[icedos.applications.zen.profiles]]
+exec = "zen-social"
+name = "Zen Social"
+privacy = true
+pwa = true
+sites = [
+  "https://mail.proton.me",
+  "https://lumo.proton.me",
+  "https://develop.element.io",
+  "https://discord.com/app",
+]
+
+[icedos.applications.zenstates]
+serviceArgs = "-p 0 -v 3C -f A0"
+
+[icedos.desktop]
+autologinUser = "icedborn"
+
+[icedos.desktop.hyprland.settings]
+startupScript = """
+nautilus -w &
+nautilus -w &
+signal-desktop &
+steam &
+zeditor &
+zen-beta --no-remote -P default --name zen-startup &
+zen-social &
+"""
+windowRules = [
+  "workspace 1 silent, class:^(zen-startup)$",
+  "workspace 2 silent, class:^(dev.zed.Zed)$",
+  "workspace 11 silent, class:^(signal|zen-social)$",
+  "workspace 12 silent, class:^(Steam|steam)$, title:^((?!notificationtoasts.*).)*$",
+  "workspace 12 silent, title:^(.*Steam[A-Za-z0-9\\s]*)$",
+  "workspace 13 silent, class:^(org\\.gnome\\.Nautilus)$",
+]
+
+[icedos.desktop.users.icedborn]
+
+[icedos.hardware.bootloaders.systemd-boot]
+mountPoint = "/boot"
+
+[icedos.hardware.kernel]
+version = "cachyos"
+
+[[icedos.hardware.mounts]]
+path = "/"
+device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb"
+fsType = "btrfs"
+flags = ["compress=zstd", "nofail", "x-gvfs-show"]
+
+[[icedos.hardware.mounts]]
+path = "/mnt/games"
+device = "/dev/disk/by-uuid/040329ae-685d-4ba6-8bdd-e0a9785f9672"
+fsType = "btrfs"
+flags = ["compress=zstd", "nofail", "x-gvfs-show"]
+
+[[icedos.hardware.mounts]]
+path = "/mnt/games2"
+device = "/dev/disk/by-uuid/60876d91-f863-45db-88c5-4c707879588f"
+fsType = "btrfs"
+flags = ["compress=zstd", "nofail", "x-gvfs-show"]
+
+[[icedos.hardware.mounts]]
+path = "/mnt/storage"
+device = "/dev/disk/by-uuid/89730200-942d-4a5c-893f-0196c87435d2"
+fsType = "btrfs"
+flags = ["compress=zstd", "nofail", "x-gvfs-show"]
+
+[[icedos.hardware.monitors]]
+name = "DP-2"
+resolution = "3440x1440"
+refreshRate = 144
+position = "0x0"
+rotation = 0
+
+[[icedos.hardware.monitors]]
+name = "DP-1"
+resolution = "1920x1080"
+refreshRate = 144
+position = "3440x200"
+rotation = 0
+
+[icedos.system]
+version = "23.05"
+
+[icedos.users.icedborn]
+description = "IceDBorn"
