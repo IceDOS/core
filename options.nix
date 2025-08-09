@@ -438,7 +438,7 @@ in
         version = mkStrOption;
       };
 
-      externalModuleRepositories = mkSubmoduleListOption {
+      repositories = mkSubmoduleListOption {
         name = mkStrOption;
         url = mkStrOption;
         modules = mkStrListOption;

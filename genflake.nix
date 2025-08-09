@@ -64,6 +64,7 @@ let
     icedosLib.getExternalModuleOutputs
     cfg.externalModuleRepositories;
 
+  externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
   nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
 in
@@ -194,7 +195,7 @@ in
           externalModulesOutputs =
             map
             icedosLib.getExternalModuleOutputs
-            cfg.externalModuleRepositories;
+            cfg.repositories;
 
           extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
 

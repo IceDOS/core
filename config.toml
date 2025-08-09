@@ -1,6 +1,6 @@
-[[icedos.externalModuleRepositories]]
-name = "icedos-modules"
-url = "github:IceDOS/modules"
+[[icedos.repositories]]
+name = "apps"
+url = "github:icedos/apps"
 modules = ["lsfg-vk"]
 
 [icedos.applications]

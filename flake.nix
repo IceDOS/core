@@ -67,7 +67,7 @@
         self = ./.;
       };
 
-      externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.externalModuleRepositories;
+      externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
 
       extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
 
