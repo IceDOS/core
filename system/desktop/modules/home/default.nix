@@ -11,19 +11,8 @@ let
   accentColor = cfg.internals.accentColor;
   audioPlayer = "io.bassi.Amberol.desktop";
 
-  browser =
-    {
-      librewolf = "librewolf.desktop";
-      zen = "zen.desktop";
-    }
-    .${cfg.applications.defaultBrowser};
-
-  editor =
-    {
-      codium = "codium.desktop";
-      zed = "dev.zed.Zed.desktop";
-    }
-    .${cfg.applications.defaultEditor};
+  browser = cfg.applications.defaultBrowser;
+  editor = cfg.applications.defaultEditor;
 
   gtkCss = ''
     @define-color accent_bg_color ${accentColor};

@@ -10,6 +10,34 @@ let
   myLib = rec {
     INPUTS_PREFIX = "icedos";
 
+    inherit (lib) mkOption types;
+
+    mkBoolOption = mkOption { type = types.bool; };
+    mkLinesOption = mkOption { type = types.lines; };
+    mkNumberOption = mkOption { type = types.number; };
+    mkStrListOption = mkOption { type = with types; listOf str; };
+    mkStrOption = mkOption { type = types.str; };
+
+    mkSubmoduleAttrsOption =
+      options:
+      mkOption {
+        type = types.attrsOf (
+          types.submodule {
+            options = options;
+          }
+        );
+      };
+
+    mkSubmoduleListOption =
+      options:
+      mkOption {
+        type = types.listOf (
+          types.submodule {
+            options = options;
+          }
+        );
+      };
+
     filterByAttrs =
       let
         inherit (lib)

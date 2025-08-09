@@ -1,17 +1,6 @@
 let
-  inherit (builtins)
-    readFile
-    toFile
-    toJSON
-    ;
-
   inherit (pkgs)
-    bash
-    coreutils
-    gnused
     lib
-    nix
-    nixfmt-rfc-style
     ;
 
   inherit (lib)
@@ -35,7 +24,6 @@ let
     self = ./.;
   };
 
-  aagl = cfg.applications.aagl;
   channels = cfg.system.channels;
 
   chaotic = (
@@ -52,17 +40,10 @@ let
   graphics = cfg.hardware.graphics;
   hyprland = cfg.desktop.hyprland.enable;
   isFirstBuild = !pathExists "/run/current-system/source" || cfg.system.forceFirstBuild;
-  librewolf = cfg.applications.librewolf;
   ryzen = cfg.hardware.cpus.ryzen.enable;
   server = cfg.hardware.devices.server;
   steam-session = cfg.applications.steam.session.enable;
   users = attrNames cfg.system.users;
-  zen-browser = cfg.applications.zen-browser.enable;
-
-  externalModulesOutputs =
-    map
-    icedosLib.getExternalModuleOutputs
-    cfg.externalModuleRepositories;
 
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
@@ -123,43 +104,6 @@ in
             ""
         }
 
-        # Apps
-        ${
-          if (aagl) then
-            ''
-              aagl = {
-                url = "github:ezKEa/aagl-gtk-on-nix";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
-        ${
-          if (librewolf) then
-            ''
-              pipewire-screenaudio = {
-                url = "github:IceDBorn/pipewire-screenaudio";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
-        ${
-          if (zen-browser) then
-            ''
-              zen-browser = {
-                url = "github:0xc000022070/zen-browser-flake";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
         ${extraInputs}
       };
 
@@ -169,11 +113,8 @@ in
           nerivations,
           nixpkgs,
           self,
-          ${if (aagl) then ''aagl,'' else ""}
           ${if (chaotic) then ''chaotic,'' else ""}
-          ${if (librewolf) then ''pipewire-screenaudio,'' else ""}
           ${if (steam-session) then ''steam-session,'' else ""}
-          ${if (zen-browser) then ''zen-browser,'' else ""}
           ...
         }@inputs:
         let
@@ -316,19 +257,6 @@ in
               }
 
               ${
-                if (aagl) then
-                  ''
-                    aagl.nixosModules.default
-                    {
-                      nix.settings = aagl.nixConfig; # Set up Cachix
-                      programs.anime-game-launcher.enable = true; # Adds launcher and /etc/hosts rules
-                    }
-                  ''
-                else
-                  ""
-              }
-
-              ${
                 if (hyprland) then
                   ''
                     ./system/desktop/hyprland
@@ -345,8 +273,6 @@ in
                 else
                   ""
               }
-
-              ${if (zen-browser) then "./system/applications/modules/zen-browser" else ""}
 
               ${concatMapStrings (
                 user:

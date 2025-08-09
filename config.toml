@@ -1,33 +1,26 @@
 [[icedos.repositories]]
 name = "apps"
 url = "github:icedos/apps"
-modules = ["lsfg-vk"]
+modules = [
+  "celluloid",
+  "input-remapper",
+  "lact",
+  "lsfg-vk",
+  "obs",
+  "solaar",
+  "ssh",
+  "zed",
+  "zen",
+]
 
 [icedos.applications]
 extraPackages = []
 insecurePackages = []
-aagl = false
 android-tools = false
-celluloid = true
-clamav = false
-defaultBrowser = "zen" # Options: 'librewolf', 'zen'
-defaultEditor = "zed" # Options: 'codium', 'zed'
 gamescope = true
-input-remapper = true
-lact = true
-librewolf = false
-lsfg-vk = true
 mission-center = true
 nautilus = true
-php = false
 proton-launch = true
-rust = false
-solaar = true
-ssh = true
-
-[icedos.applications.codium]
-enable = true
-zoomLevel = 0
 
 [icedos.applications.kitty]
 enable = true
@@ -41,15 +34,6 @@ maxFpsLimit = 144 # Use 0 for unlimited
 [icedos.applications.network-manager]
 enable = true
 applet = true
-
-[icedos.applications.obs-studio]
-enable = true
-virtualCamera = false
-
-[icedos.applications.ollama]
-enable = false
-models = ["qwen2.5-coder:latest"] # https://ollama.com/library
-rocmOverrideGfx = "10.3.0" # https://github.com/ollama/ollama/blob/main/docs/gpu.md#amd-radeon
 
 [icedos.applications.signal]
 enable = true
@@ -76,30 +60,15 @@ autostart = false
 enable = false
 enableTrayscale = true
 
-[icedos.applications.valent]
-enable = false
-deviceId = "901524a4_c7c0_407e_9903_431abce54131"
-
-[icedos.applications.zed]
-enable = true
-fontSize = 16
-vim = true
-
-[icedos.applications.zed.theme]
-dark = "One Dark Pro"
-light = "One Light"
-mode = "system" # Options: 'system', 'dark', 'light'
-
-[icedos.applications.zen-browser]
-enable = true
+[icedos.applications.zen]
 privacy = true
 
-[[icedos.applications.zen-browser.profiles]]
+[[icedos.applications.zen.profiles]]
 default = true
 exec = "default"
 pwa = false
 
-[[icedos.applications.zen-browser.profiles]]
+[[icedos.applications.zen.profiles]]
 default = false
 exec = "zen-social"
 pwa = true
@@ -313,11 +282,6 @@ interval = "Mon *-*-* 00:00:00" # Format(https://www.freedesktop.org/software/sy
 [icedos.system.users.icedborn]
 description = "IceDBorn"
 type = "main" # Options: 'main', 'work'
-
-[icedos.system.users.icedborn.applications.codium]
-autoSave = "off" # Options: 'off', 'afterDelay', 'onFocusChange', 'onWindowChange'
-formatOnSave = true
-formatOnPaste = true
 
 [icedos.system.users.icedborn.applications.git]
 username = "IceDBorn"

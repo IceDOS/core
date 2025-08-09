@@ -1,55 +1,32 @@
 {
+  icedosLib,
   lib,
   ...
 }:
 
 let
-  inherit (lib) fileContents mkOption types;
-  mkBoolOption = mkOption { type = types.bool; };
-  mkLinesOption = mkOption { type = types.lines; };
-  mkNumberOption = mkOption { type = types.number; };
-  mkStrListOption = mkOption { type = with types; listOf str; };
-  mkStrOption = mkOption { type = types.str; };
+  inherit (lib) fileContents;
 
-  mkSubmoduleAttrsOption =
-    options:
-    mkOption {
-      type = types.attrsOf (
-        types.submodule {
-          options = options;
-        }
-      );
-    };
-
-  mkSubmoduleListOption =
-    options:
-    mkOption {
-      type = types.listOf (
-        types.submodule {
-          options = options;
-        }
-      );
-    };
+  inherit (icedosLib)
+    mkBoolOption
+    mkLinesOption
+    mkNumberOption
+    mkStrListOption
+    mkStrOption
+    mkSubmoduleAttrsOption
+    mkSubmoduleListOption
+    ;
 in
 {
   options = {
     icedos = {
       applications = {
-        aagl = mkBoolOption;
         android-tools = mkBoolOption;
-        celluloid = mkBoolOption;
         clamav = mkBoolOption;
 
-        codium = {
-          enable = mkBoolOption;
-          zoomLevel = mkNumberOption;
-        };
-
         defaultBrowser = mkStrOption;
-        defaultEditor = mkStrOption;
         extraPackages = mkStrListOption;
         gamescope = mkBoolOption;
-        input-remapper = mkBoolOption;
         insecurePackages = mkStrListOption;
 
         kitty = {
@@ -57,9 +34,6 @@ in
           fontSize = mkNumberOption;
           hideDecorations = mkBoolOption;
         };
-
-        lact = mkBoolOption;
-        librewolf = mkBoolOption;
 
         mangohud = {
           enable = mkBoolOption;
@@ -79,23 +53,12 @@ in
           virtualCamera = mkBoolOption;
         };
 
-        ollama = {
-          enable = mkBoolOption;
-          models = mkStrListOption;
-          rocmOverrideGfx = mkStrOption;
-        };
-
-        php = mkBoolOption;
         proton-launch = mkBoolOption;
-        rust = mkBoolOption;
 
         signal = {
           enable = mkBoolOption;
           package = mkStrOption;
         };
-
-        solaar = mkBoolOption;
-        ssh = mkBoolOption;
 
         steam = {
           enable = mkBoolOption;
@@ -127,33 +90,6 @@ in
         valent = {
           enable = mkBoolOption;
           deviceId = mkStrOption;
-        };
-
-        zed = {
-          enable = mkBoolOption;
-          fontSize = mkNumberOption;
-
-          theme = {
-            dark = mkStrOption;
-            light = mkStrOption;
-            mode = mkStrOption;
-          };
-
-          vim = mkBoolOption;
-        };
-
-        zen-browser = {
-          enable = mkBoolOption;
-          privacy = mkBoolOption;
-
-          profiles = mkSubmoduleListOption {
-            default = mkBoolOption;
-            exec = mkStrOption;
-            icon = mkStrOption;
-            name = mkStrOption;
-            pwa = mkBoolOption;
-            sites = mkStrListOption;
-          };
         };
       };
 
@@ -349,12 +285,6 @@ in
           type = mkStrOption;
 
           applications = {
-            codium = {
-              autoSave = mkStrOption;
-              formatOnSave = mkBoolOption;
-              formatOnPaste = mkBoolOption;
-            };
-
             git = {
               username = mkStrOption;
               email = mkStrOption;
