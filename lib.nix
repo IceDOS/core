@@ -18,6 +18,15 @@ let
     mkStrListOption = args: mkOption (args // { type = with types; listOf str; });
     mkStrOption = args: mkOption (args // { type = types.str; });
 
+    mkFunctionOption =
+      args:
+      mkOption (
+        args
+        // {
+          type = types.function;
+        }
+      );
+
     mkSubmoduleAttrsOption =
       args: options:
       mkOption (
