@@ -368,7 +368,7 @@ in
                   "kbinput",
                   "volume",
                   "network",
-                  ${if (cfg.hardware.bluetooth) then ''"bluetooth",'' else ""}
+                  ${if (lib.hasAttr "bluetooth" cfg.hardware) then ''"bluetooth",'' else ""}
                   ${if (cfg.hardware.devices.laptop) then ''"battery",'' else ""}
                   "systray",
                   "clock",

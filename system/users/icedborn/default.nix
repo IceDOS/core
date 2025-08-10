@@ -12,6 +12,7 @@
     gimp3
     harmony-music
     newsflash
+    signal-desktop
     umu-launcher
     warp
   ];

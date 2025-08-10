@@ -23,7 +23,7 @@ let
   primaryDisplayPath = "${tempConfigPath}/primary-display";
 in
 {
-  icedos.internals.toolset.commands = mkIf (gnome || hyprland) [
+  icedos.applications.toolset.commands = mkIf (gnome || hyprland) [
     (
       let
         commands = [

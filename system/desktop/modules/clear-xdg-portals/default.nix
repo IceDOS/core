@@ -7,7 +7,7 @@ let
   command = "clear-portals";
 in
 {
-  icedos.internals.toolset.commands = [
+  icedos.applications.toolset.commands = [
     {
       bin = "${pkgs.writeShellScript command ''
         PORTAL="xdg-desktop-portal"

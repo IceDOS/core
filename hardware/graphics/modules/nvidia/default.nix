@@ -34,16 +34,14 @@ mkIf (graphics.enable && graphics.nvidia.enable) {
 
   # Enable nvidia gpu acceleration for containers
   virtualisation.docker.enableNvidia = (
-    cfg.system.virtualisation.containerManager.enable
-    && !cfg.system.virtualisation.containerManager.usePodman
+    cfg.applications.container-manager.enable && !cfg.applications.container-manager.usePodman
   );
 
   virtualisation.podman.enableNvidia = (
-    cfg.system.virtualisation.containerManager.enable
-    && cfg.system.virtualisation.containerManager.usePodman
+    cfg.applications.container-manager.enable && cfg.applications.container-manager.usePodman
   );
 
-  icedos.internals.toolset.commands = mkIf (cfg.hardware.devices.laptop) [
+  icedos.applications.toolset.commands = mkIf (cfg.hardware.devices.laptop) [
     (
       let
         command = "force-nvidia";

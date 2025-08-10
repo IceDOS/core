@@ -1,62 +1,60 @@
 [[icedos.repositories]]
 name = "apps"
 url = "github:icedos/apps"
-modules = ["lsfg-vk"]
+modules = [
+  "bash",
+  "btop",
+  "celluloid",
+  "direnv",
+  "gamemode",
+  "gamescope",
+  "git",
+  "input-remapper",
+  "kitty",
+  "lact",
+  "lsfg-vk",
+  "mangohud",
+  "ncdu",
+  "network-manager",
+  "nh",
+  "nix",
+  "nix-health",
+  "nixfmt",
+  "obs",
+  "proton-launch",
+  "solaar",
+  "ssh",
+  "steam",
+  "sunshine",
+  "toolset",
+  "wg-quick",
+  "zed",
+  "zen",
+  "zenergy",
+  "zenstates",
+  "zsh",
+]
+
+[[icedos.repositories]]
+name = "desktop"
+url = "github:icedos/desktop"
+modules = ["gdm"]
+
+[[icedos.repositories]]
+name = "hardware"
+url = "github:icedos/hardware"
+modules = ["bluetooth", "mounts", "systemd-boot"]
 
 [icedos.applications]
-extraPackages = []
-insecurePackages = []
-aagl = false
-android-tools = false
-celluloid = true
-clamav = false
-defaultBrowser = "zen" # Options: 'librewolf', 'zen'
-defaultEditor = "zed" # Options: 'codium', 'zed'
-gamescope = true
-input-remapper = true
-lact = true
-librewolf = false
-lsfg-vk = true
-mission-center = true
 nautilus = true
-php = false
-proton-launch = true
-rust = false
-solaar = true
-ssh = true
-
-[icedos.applications.codium]
-enable = true
-zoomLevel = 0
-
-[icedos.applications.kitty]
-enable = true
-fontSize = 12
-hideDecorations = false # Hide top bar
 
 [icedos.applications.mangohud]
-enable = true
-maxFpsLimit = 144 # Use 0 for unlimited
+maxFpsLimit = 144
 
 [icedos.applications.network-manager]
-enable = true
 applet = true
 
-[icedos.applications.obs-studio]
-enable = true
-virtualCamera = false
-
-[icedos.applications.ollama]
-enable = false
-models = ["qwen2.5-coder:latest"] # https://ollama.com/library
-rocmOverrideGfx = "10.3.0" # https://github.com/ollama/ollama/blob/main/docs/gpu.md#amd-radeon
-
-[icedos.applications.signal]
-enable = true
-package = "signal" # Options: 'flare', 'signal'
-
 [icedos.applications.steam]
-enable = true
 beta = true
 downloadsWorkaround = true
 
@@ -68,38 +66,18 @@ user = "icedborn"
 enable = false
 desktopSession = "hyprland"
 
-[icedos.applications.sunshine]
-enable = false
-autostart = false
+[icedos.applications.wg-quick]
+interfaces = ["protonvpn"]
 
-[icedos.applications.tailscale]
-enable = false
-enableTrayscale = true
-
-[icedos.applications.valent]
-enable = false
-deviceId = "901524a4_c7c0_407e_9903_431abce54131"
-
-[icedos.applications.zed]
-enable = true
-fontSize = 16
-vim = true
-
-[icedos.applications.zed.theme]
-dark = "One Dark Pro"
-light = "One Light"
-mode = "system" # Options: 'system', 'dark', 'light'
-
-[icedos.applications.zen-browser]
-enable = true
+[icedos.applications.zen]
 privacy = true
 
-[[icedos.applications.zen-browser.profiles]]
+[[icedos.applications.zen.profiles]]
 default = true
 exec = "default"
 pwa = false
 
-[[icedos.applications.zen-browser.profiles]]
+[[icedos.applications.zen.profiles]]
 default = false
 exec = "zen-social"
 pwa = true
@@ -112,13 +90,8 @@ sites = [
   "https://discord.com/app",
 ]
 
-[icedos.bootloader.grub]
-enable = false
-device = "/dev/sda"
-
-[icedos.bootloader.systemd-boot]
-enable = true
-mountPoint = "/boot"
+[icedos.applications.zenstates]
+serviceArgs = "-p 0 -v 3C -f A0"
 
 [icedos.desktop]
 accentColor = "7E57C2" # With gnome enabled this is getting overriden by gnome's selected accent color hex code
@@ -126,10 +99,6 @@ accentColor = "7E57C2" # With gnome enabled this is getting overriden by gnome's
 [icedos.desktop.autologin]
 enable = true
 user = "icedborn"
-
-[icedos.desktop.gdm]
-enable = true
-autoSuspend = true
 
 [icedos.desktop.gnome]
 enable = false
@@ -196,14 +165,14 @@ startHeight = 0
 endWidth = 3440
 endHeight = 1440
 
-[icedos.hardware]
-bluetooth = true
+[icedos.hardware.bootloaders.systemd-boot]
+mountPoint = "/boot"
 
-# [[icedos.hardware.mounts]]
-# path = "/"
-# device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb"
-# fsType = "btrfs"
-# flags = ["compress=zstd", "nofail", "x-gvfs-show"]
+[[icedos.hardware.mounts]]
+path = "/"
+device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb"
+fsType = "btrfs"
+flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.mounts]]
 path = "/mnt/games"
@@ -222,17 +191,6 @@ path = "/mnt/storage"
 device = "/dev/disk/by-uuid/89730200-942d-4a5c-893f-0196c87435d2"
 fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
-
-[icedos.hardware.cpus]
-intel = false
-
-[icedos.hardware.cpus.ryzen]
-enable = true
-zenergy = true # Report watt usage for apps e.g. mangohud
-
-[icedos.hardware.cpus.ryzen.undervolt]
-enable = true
-value = "-p 0 -v 3C -f A0" # Pstate 0, 1.175 voltage, 4000 clock speed
 
 [icedos.hardware.devices]
 laptop = false
@@ -289,10 +247,6 @@ hosts = ""
 ipv6 = false
 vpnExcludeIp = "192.168.1.200"
 
-[icedos.hardware.networking.wg-quick]
-enable = true
-interfaces = ["protonvpn"]
-
 [icedos.system]
 channels = [] # https://github.com/NixOS/nixpkgs/branches/active
 forceFirstBuild = false
@@ -304,20 +258,9 @@ version = "23.05" # Do not change without checking the docs (config.system.state
 [icedos.system.generations]
 bootEntries = 10
 
-[icedos.system.generations.garbageCollect]
-automatic = true
-days = 0 # Number of days before a generation can be deleted
-generations = 10 # Number of generations that will always be kept
-interval = "Mon *-*-* 00:00:00" # Format(https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html)
-
 [icedos.system.users.icedborn]
 description = "IceDBorn"
 type = "main" # Options: 'main', 'work'
-
-[icedos.system.users.icedborn.applications.codium]
-autoSave = "off" # Options: 'off', 'afterDelay', 'onFocusChange', 'onWindowChange'
-formatOnSave = true
-formatOnPaste = true
 
 [icedos.system.users.icedborn.applications.git]
 username = "IceDBorn"
@@ -372,12 +315,3 @@ seconds = 900
 [icedos.system.users.icedborn.desktop.idle.suspend]
 enable = true
 seconds = 1800
-
-[icedos.system.virtualisation]
-virtManager = false
-waydroid = false
-
-[icedos.system.virtualisation.containerManager]
-enable = false
-usePodman = true
-requireSudoForDocker = true # CAUTION: Disabling this gives every user root priviledges!
