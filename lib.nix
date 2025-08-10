@@ -186,15 +186,17 @@ let
 
         files = getExternalModule mod;
 
-        modules = filter (subModule: elem subModule.meta.name mod.modules) (
-          map (
-            f:
-            import f {
-              inherit config lib;
-              icedosLib = myLib;
-            }
-          ) files
-        );
+        modules =
+          filter (subModule: (elem subModule.meta.name mod.modules) || subModule.meta.name == "default")
+            (
+              map (
+                f:
+                import f {
+                  inherit config lib;
+                  icedosLib = myLib;
+                }
+              ) files
+            );
 
         moduleInputs = flatten (
           map (
