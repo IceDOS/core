@@ -36,8 +36,6 @@ let
   isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
   users = attrNames cfg.users;
 
-  externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.externalModuleRepositories;
-
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
   nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
