@@ -3,6 +3,7 @@
   config,
   lib,
   pkgs,
+  inputs ? { },
   ...
 }:
 
@@ -83,7 +84,6 @@ let
           attrNames
           map
           readDir
-          substring
           ;
 
         inherit (lib)
@@ -160,7 +160,11 @@ let
         rev = if (pathExists ./flake.lock) then flakeRev else "";
 
         flakeUrl = "${url}${rev}";
-        flake = getFlake flakeUrl;
+        flake =
+          if (getEnv "ICEDOS_STAGE" == "genflake") then
+            (getFlake flakeUrl)
+          else
+            inputs.${getFullSubmoduleName { inherit name; }};
 
         modules = flake.icedosModules { icedosLib = myLib; };
       in
