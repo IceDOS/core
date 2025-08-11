@@ -59,11 +59,6 @@ let
   users = attrNames cfg.system.users;
   zen-browser = cfg.applications.zen-browser.enable;
 
-  externalModulesOutputs =
-    map
-    icedosLib.getExternalModuleOutputs
-    cfg.externalModuleRepositories;
-
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
   nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
