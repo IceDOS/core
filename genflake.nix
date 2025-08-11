@@ -112,7 +112,7 @@ in
           pkgs = nixpkgs.legacyPackages.''${system};
 
           icedosLib = import ./lib.nix {
-            inherit lib pkgs;
+            inherit lib pkgs inputs;
             config = cfg;
             self = ./.;
           };
