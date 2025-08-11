@@ -62,6 +62,9 @@ let
       in
       path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
 
+    stringStartsWith =
+      text: original: text == (with builtins; substring 0 (stringLength text) original);
+
     getFullSubmoduleName =
       {
         name,
@@ -91,7 +94,7 @@ let
 
         getContentsByType = fileType: filterAttrs (name: type: type == fileType) contents;
 
-        targetPath = if ((substring 0 10 "${path}") == "/nix/store") then "${path}" else "${self}/${path}";
+        targetPath = if (stringStartsWith "/nix/store" "${path}") then "${path}" else "${self}/${path}";
         contents = readDir targetPath;
 
         directories = getContentsByType "directory";
@@ -125,6 +128,7 @@ let
       let
         inherit (builtins)
           fromJSON
+          getEnv
           getFlake
           pathExists
           readFile
@@ -132,7 +136,9 @@ let
 
         inherit (lib)
           flatten
+          hasAttr
           hasAttrByPath
+          optionalAttrs
           ;
 
         flakeRev =
@@ -140,7 +146,11 @@ let
             lock = fromJSON (readFile ./flake.lock);
             node = getFullSubmoduleName { inherit name; };
           in
-          if (hasAttrByPath [ "nodes" node "locked" "rev" ] lock) then
+          if (getEnv "ICEDOS_UPDATE" == "1") then
+            ""
+          else if (stringStartsWith "path:" url) && (getEnv "ICEDOS_STAGE" == "genflake") then
+            ""
+          else if (hasAttrByPath [ "nodes" node "locked" "rev" ] lock) then
             "/${lock.nodes.${node}.locked.rev}"
           else if (hasAttrByPath [ "nodes" node "locked" "narHash" ] lock) then
             "?narHash=${lock.nodes.${node}.locked.narHash}"
@@ -149,11 +159,16 @@ let
 
         rev = if (pathExists ./flake.lock) then flakeRev else "";
 
-        flake = getFlake "${url}${rev}";
+        flakeUrl = "${url}${rev}";
+        flake = getFlake flakeUrl;
 
         modules = flake.icedosModules { icedosLib = myLib; };
       in
-      flatten modules;
+      {
+        inherit (flake) narHash;
+        files = flatten modules;
+      }
+      // (optionalAttrs (hasAttr "rev" flake) { inherit (flake) rev; });
 
     injectIfExists =
       { file }:
@@ -180,11 +195,12 @@ let
         inherit (lib)
           filter
           flatten
+          hasAttr
           listToAttrs
           map
           ;
 
-        files = getExternalModule mod;
+        flake = getExternalModule mod;
 
         modules =
           filter (subModule: (elem subModule.meta.name mod.modules) || subModule.meta.name == "default")
@@ -195,7 +211,7 @@ let
                   inherit config lib;
                   icedosLib = myLib;
                 }
-              ) files
+              ) flake.files
             );
 
         moduleInputs = flatten (
@@ -214,10 +230,20 @@ let
           ) (filterByAttrs [ "inputs" ] modules)
         );
 
+        flakeRev =
+          if (hasAttr "rev" flake) then
+            "/${flake.rev}"
+          else if (hasAttr "narHash" flake) then
+            "?narHash=${flake.narHash}"
+          else
+            "";
+
         inputs = [
           {
             name = getFullSubmoduleName { name = mod.name; };
-            value = { inherit (mod) url; };
+            value = {
+              url = "${mod.url}${flakeRev}";
+            };
           }
         ]
         ++ moduleInputs;
