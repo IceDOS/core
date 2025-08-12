@@ -54,6 +54,28 @@ let
         }
       );
 
+    generateAccentColor =
+      {
+        accentColor,
+        gnomeAccentColor,
+        hasGnome,
+      }:
+      if (!hasGnome) then
+        "#${accentColor}"
+      else
+        {
+          blue = "#3584e4";
+          green = "#3a944a";
+          orange = "#ed5b00";
+          pink = "#d56199";
+          purple = "#9141ac";
+          red = "#e62d42";
+          slate = "#6f8396";
+          teal = "#2190a4";
+          yellow = "#c88800";
+        }
+        .${gnomeAccentColor};
+
     filterByAttrs =
       let
         inherit (lib)
