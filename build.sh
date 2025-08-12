@@ -23,6 +23,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --update)
       update="1"
+      refresh="--refresh"
       shift
       ;;
     --ask)
@@ -53,7 +54,7 @@ printf "$PWD" > "$CONFIG"
 
 # Generate flake.nix
 [ -f "$FLAKE" ] && rm -f "$FLAKE"
-ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval --option build-use-sandbox false --show-trace --extra-experimental-features nix-command --write-to "$FLAKE" --file "genflake.nix" "$FLAKE"
+ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval $refresh --option build-use-sandbox false --show-trace --extra-experimental-features nix-command --write-to "$FLAKE" --file "genflake.nix" "$FLAKE"
 nixfmt "$FLAKE"
 nix run .#init
 
