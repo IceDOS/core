@@ -229,7 +229,8 @@ let
         flake = getExternalModule mod;
 
         modules =
-          filter (subModule: (elem subModule.meta.name mod.modules) || subModule.meta.name == "default")
+          filter
+            (subModule: (elem subModule.meta.name mod.modules or [ ]) || subModule.meta.name == "default")
             (
               map (
                 f:
