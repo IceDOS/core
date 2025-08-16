@@ -1,17 +1,6 @@
 let
-  inherit (builtins)
-    readFile
-    toFile
-    toJSON
-    ;
-
   inherit (pkgs)
-    bash
-    coreutils
-    gnused
     lib
-    nix
-    nixfmt-rfc-style
     ;
 
   inherit (lib)
@@ -35,29 +24,17 @@ let
     self = ./.;
   };
 
-  aagl = cfg.applications.aagl;
-  channels = cfg.system.channels;
+  channels = cfg.system.channels or [ ];
+
+  kernel = cfg.hardware.kernel.version;
 
   chaotic = (
-    graphics.mesa.unstable
-    || cfg.system.kernel == "cachyos"
-    || cfg.system.kernel == "cachyos-rc"
-    || cfg.system.kernel == "cachyos-server"
-    || cfg.system.kernel == "valve"
-    || steam-session
+    kernel == "cachyos" || kernel == "cachyos-rc" || kernel == "cachyos-server" || kernel == "valve"
   );
 
   configurationLocation = fileContents "/tmp/configuration-location";
-  gnome = cfg.desktop.gnome.enable;
-  graphics = cfg.hardware.graphics;
-  hyprland = cfg.desktop.hyprland.enable;
-  isFirstBuild = !pathExists "/run/current-system/source" || cfg.system.forceFirstBuild;
-  librewolf = cfg.applications.librewolf;
-  ryzen = cfg.hardware.cpus.ryzen.enable;
-  server = cfg.hardware.devices.server;
-  steam-session = cfg.applications.steam.session.enable;
-  users = attrNames cfg.system.users;
-  zen-browser = cfg.applications.zen-browser.enable;
+  isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
+  users = attrNames cfg.users;
 
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
   extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
@@ -69,7 +46,7 @@ in
       inputs = {
         # Package repositories
         ${
-          if (chaotic) then
+          if chaotic then
             ''
               chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
             ''
@@ -78,7 +55,7 @@ in
         }
 
         nixpkgs.${
-          if (chaotic) then
+          if chaotic then
             ''follows = "chaotic/nixpkgs";''
           else
             ''url = "github:NixOS/nixpkgs/nixos-unstable";''
@@ -93,7 +70,7 @@ in
           url = "github:nix-community/home-manager";
 
           ${
-            if (chaotic) then
+            if chaotic then
               ''
                 follows = "chaotic/home-manager";
               ''
@@ -104,52 +81,10 @@ in
           }
         };
 
-        nerivations = {
-          url = "github:icedborn/nerivations";
-          inputs.nixpkgs.follows = "nixpkgs";
-        };
-
         ${
-          if (cfg.system.kernel == "valve" || steam-session) then
+          if (kernel == "valve") then
             ''
               steam-session.follows = "chaotic/jovian";
-            ''
-          else
-            ""
-        }
-
-        # Apps
-        ${
-          if (aagl) then
-            ''
-              aagl = {
-                url = "github:ezKEa/aagl-gtk-on-nix";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
-        ${
-          if (librewolf) then
-            ''
-              pipewire-screenaudio = {
-                url = "github:IceDBorn/pipewire-screenaudio";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
-            ''
-          else
-            ""
-        }
-
-        ${
-          if (zen-browser) then
-            ''
-              zen-browser = {
-                url = "github:0xc000022070/zen-browser-flake";
-                inputs.nixpkgs.follows = "nixpkgs";
-              };
             ''
           else
             ""
@@ -161,14 +96,9 @@ in
       outputs =
         {
           home-manager,
-          nerivations,
           nixpkgs,
           self,
-          ${if (aagl) then ''aagl,'' else ""}
-          ${if (chaotic) then ''chaotic,'' else ""}
-          ${if (librewolf) then ''pipewire-screenaudio,'' else ""}
-          ${if (steam-session) then ''steam-session,'' else ""}
-          ${if (zen-browser) then ''zen-browser,'' else ""}
+          ${if chaotic then ''chaotic,'' else ""}
           ...
         }@inputs:
         let
@@ -239,43 +169,26 @@ in
                       let
                         inherit (lib) attrNames;
                       in
-                      attrNames (
-                        filterAttrs (
-                          n: v:
-                          v == "directory" && !(n == "desktop" && path == ./system)) (
-                          builtins.readDir path
-                        )
-                      )
+                      attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path))
                     );
                 in
                 {
-                  imports = [
-                    ./hardware
-                    ./internals.nix
-                    ./options.nix
-                    ${if (ryzen) then "./hardware/cpus/modules/ryzen" else ""}
-                  ]
-                  ++ getModules (./hardware)
-                  ++ getModules (./system)
-                  ++ getModules(./.private);
-
+                  imports = [./options.nix] ++ getModules ./.private;
                   config.system.stateVersion = "${cfg.system.version}";
                 }
               )
 
               # External modules
               ${
-                if (chaotic) then
+                if chaotic then
                   ''
                     chaotic.nixosModules.default
-                    ./hardware/graphics/modules/mesa
                   ''
                 else
                   ""
               }
 
               home-manager.nixosModules.home-manager
-              nerivations.nixosModules.default
 
               ${concatMapStrings (channel: ''
                 (
@@ -288,67 +201,11 @@ in
                 )
               '') channels}
 
-              ${
-                if (!server) then
-                  ''
-                    ./system/desktop
-                  ''
-                else
-                  ""
-              }
-
               # Is First Build
-              { icedos.internals.isFirstBuild = ${boolToString (isFirstBuild)}; }
-
-              ${
-                if (steam-session && !isFirstBuild) then
-                  ''
-                    steam-session.nixosModules.default
-                    ./system/desktop/steam-session
-                  ''
-                else
-                  ""
-              }
-
-              ${
-                if (aagl) then
-                  ''
-                    aagl.nixosModules.default
-                    {
-                      nix.settings = aagl.nixConfig; # Set up Cachix
-                      programs.anime-game-launcher.enable = true; # Adds launcher and /etc/hosts rules
-                    }
-                  ''
-                else
-                  ""
-              }
-
-              ${
-                if (hyprland) then
-                  ''
-                    ./system/desktop/hyprland
-                  ''
-                else
-                  ""
-              }
-
-              ${
-                if (gnome) then
-                  ''
-                    ./system/desktop/gnome
-                  ''
-                else
-                  ""
-              }
-
-              ${if (zen-browser) then "./system/applications/modules/zen-browser" else ""}
+              { icedos.system.isFirstBuild = ${boolToString isFirstBuild}; }
 
               ${concatMapStrings (
-                user:
-                if (pathExists "${configurationLocation}/system/users/${user}") then
-                  "./system/users/${user}\n"
-                else
-                  ""
+                user: if (pathExists "${configurationLocation}/users/${user}") then "./users/${user}\n" else ""
               ) users}
 
               ${concatStringsSep "\n" (map (text: "(${text})") nixosModulesText)}
