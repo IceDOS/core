@@ -1,40 +1,42 @@
 {
   inputs = {
-    # Package repositories
-    chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
-
-    nixpkgs.follows = "chaotic/nixpkgs";
-
-    # Modules
+    chaotic = {
+      url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
+    };
     home-manager = {
-      url = "github:nix-community/home-manager";
-
       follows = "chaotic/home-manager";
-
     };
-
-    nerivations = {
-      url = "github:icedborn/nerivations";
-      inputs.nixpkgs.follows = "nixpkgs";
+    icedos-apps-0 = {
+      url = "github:icedos/apps/9951c752a4a7b00e4d5ff9005fa3653ce6754770";
     };
-
-    # Apps
-
-    zen-browser = {
-      url = "github:0xc000022070/zen-browser-flake";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    icedos-icedos-modules-0 = {
-      url = "github:IceDOS/modules";
-    };
-    icedos-icedos-modules-lsfg-vk-lsfg-vk = {
+    icedos-apps-zen-zen = {
       inputs = {
         nixpkgs = {
           follows = "nixpkgs";
         };
       };
-      url = "github:pabloaul/lsfg-vk-flake";
+      url = "github:0xc000022070/zen-browser-flake";
+    };
+    icedos-desktop-0 = {
+      url = "github:icedos/desktop/8e76025d2bf063518366c7a764c41bb2b135dde6";
+    };
+    icedos-hardware-0 = {
+      url = "github:icedos/hardware/8d054566e52efcf8f2ec0f6c59cc9e76e104f53e";
+    };
+    icedos-hyprland-0 = {
+      url = "github:icedos/hyprland/9cf7fdff29d725832148040610da21363fe8c1c9";
+    };
+    icedos-providers-0 = {
+      url = "github:icedos/providers/e01925a8f9c0e25532834b1e1900a2d7be7160fa";
+    };
+    icedos-tweaks-0 = {
+      url = "github:icedos/tweaks/83d42744d78c418a259b8e1c4ae7eba1d3e9eaf5";
+    };
+    icedos-users-0 = {
+      url = "github:icedos/users/9b3f4c83f7e67f62bf161644bb5d3d51fd6ea017";
+    };
+    nixpkgs = {
+      follows = "chaotic/nixpkgs";
     };
 
   };
@@ -42,13 +44,8 @@
   outputs =
     {
       home-manager,
-      nerivations,
       nixpkgs,
       self,
-
-      chaotic,
-
-      zen-browser,
       ...
     }@inputs:
     let
@@ -62,7 +59,7 @@
       pkgs = nixpkgs.legacyPackages.${system};
 
       icedosLib = import ./lib.nix {
-        inherit lib pkgs;
+        inherit lib pkgs inputs;
         config = cfg;
         self = ./.;
       };
@@ -81,157 +78,121 @@
         program = toString (with pkgs; writeShellScript "icedos-flake-init" "exit");
       };
 
-      nixosConfigurations."knp-pc-nixos" = nixpkgs.lib.nixosSystem rec {
+      nixosConfigurations."icedos" = nixpkgs.lib.nixosSystem rec {
         specialArgs = {
           inherit icedosLib inputs;
         };
 
-        modules =
-          [
-            # Read configuration location
-            (
-              { lib, ... }:
-              let
-                inherit (lib) mkOption types;
-              in
-              {
-                options.icedos.configurationLocation = mkOption {
-                  type = types.str;
-                  default = "/home/knp/.config/knp/IceDOS";
-                };
-              }
-            )
-
-            # Symlink configuration state on "/run/current-system/source"
+        modules = [
+          # Read configuration location
+          (
+            { lib, ... }:
+            let
+              inherit (lib) mkOption types;
+            in
             {
-              # Source: https://github.com/NixOS/nixpkgs/blob/5e4fbfb6b3de1aa2872b76d49fafc942626e2add/nixos/modules/system/activation/top-level.nix#L191
-              system.extraSystemBuilderCmds = "ln -s ${self} $out/source";
+              options.icedos.configurationLocation = mkOption {
+                type = types.str;
+                default = "/home/icedborn/.code/icedos/core";
+              };
             }
+          )
 
-            # Internal modules and config
-            (
-              { lib, ... }:
-              let
-                inherit (lib) filterAttrs;
+          # Symlink configuration state on "/run/current-system/source"
+          {
+            # Source: https://github.com/NixOS/nixpkgs/blob/5e4fbfb6b3de1aa2872b76d49fafc942626e2add/nixos/modules/system/activation/top-level.nix#L191
+            system.extraSystemBuilderCmds = "ln -s ${self} $out/source";
+          }
 
-                getModules =
-                  path:
-                  map (dir: "/${path}/${dir}") (
-                    let
-                      inherit (lib) attrNames;
-                    in
-                    attrNames (
-                      filterAttrs (n: v: v == "directory" && !(n == "desktop" && path == ./system)) (
-                        builtins.readDir path
-                      )
-                    )
-                  );
-              in
-              {
-                imports =
-                  [
-                    ./hardware
-                    ./internals.nix
-                    ./options.nix
-                    ./hardware/cpus/modules/ryzen
-                  ]
-                  ++ getModules (./hardware)
-                  ++ getModules (./system)
-                  ++ getModules (./.private);
+          # Internal modules and config
+          (
+            { lib, ... }:
+            let
+              inherit (lib) filterAttrs;
 
-                config.system.stateVersion = "23.05";
-              }
-            )
+              getModules =
+                path:
+                map (dir: "/${path}/${dir}") (
+                  let
+                    inherit (lib) attrNames;
+                  in
+                  attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path))
+                );
+            in
+            {
+              imports = [ ./options.nix ] ++ getModules ./.private;
+              config.system.stateVersion = "23.05";
+            }
+          )
 
-            # External modules
-            chaotic.nixosModules.default
-            ./hardware/graphics/modules/mesa
+          home-manager.nixosModules.home-manager
 
-            home-manager.nixosModules.home-manager
-            nerivations.nixosModules.default
+          { icedos.system.isFirstBuild = false; }
 
-            ./system/desktop
+          (
+            # Do not modify this file!  It was generated by ‘nixos-generate-config’
+            # and may be overwritten by future invocations.  Please make changes
+            # to /etc/nixos/configuration.nix instead.
+            {
+              config,
+              lib,
+              pkgs,
+              modulesPath,
+              ...
+            }:
 
-            # Is First Build
-            { icedos.internals.isFirstBuild = false; }
+            {
+              imports = [
+                (modulesPath + "/installer/scan/not-detected.nix")
+              ];
 
-            ./system/desktop/hyprland
+              boot.initrd.availableKernelModules = [
+                "nvme"
+                "xhci_pci"
+                "ahci"
+                "usb_storage"
+                "usbhid"
+                "sd_mod"
+              ];
+              boot.initrd.kernelModules = [ ];
+              boot.kernelModules = [ "kvm-amd" ];
+              boot.extraModulePackages = [ ];
+              boot.initrd.luks.devices."luks-8e034466-adc7-4f83-81cd-4ceb2397eb2d".device =
+                "/dev/disk/by-uuid/8e034466-adc7-4f83-81cd-4ceb2397eb2d";
 
-            ./system/applications/modules/zen-browser
+              fileSystems."/" = {
+                device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb";
+                fsType = "btrfs";
+                options = [ "subvol=@" ];
+              };
 
-            ./system/users/icedborn
+              boot.initrd.luks.devices."luks-ab2a2fb9-08aa-4c27-ab62-a1581a0113ff".device =
+                "/dev/disk/by-uuid/ab2a2fb9-08aa-4c27-ab62-a1581a0113ff";
 
-            (
-              # Do not modify this file!  It was generated by ‘nixos-generate-config’
-              # and may be overwritten by future invocations.  Please make changes
-              # to /etc/nixos/configuration.nix instead.
-              {
-                config,
-                lib,
-                pkgs,
-                modulesPath,
-                ...
-              }:
+              fileSystems."/boot" = {
+                device = "/dev/disk/by-uuid/1456-AC74";
+                fsType = "vfat";
+              };
 
-              {
-                #  imports =
-                #    [ (modulesPath + "/profiles/qemu-guest.nix")
-                #    ];
+              swapDevices = [
+                { device = "/dev/disk/by-uuid/a642dc73-75f4-425f-8cc9-cbef30039563"; }
+              ];
 
-                boot.initrd.availableKernelModules = [
-                  "ahci"
-                  "xhci_pci"
-                  "sd_mod"
-                  "sr_mod"
-                ];
-                boot.initrd.kernelModules = [ "dm-snapshot" ];
-                boot.initrd.luks.devices.cryptroot.device =
-                  "/dev/disk/by-uuid/0daf3483-f1e8-43d8-80e9-e1d8fb119846";
-                boot.kernelModules = [ "kvm-amd" ];
-                boot.extraModulePackages = [ ];
-                services.lvm.boot.thin.enable = true;
+              # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
+              # (the default) this is the recommended approach. When using systemd-networkd it's
+              # still possible to use this option, but it's recommended to use it in conjunction
+              # with explicit per-interface declarations with `networking.interfaces.<interface>.useDHCP`.
+              networking.useDHCP = lib.mkDefault true;
+              # networking.interfaces.enp9s0.useDHCP = lib.mkDefault true;
 
-                fileSystems."/" = {
-                  device = "/dev/disk/by-uuid/a839e9ca-b9d7-443e-8dee-b21b69d6a38b";
-                  fsType = "btrfs";
-                  options = [ "subvol=@" ];
-                };
+              nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+              hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
+            }
+          )
 
-                fileSystems."/boot" = {
-                  device = "/dev/disk/by-uuid/B8A1-41B3";
-                  fsType = "vfat";
-                  options = [
-                    "fmask=0077"
-                    "dmask=0077"
-                  ];
-                };
-
-                fileSystems."/home" = {
-                  device = "/dev/disk/by-uuid/181e8749-b5ee-4b24-aa20-5b3a83a18718";
-                  fsType = "btrfs";
-                };
-
-                fileSystems."/nix/store" = {
-                  device = "/dev/disk/by-uuid/20962570-8847-47ed-b1cc-ed86a610227b";
-                  fsType = "ext4";
-                };
-
-                swapDevices = [ ];
-
-                # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
-                # (the default) this is the recommended approach. When using systemd-networkd it's
-                # still possible to use this option, but it's recommended to use it in conjunction
-                # with explicit per-interface declarations with `networking.interfaces.<interface>.useDHCP`.
-                networking.useDHCP = lib.mkDefault true;
-                # networking.interfaces.enp1s0.useDHCP = lib.mkDefault true;
-
-                nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
-              }
-            )
-
-          ]
-          ++ extraOptions
-          ++ extraNixosModules;
+        ]
+        ++ extraOptions
+        ++ extraNixosModules;
       };
     };
 }

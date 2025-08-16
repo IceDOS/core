@@ -88,6 +88,13 @@ let
     stringStartsWith =
       text: original: text == (with builtins; substring 0 (stringLength text) original);
 
+    inputIsOverride =
+      { name, input }:
+      let
+        inherit (builtins) hasAttr;
+      in
+      (hasAttr "override" input) && input.override;
+
     getFullSubmoduleName =
       {
         name,
@@ -224,6 +231,7 @@ let
           hasAttr
           listToAttrs
           map
+          removeAttrs
           ;
 
         flake = getExternalModule mod;
@@ -244,16 +252,29 @@ let
         moduleInputs = flatten (
           map (
             { inputs, meta, ... }:
-            map (i: {
-              _originalName = i;
-              name = "${
-                getFullSubmoduleName {
-                  name = mod.name;
-                  subMod = meta.name;
-                }
-              }-${i}";
-              value = inputs.${i};
-            }) (attrNames inputs)
+            map (
+              i:
+              let
+                isOverride = inputIsOverride {
+                  name = i;
+                  input = inputs.${i};
+                };
+              in
+              {
+                _originalName = i;
+                name =
+                  if (isOverride) then
+                    i
+                  else
+                    "${
+                      getFullSubmoduleName {
+                        name = mod.name;
+                        subMod = meta.name;
+                      }
+                    }-${i}";
+                value = removeAttrs inputs.${i} [ "override" ];
+              }
+            ) (attrNames inputs)
           ) (filterByAttrs [ "inputs" ] modules)
         );
 
@@ -293,7 +314,8 @@ let
             );
 
             maskedInputs = {
-              inherit (inputs) nixpkgs;
+              inherit (inputs) nixpkgs home-manager;
+
               self = inputs.${getFullSubmoduleName { name = mod.name; }};
             }
             // remappedInputs;
@@ -316,7 +338,7 @@ let
       };
 
     serializeAllExternalInputs =
-      mods:
+      inputs:
       let
         inherit (builtins)
           readFile
@@ -324,14 +346,7 @@ let
           toJSON
           ;
 
-        inherit (lib)
-          flatten
-          listToAttrs
-          map
-          ;
-
-        allInputs = flatten (map (mod: mod.inputs) mods);
-        inputsJson = toFile "inputs.json" (toJSON (listToAttrs allInputs));
+        inputsJson = toFile "inputs.json" (toJSON inputs);
 
         inputsNix =
           with pkgs;

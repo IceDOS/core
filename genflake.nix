@@ -10,6 +10,7 @@ let
     concatStringsSep
     fileContents
     flatten
+    listToAttrs
     map
     pathExists
     ;
@@ -25,72 +26,21 @@ let
   };
 
   channels = cfg.system.channels or [ ];
-
-  kernel = cfg.hardware.kernel.version;
-
-  chaotic = (
-    kernel == "cachyos" || kernel == "cachyos-rc" || kernel == "cachyos-server" || kernel == "valve"
-  );
-
   configurationLocation = fileContents "/tmp/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
   users = attrNames cfg.users;
 
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
-  extraInputs = icedosLib.serializeAllExternalInputs externalModulesOutputs;
+  extraModulesInputs = flatten (map (mod: mod.inputs) externalModulesOutputs);
+
+  flakeInputs = icedosLib.serializeAllExternalInputs (listToAttrs extraModulesInputs);
   nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
 in
 {
   flake.nix = ''
     {
       inputs = {
-        # Package repositories
-        ${
-          if chaotic then
-            ''
-              chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
-            ''
-          else
-            ""
-        }
-
-        nixpkgs.${
-          if chaotic then
-            ''follows = "chaotic/nixpkgs";''
-          else
-            ''url = "github:NixOS/nixpkgs/nixos-unstable";''
-        }
-
-        ${concatMapStrings (
-          channel: ''"${channel}".url = github:NixOS/nixpkgs/${channel};''\n''
-        ) channels}
-
-        # Modules
-        home-manager = {
-          url = "github:nix-community/home-manager";
-
-          ${
-            if chaotic then
-              ''
-                follows = "chaotic/home-manager";
-              ''
-            else
-              ''
-                inputs.nixpkgs.follows = "nixpkgs";
-              ''
-          }
-        };
-
-        ${
-          if (kernel == "valve") then
-            ''
-              steam-session.follows = "chaotic/jovian";
-            ''
-          else
-            ""
-        }
-
-        ${extraInputs}
+        ${flakeInputs}
       };
 
       outputs =
@@ -98,7 +48,6 @@ in
           home-manager,
           nixpkgs,
           self,
-          ${if chaotic then ''chaotic,'' else ""}
           ...
         }@inputs:
         let
@@ -177,16 +126,6 @@ in
                   config.system.stateVersion = "${cfg.system.version}";
                 }
               )
-
-              # External modules
-              ${
-                if chaotic then
-                  ''
-                    chaotic.nixosModules.default
-                  ''
-                else
-                  ""
-              }
 
               home-manager.nixosModules.home-manager
 

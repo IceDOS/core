@@ -76,6 +76,11 @@ modules = ["gaming", "kernel"]
 name = "users"
 url = "github:icedos/users"
 
+[[icedos.repositories]]
+name = "providers"
+url = "github:icedos/providers"
+modules = ["chaotic"]
+
 [icedos.applications]
 defaultBrowser = "zen.desktop"
 defaultEditor = "dev.zed.Zed.desktop"
