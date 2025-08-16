@@ -61,7 +61,7 @@ nix run .#init
 [ "$update" == "1" ] && nix flake update
 
 # Make a tmp folder and build from there
-TMP_BUILD_FOLDER="$(mktemp -d -t icedos-build.XXXXXX | xargs echo)/"
+TMP_BUILD_FOLDER="$(mktemp -d -t icedos-build-XXXXXXX-0 | xargs echo)/"
 
 mkdir -p "$TMP_BUILD_FOLDER"
 
