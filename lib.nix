@@ -89,7 +89,7 @@ let
       text: original: text == (with builtins; substring 0 (stringLength text) original);
 
     inputIsOverride =
-      { name, input }:
+      { input }:
       let
         inherit (builtins) hasAttr;
       in
@@ -256,14 +256,13 @@ let
               i:
               let
                 isOverride = inputIsOverride {
-                  name = i;
                   input = inputs.${i};
                 };
               in
               {
                 _originalName = i;
                 name =
-                  if (isOverride) then
+                  if isOverride then
                     i
                   else
                     "${
