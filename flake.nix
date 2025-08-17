@@ -27,13 +27,13 @@
       url = "github:icedos/hyprland/9cf7fdff29d725832148040610da21363fe8c1c9";
     };
     icedos-providers-0 = {
-      url = "github:icedos/providers/e01925a8f9c0e25532834b1e1900a2d7be7160fa";
+      url = "github:icedos/providers/1273fe1a4086fbe2a84436ca1acb350a0020a410";
     };
     icedos-tweaks-0 = {
       url = "github:icedos/tweaks/83d42744d78c418a259b8e1c4ae7eba1d3e9eaf5";
     };
     icedos-users-0 = {
-      url = "github:icedos/users/9b3f4c83f7e67f62bf161644bb5d3d51fd6ea017";
+      url = "github:icedos/users/9ddc3663045cd05e7df3d99844b4b640741fe667";
     };
     nixpkgs = {
       follows = "chaotic/nixpkgs";
@@ -120,7 +120,7 @@
                 );
             in
             {
-              imports = [ ./options.nix ] ++ getModules ./.private;
+              imports = [ ./options.nix ] ++ getModules ./.extra ++ getModules ./.private;
               config.system.stateVersion = "23.05";
             }
           )

@@ -4,7 +4,6 @@ let
     ;
 
   inherit (lib)
-    attrNames
     boolToString
     concatMapStrings
     concatStringsSep
@@ -28,7 +27,6 @@ let
   channels = cfg.system.channels or [ ];
   configurationLocation = fileContents "/tmp/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
-  users = attrNames cfg.users;
 
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
   extraModulesInputs = flatten (map (mod: mod.inputs) externalModulesOutputs);
@@ -122,7 +120,7 @@ in
                     );
                 in
                 {
-                  imports = [./options.nix] ++ getModules ./.private;
+                  imports = [./options.nix] ++ getModules ./.extra ++ getModules ./.private;
                   config.system.stateVersion = "${cfg.system.version}";
                 }
               )
@@ -141,10 +139,6 @@ in
               '') channels}
 
               { icedos.system.isFirstBuild = ${boolToString isFirstBuild}; }
-
-              ${concatMapStrings (
-                user: if (pathExists "${configurationLocation}/users/${user}") then "./users/${user}\n" else ""
-              ) users}
 
               ${concatStringsSep "\n" (map (text: "(${text})") nixosModulesText)}
 
