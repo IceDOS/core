@@ -112,10 +112,10 @@ let
 
     getFullSubmoduleName =
       {
-        name,
-        subMod ? "0",
+        url,
+        subMod ? null,
       }:
-      "${INPUTS_PREFIX}-${name}-${subMod}";
+      if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}";
 
     scanModules =
       {
@@ -156,7 +156,6 @@ let
 
     getExternalModule =
       {
-        name,
         url,
         ...
       }:
@@ -169,19 +168,20 @@ let
 
         inherit (lib) optionalAttrs;
 
+        repoName = getFullSubmoduleName { inherit url; };
+
         flakeRev =
           let
             lock = fromJSON (readFile ./flake.lock);
-            node = getFullSubmoduleName { inherit name; };
           in
           if (getEnv "ICEDOS_UPDATE" == "1") then
             ""
           else if (stringStartsWith "path:" url) && (getEnv "ICEDOS_STAGE" == "genflake") then
             ""
-          else if (hasAttrByPath [ "nodes" node "locked" "rev" ] lock) then
-            "/${lock.nodes.${node}.locked.rev}"
-          else if (hasAttrByPath [ "nodes" node "locked" "narHash" ] lock) then
-            "?narHash=${lock.nodes.${node}.locked.narHash}"
+          else if (hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock) then
+            "/${lock.nodes.${repoName}.locked.rev}"
+          else if (hasAttrByPath [ "nodes" repoName "locked" "narHash" ] lock) then
+            "?narHash=${lock.nodes.${repoName}.locked.narHash}"
           else
             "";
 
@@ -192,7 +192,7 @@ let
           if (getEnv "ICEDOS_STAGE" == "genflake") then
             (getFlake flakeUrl)
           else
-            inputs.${getFullSubmoduleName { inherit name; }};
+            inputs.${repoName};
 
         modules = flake.icedosModules { icedosLib = myLib; };
       in
@@ -259,7 +259,7 @@ let
                   else
                     "${
                       getFullSubmoduleName {
-                        name = mod.name;
+                        inherit (mod) url;
                         subMod = meta.name;
                       }
                     }-${i}";
@@ -279,13 +279,12 @@ let
 
         inputs = [
           {
-            name = getFullSubmoduleName { name = mod.name; };
+            name = getFullSubmoduleName { inherit (mod) url; };
             value = {
               url = "${mod.url}${flakeRev}";
             };
           }
-        ]
-        ++ moduleInputs;
+        ] ++ moduleInputs;
 
         options = map (
           { options, ... }:
@@ -307,9 +306,8 @@ let
             maskedInputs = {
               inherit (inputs) nixpkgs home-manager;
 
-              self = inputs.${getFullSubmoduleName { name = mod.name; }};
-            }
-            // remappedInputs;
+              self = inputs.${getFullSubmoduleName { inherit (mod) url; }};
+            } // remappedInputs;
           in
           flatten (
             map (mod: mod { inputs = maskedInputs; }) (flatten (map (mod: mod.outputs.nixosModules) modules))
