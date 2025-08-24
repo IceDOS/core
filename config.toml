@@ -1,5 +1,4 @@
 [[icedos.repositories]]
-name = "apps"
 url = "github:icedos/apps"
 modules = [
   "bash",
@@ -39,12 +38,10 @@ modules = [
 ]
 
 [[icedos.repositories]]
-name = "desktop"
 url = "github:icedos/desktop"
 modules = ["adwaita-qt", "clear-xdg-portals", "displays", "gdm"]
 
 [[icedos.repositories]]
-name = "hardware"
 url = "github:icedos/hardware"
 modules = [
   "bluetooth",
@@ -64,20 +61,16 @@ modules = [
 ]
 
 [[icedos.repositories]]
-name = "hyprland"
 url = "github:icedos/hyprland"
 
 [[icedos.repositories]]
-name = "tweaks"
 url = "github:icedos/tweaks"
 modules = ["gaming", "kernel"]
 
 [[icedos.repositories]]
-name = "users"
 url = "github:icedos/users"
 
 [[icedos.repositories]]
-name = "providers"
 url = "github:icedos/providers"
 modules = ["chaotic"]
 

@@ -6,10 +6,10 @@
     home-manager = {
       follows = "chaotic/home-manager";
     };
-    icedos-apps-0 = {
-      url = "github:icedos/apps/9951c752a4a7b00e4d5ff9005fa3653ce6754770";
+    "icedos-github:icedos/apps" = {
+      url = "github:icedos/apps/372abf9c09f356ebf19e16ffb19734cccb4255bd";
     };
-    icedos-apps-zen-zen = {
+    "icedos-github:icedos/apps-zen-zen" = {
       inputs = {
         nixpkgs = {
           follows = "nixpkgs";
@@ -17,22 +17,22 @@
       };
       url = "github:0xc000022070/zen-browser-flake";
     };
-    icedos-desktop-0 = {
-      url = "github:icedos/desktop/8e76025d2bf063518366c7a764c41bb2b135dde6";
+    "icedos-github:icedos/desktop" = {
+      url = "github:icedos/desktop/c9a6669a249eddc9cbf019d493b382033561dbed";
     };
-    icedos-hardware-0 = {
-      url = "github:icedos/hardware/8d054566e52efcf8f2ec0f6c59cc9e76e104f53e";
+    "icedos-github:icedos/hardware" = {
+      url = "github:icedos/hardware/2acfe7af53b16e883c7553df086e49d9fe13264d";
     };
-    icedos-hyprland-0 = {
+    "icedos-github:icedos/hyprland" = {
       url = "github:icedos/hyprland/9cf7fdff29d725832148040610da21363fe8c1c9";
     };
-    icedos-providers-0 = {
+    "icedos-github:icedos/providers" = {
       url = "github:icedos/providers/1273fe1a4086fbe2a84436ca1acb350a0020a410";
     };
-    icedos-tweaks-0 = {
+    "icedos-github:icedos/tweaks" = {
       url = "github:icedos/tweaks/83d42744d78c418a259b8e1c4ae7eba1d3e9eaf5";
     };
-    icedos-users-0 = {
+    "icedos-github:icedos/users" = {
       url = "github:icedos/users/9ddc3663045cd05e7df3d99844b4b640741fe667";
     };
     nixpkgs = {
