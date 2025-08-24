@@ -154,7 +154,7 @@ let
         )
       );
 
-    getExternalModule =
+    fetchModulesRepository =
       {
         url,
         ...
@@ -188,11 +188,7 @@ let
         rev = if (pathExists ./flake.lock) then flakeRev else "";
 
         flakeUrl = "${url}${rev}";
-        flake =
-          if (getEnv "ICEDOS_STAGE" == "genflake") then
-            (getFlake flakeUrl)
-          else
-            inputs.${repoName};
+        flake = if (getEnv "ICEDOS_STAGE" == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
 
         modules = flake.icedosModules { icedosLib = myLib; };
       in
@@ -217,7 +213,7 @@ let
         "";
 
     getExternalModuleOutputs =
-      mod:
+      cfgRepo:
       let
         inherit (builtins) elem;
 
@@ -226,11 +222,11 @@ let
           removeAttrs
           ;
 
-        flake = getExternalModule mod;
+        repo = fetchModulesRepository cfgRepo;
 
         modules =
           filter
-            (subModule: (elem subModule.meta.name mod.modules or [ ]) || subModule.meta.name == "default")
+            (subModule: (elem subModule.meta.name cfgRepo.modules or [ ]) || subModule.meta.name == "default")
             (
               map (
                 f:
@@ -238,7 +234,7 @@ let
                   inherit config lib;
                   icedosLib = myLib;
                 }
-              ) flake.files
+              ) repo.files
             );
 
         moduleInputs = flatten (
@@ -259,7 +255,7 @@ let
                   else
                     "${
                       getFullSubmoduleName {
-                        inherit (mod) url;
+                        inherit (cfgRepo) url;
                         subMod = meta.name;
                       }
                     }-${i}";
@@ -270,18 +266,18 @@ let
         );
 
         flakeRev =
-          if (hasAttr "rev" flake) then
-            "/${flake.rev}"
-          else if (hasAttr "narHash" flake) then
-            "?narHash=${flake.narHash}"
+          if (hasAttr "rev" repo) then
+            "/${repo.rev}"
+          else if (hasAttr "narHash" repo) then
+            "?narHash=${repo.narHash}"
           else
             "";
 
         inputs = [
           {
-            name = getFullSubmoduleName { inherit (mod) url; };
+            name = getFullSubmoduleName { inherit (cfgRepo) url; };
             value = {
-              url = "${mod.url}${flakeRev}";
+              url = "${cfgRepo.url}${flakeRev}";
             };
           }
         ] ++ moduleInputs;
@@ -306,7 +302,7 @@ let
             maskedInputs = {
               inherit (inputs) nixpkgs home-manager;
 
-              self = inputs.${getFullSubmoduleName { inherit (mod) url; }};
+              self = inputs.${getFullSubmoduleName { inherit (cfgRepo) url; }};
             } // remappedInputs;
           in
           flatten (
