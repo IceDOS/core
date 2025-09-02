@@ -1,7 +1,7 @@
 #! /usr/bin/env nix-shell
 #! nix-shell -i bash -p git nh nixfmt-rfc-style rsync
 
-CONFIG="/tmp/configuration-location"
+CONFIG="/tmp/icedos/configuration-location"
 FLAKE="flake.nix"
 
 action="switch"

@@ -25,7 +25,7 @@ let
   };
 
   channels = cfg.system.channels or [ ];
-  configurationLocation = fileContents "/tmp/configuration-location";
+  configurationLocation = fileContents "/tmp/icedos/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
 
   externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
