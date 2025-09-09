@@ -11,7 +11,18 @@ let
   myLib = rec {
     INPUTS_PREFIX = "icedos";
 
-    inherit (lib) mkOption types;
+    inherit (lib)
+      attrNames
+      filter
+      filterAttrs
+      flatten
+      hasAttr
+      hasAttrByPath
+      mkOption
+      pathExists
+      readFile
+      types
+      ;
 
     mkBoolOption = args: mkOption (args // { type = types.bool; });
     mkLinesOption = args: mkOption (args // { type = types.lines; });
@@ -76,24 +87,22 @@ let
         }
         .${gnomeAccentColor};
 
-    filterByAttrs =
+    getNormalUsers =
+      { users }:
       let
-        inherit (lib)
-          filter
-          hasAttrByPath
-          ;
+        inherit (lib) mapAttrsToList;
       in
-      path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
+      mapAttrsToList (name: attrs: {
+        inherit name;
+        value = attrs;
+      }) (filterAttrs (n: v: v.isNormalUser) users);
+
+    filterByAttrs = path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
 
     stringStartsWith =
       text: original: text == (with builtins; substring 0 (stringLength text) original);
 
-    inputIsOverride =
-      { input }:
-      let
-        inherit (builtins) hasAttr;
-      in
-      (hasAttr "override" input) && input.override;
+    inputIsOverride = { input }: (hasAttr "override" input) && input.override;
 
     getFullSubmoduleName =
       {
@@ -109,17 +118,8 @@ let
         maxDepth ? -1,
       }:
       let
-        inherit (builtins)
-          attrNames
-          map
-          readDir
-          ;
-
-        inherit (lib)
-          filterAttrs
-          flatten
-          optional
-          ;
+        inherit (builtins) readDir;
+        inherit (lib) optional;
 
         getContentsByType = fileType: filterAttrs (name: type: type == fileType) contents;
 
@@ -159,16 +159,9 @@ let
           fromJSON
           getEnv
           getFlake
-          pathExists
-          readFile
           ;
 
-        inherit (lib)
-          flatten
-          hasAttr
-          hasAttrByPath
-          optionalAttrs
-          ;
+        inherit (lib) optionalAttrs;
 
         flakeRev =
           let
@@ -206,7 +199,7 @@ let
     injectIfExists =
       { file }:
       let
-        inherit (lib) fileContents pathExists;
+        inherit (lib) fileContents;
       in
       if (pathExists file) then
         ''
@@ -220,17 +213,10 @@ let
     getExternalModuleOutputs =
       mod:
       let
-        inherit (builtins)
-          attrNames
-          elem
-          ;
+        inherit (builtins) elem;
 
         inherit (lib)
-          filter
-          flatten
-          hasAttr
           listToAttrs
-          map
           removeAttrs
           ;
 
@@ -340,7 +326,6 @@ let
       inputs:
       let
         inherit (builtins)
-          readFile
           toFile
           toJSON
           ;
