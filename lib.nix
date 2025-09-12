@@ -16,11 +16,14 @@ let
       filter
       filterAttrs
       flatten
+      foldl'
       hasAttr
       hasAttrByPath
+      lists
       mkOption
       pathExists
       readFile
+      splitString
       types
       ;
 
@@ -96,6 +99,9 @@ let
         inherit name;
         value = attrs;
       }) (filterAttrs (n: v: v.isNormalUser) users);
+
+    pkgMapper =
+      pkgList: lists.map (pkgName: foldl' (acc: cur: acc.${cur}) pkgs (splitString "." pkgName)) pkgList;
 
     filterByAttrs = path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
 
