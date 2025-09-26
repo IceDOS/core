@@ -1,7 +1,8 @@
 #! /usr/bin/env nix-shell
 #! nix-shell -i bash -p git nh nixfmt-rfc-style rsync
 
-CONFIG="/tmp/icedos/configuration-location"
+ICEDOS_DIR="/tmp/icedos"
+CONFIG="$ICEDOS_DIR/configuration-location"
 FLAKE="flake.nix"
 
 action="switch"
@@ -47,6 +48,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+mkdir -p "$ICEDOS_DIR"
 
 # Save current directory into a file
 [ -f "$CONFIG" ] && rm -f "$CONFIG" || sudo rm -rf "$CONFIG"
