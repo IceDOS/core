@@ -103,7 +103,7 @@ let
     pkgMapper =
       pkgList: lists.map (pkgName: foldl' (acc: cur: acc.${cur}) pkgs (splitString "." pkgName)) pkgList;
 
-    filterByAttrs = path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
+    filterByAttrs = path: listOfAttrSets: filter (attrSet: hasAttrByPath path attrSet) listOfAttrSets;
 
     stringStartsWith =
       text: original: text == (with builtins; substring 0 (stringLength text) original);
@@ -212,21 +212,24 @@ let
       else
         "";
 
-    getExternalModuleOutputs =
-      cfgRepo:
+    resolveExternalDependencyRecursively =
+      repoCfg:
       let
-        inherit (builtins) elem;
-
-        inherit (lib)
-          listToAttrs
-          removeAttrs
+        inherit (builtins)
+          attrValues
+          elem
+          filter
+          foldl'
+          map
           ;
 
-        repo = fetchModulesRepository cfgRepo;
+        inherit (lib) flatten;
+
+        repo = fetchModulesRepository repoCfg;
 
         modules =
           filter
-            (subModule: (elem subModule.meta.name cfgRepo.modules or [ ]) || subModule.meta.name == "default")
+            (subModule: (elem subModule.meta.name repoCfg.modules or [ ]) || subModule.meta.name == "default")
             (
               map (
                 f:
@@ -236,6 +239,82 @@ let
                 }
               ) repo.files
             );
+
+        dependencies =
+          let
+            dependencies = flatten (
+              map (m: m.meta.dependencies) (filterByAttrs [ "meta" "dependencies" ] modules)
+            );
+          in
+          map (
+            {
+              url ? "self",
+              modules ? [ ],
+            }:
+            if url == "self" then
+              resolveExternalDependencyRecursively {
+                inherit (repoCfg) url;
+                inherit modules;
+              }
+            else
+              resolveExternalDependencyRecursively {
+                inherit url modules;
+              }
+          ) dependencies;
+
+        allDeps = flatten ([ (repoCfg // { inherit modules repo; }) ] ++ dependencies);
+        deduped = attrValues (foldl' (acc: dep: acc // { ${dep.url} = dep; }) { } allDeps);
+      in
+      deduped;
+
+    extractIcedosModules =
+      repos:
+      let
+        inherit (builtins) map;
+
+        inherit (lib) flatten;
+
+        modulesPerRepo = map (r: map (m: m // { _repoInfo = r; }) r.modules) repos;
+      in
+      flatten (modulesPerRepo);
+
+    getExternalModuleOutputs =
+      cfgRepo:
+      let
+        inherit (builtins)
+          attrNames
+          ;
+
+        inherit (lib)
+          flatten
+          hasAttr
+          listToAttrs
+          map
+          removeAttrs
+          ;
+
+        modules = extractIcedosModules (resolveExternalDependencyRecursively cfgRepo);
+
+        modulesAsInputs = map (
+          { _repoInfo, ... }:
+          let
+            inherit (_repoInfo) repo url;
+
+            flakeRev =
+              if (hasAttr "rev" repo) then
+                "/${repo.rev}"
+              else if (hasAttr "narHash" repo) then
+                "?narHash=${repo.narHash}"
+              else
+                "";
+          in
+          {
+            name = getFullSubmoduleName { inherit url; };
+            value = {
+              url = "${url}${flakeRev}";
+            };
+          }
+        ) modules;
 
         moduleInputs = flatten (
           map (
@@ -265,22 +344,7 @@ let
           ) (filterByAttrs [ "inputs" ] modules)
         );
 
-        flakeRev =
-          if (hasAttr "rev" repo) then
-            "/${repo.rev}"
-          else if (hasAttr "narHash" repo) then
-            "?narHash=${repo.narHash}"
-          else
-            "";
-
-        inputs = [
-          {
-            name = getFullSubmoduleName { inherit (cfgRepo) url; };
-            value = {
-              url = "${cfgRepo.url}${flakeRev}";
-            };
-          }
-        ] ++ moduleInputs;
+        inputs = modulesAsInputs ++ moduleInputs;
 
         options = map (
           { options, ... }:
@@ -303,10 +367,13 @@ let
               inherit (inputs) nixpkgs home-manager;
 
               self = inputs.${getFullSubmoduleName { inherit (cfgRepo) url; }};
-            } // remappedInputs;
+            }
+            // remappedInputs;
           in
           flatten (
-            map (mod: mod { inputs = maskedInputs; }) (flatten (map (mod: mod.outputs.nixosModules) modules))
+            map (mod: mod { inputs = maskedInputs; }) (
+              flatten (map (mod: if (hasAttr "outputs" mod) then mod.outputs.nixosModules else [ ]) modules)
+            )
           );
 
         nixosModulesText = flatten (
