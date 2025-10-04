@@ -103,7 +103,7 @@ let
     pkgMapper =
       pkgList: lists.map (pkgName: foldl' (acc: cur: acc.${cur}) pkgs (splitString "." pkgName)) pkgList;
 
-    filterByAttrs = path: atrrset: filter (attr: hasAttrByPath path attr) atrrset;
+    filterByAttrs = path: listOfAttrSets: filter (attrSet: hasAttrByPath path attrSet) listOfAttrSets;
 
     stringStartsWith =
       text: original: text == (with builtins; substring 0 (stringLength text) original);
@@ -112,10 +112,10 @@ let
 
     getFullSubmoduleName =
       {
-        name,
-        subMod ? "0",
+        url,
+        subMod ? null,
       }:
-      "${INPUTS_PREFIX}-${name}-${subMod}";
+      if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}";
 
     scanModules =
       {
@@ -154,9 +154,8 @@ let
         )
       );
 
-    getExternalModule =
+    fetchModulesRepository =
       {
-        name,
         url,
         ...
       }:
@@ -169,30 +168,27 @@ let
 
         inherit (lib) optionalAttrs;
 
+        repoName = getFullSubmoduleName { inherit url; };
+
         flakeRev =
           let
             lock = fromJSON (readFile ./flake.lock);
-            node = getFullSubmoduleName { inherit name; };
           in
           if (getEnv "ICEDOS_UPDATE" == "1") then
             ""
           else if (stringStartsWith "path:" url) && (getEnv "ICEDOS_STAGE" == "genflake") then
             ""
-          else if (hasAttrByPath [ "nodes" node "locked" "rev" ] lock) then
-            "/${lock.nodes.${node}.locked.rev}"
-          else if (hasAttrByPath [ "nodes" node "locked" "narHash" ] lock) then
-            "?narHash=${lock.nodes.${node}.locked.narHash}"
+          else if (hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock) then
+            "/${lock.nodes.${repoName}.locked.rev}"
+          else if (hasAttrByPath [ "nodes" repoName "locked" "narHash" ] lock) then
+            "?narHash=${lock.nodes.${repoName}.locked.narHash}"
           else
             "";
 
         rev = if (pathExists ./flake.lock) then flakeRev else "";
 
         flakeUrl = "${url}${rev}";
-        flake =
-          if (getEnv "ICEDOS_STAGE" == "genflake") then
-            (getFlake flakeUrl)
-          else
-            inputs.${getFullSubmoduleName { inherit name; }};
+        flake = if (getEnv "ICEDOS_STAGE" == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
 
         modules = flake.icedosModules { icedosLib = myLib; };
       in
@@ -216,21 +212,24 @@ let
       else
         "";
 
-    getExternalModuleOutputs =
-      mod:
+    resolveExternalDependencyRecursively =
+      repoCfg:
       let
-        inherit (builtins) elem;
-
-        inherit (lib)
-          listToAttrs
-          removeAttrs
+        inherit (builtins)
+          attrValues
+          elem
+          filter
+          foldl'
+          map
           ;
 
-        flake = getExternalModule mod;
+        inherit (lib) flatten;
+
+        repo = fetchModulesRepository repoCfg;
 
         modules =
           filter
-            (subModule: (elem subModule.meta.name mod.modules or [ ]) || subModule.meta.name == "default")
+            (subModule: (elem subModule.meta.name repoCfg.modules or [ ]) || subModule.meta.name == "default")
             (
               map (
                 f:
@@ -238,8 +237,84 @@ let
                   inherit config lib;
                   icedosLib = myLib;
                 }
-              ) flake.files
+              ) repo.files
             );
+
+        dependencies =
+          let
+            dependencies = flatten (
+              map (m: m.meta.dependencies) (filterByAttrs [ "meta" "dependencies" ] modules)
+            );
+          in
+          map (
+            {
+              url ? "self",
+              modules ? [ ],
+            }:
+            if url == "self" then
+              resolveExternalDependencyRecursively {
+                inherit (repoCfg) url;
+                inherit modules;
+              }
+            else
+              resolveExternalDependencyRecursively {
+                inherit url modules;
+              }
+          ) dependencies;
+
+        allDeps = flatten ([ (repoCfg // { inherit modules repo; }) ] ++ dependencies);
+        deduped = attrValues (foldl' (acc: dep: acc // { ${dep.url} = dep; }) { } allDeps);
+      in
+      deduped;
+
+    extractIcedosModules =
+      repos:
+      let
+        inherit (builtins) map;
+
+        inherit (lib) flatten;
+
+        modulesPerRepo = map (r: map (m: m // { _repoInfo = r; }) r.modules) repos;
+      in
+      flatten (modulesPerRepo);
+
+    getExternalModuleOutputs =
+      cfgRepo:
+      let
+        inherit (builtins)
+          attrNames
+          ;
+
+        inherit (lib)
+          flatten
+          hasAttr
+          listToAttrs
+          map
+          removeAttrs
+          ;
+
+        modules = extractIcedosModules (resolveExternalDependencyRecursively cfgRepo);
+
+        modulesAsInputs = map (
+          { _repoInfo, ... }:
+          let
+            inherit (_repoInfo) repo url;
+
+            flakeRev =
+              if (hasAttr "rev" repo) then
+                "/${repo.rev}"
+              else if (hasAttr "narHash" repo) then
+                "?narHash=${repo.narHash}"
+              else
+                "";
+          in
+          {
+            name = getFullSubmoduleName { inherit url; };
+            value = {
+              url = "${url}${flakeRev}";
+            };
+          }
+        ) modules;
 
         moduleInputs = flatten (
           map (
@@ -259,7 +334,7 @@ let
                   else
                     "${
                       getFullSubmoduleName {
-                        name = mod.name;
+                        inherit (cfgRepo) url;
                         subMod = meta.name;
                       }
                     }-${i}";
@@ -269,23 +344,7 @@ let
           ) (filterByAttrs [ "inputs" ] modules)
         );
 
-        flakeRev =
-          if (hasAttr "rev" flake) then
-            "/${flake.rev}"
-          else if (hasAttr "narHash" flake) then
-            "?narHash=${flake.narHash}"
-          else
-            "";
-
-        inputs = [
-          {
-            name = getFullSubmoduleName { name = mod.name; };
-            value = {
-              url = "${mod.url}${flakeRev}";
-            };
-          }
-        ]
-        ++ moduleInputs;
+        inputs = modulesAsInputs ++ moduleInputs;
 
         options = map (
           { options, ... }:
@@ -307,12 +366,14 @@ let
             maskedInputs = {
               inherit (inputs) nixpkgs home-manager;
 
-              self = inputs.${getFullSubmoduleName { name = mod.name; }};
+              self = inputs.${getFullSubmoduleName { inherit (cfgRepo) url; }};
             }
             // remappedInputs;
           in
           flatten (
-            map (mod: mod { inputs = maskedInputs; }) (flatten (map (mod: mod.outputs.nixosModules) modules))
+            map (mod: mod { inputs = maskedInputs; }) (
+              flatten (map (mod: if (hasAttr "outputs" mod) then mod.outputs.nixosModules else [ ]) modules)
+            )
           );
 
         nixosModulesText = flatten (
