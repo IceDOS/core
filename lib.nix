@@ -68,6 +68,12 @@ let
         }
       );
 
+    abortIf =
+      let
+        inherit (builtins) throw;
+      in
+      condition: message: if condition then throw message else true;
+
     generateAccentColor =
       {
         accentColor,
