@@ -408,10 +408,11 @@ let
         inputsNix =
           with pkgs;
           derivation {
-            inherit system;
-            name = "inputs.nix";
-            builder = "${bash}/bin/bash";
+            inherit (pkgs.stdenv.hostPlatform) system;
             __noChroot = true;
+            builder = "${bash}/bin/bash";
+            name = "inputs.nix";
+
             args = [
               "-c"
               ''
