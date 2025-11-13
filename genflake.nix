@@ -1,7 +1,7 @@
 let
-  inherit (pkgs)
-    lib
-    ;
+  inherit (builtins) readFile;
+
+  inherit (pkgs) lib;
 
   inherit (lib)
     boolToString
@@ -14,8 +14,8 @@ let
     pathExists
     ;
 
-  system = "x86_64-linux";
-  cfg = (fromTOML (fileContents ./config.toml)).icedos;
+  cfg = (fromTOML (readFile ./config.toml)).icedos;
+  system = cfg.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
 
   icedosLib = import ./lib.nix {
