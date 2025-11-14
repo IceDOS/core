@@ -1,7 +1,10 @@
 let
-  inherit (pkgs)
-    lib
-    ;
+  inherit (builtins) readFile;
+  inherit ((fromTOML (readFile ./config.toml))) icedos;
+
+  system = icedos.system.arch or "x86_64-linux";
+  pkgs = import <nixpkgs> { inherit system; };
+  inherit (pkgs) lib;
 
   inherit (lib)
     boolToString
@@ -14,24 +17,22 @@ let
     pathExists
     ;
 
-  system = "x86_64-linux";
-  cfg = (fromTOML (fileContents ./config.toml)).icedos;
-  pkgs = import <nixpkgs> { inherit system; };
-
   icedosLib = import ./lib.nix {
     inherit lib pkgs;
-    config = cfg;
+    config = icedos;
     self = ./.;
   };
 
-  channels = cfg.system.channels or [ ];
-  configurationLocation = fileContents "/tmp/icedos/configuration-location";
-  isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
+  inherit (icedosLib) getExternalModuleOutputs serializeAllExternalInputs injectIfExists;
 
-  externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
+  channels = icedos.system.channels or [ ];
+  configurationLocation = fileContents "/tmp/icedos/configuration-location";
+  isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
+
+  externalModulesOutputs = map getExternalModuleOutputs icedos.repositories or [ ];
   extraModulesInputs = flatten (map (mod: mod.inputs) externalModulesOutputs);
 
-  flakeInputs = icedosLib.serializeAllExternalInputs (listToAttrs extraModulesInputs);
+  flakeInputs = serializeAllExternalInputs (listToAttrs extraModulesInputs);
   nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
 in
 {
@@ -50,24 +51,25 @@ in
         }@inputs:
         let
           system = "${system}";
+          pkgs = nixpkgs.legacyPackages.''${system};
+          inherit (pkgs) lib;
+          inherit (lib) fileContents flatten map;
 
           inherit (builtins) fromTOML;
-          inherit (lib) fileContents flatten map;
-          inherit (pkgs) lib;
-
-          cfg = (fromTOML (fileContents ./config.toml)).icedos;
-          pkgs = nixpkgs.legacyPackages.''${system};
+          inherit ((fromTOML (fileContents ./config.toml))) icedos;
 
           icedosLib = import ./lib.nix {
             inherit lib pkgs inputs;
-            config = cfg;
+            config = icedos;
             self = ./.;
           };
 
+          inherit (icedosLib) getExternalModuleOutputs;
+
           externalModulesOutputs =
             map
-            icedosLib.getExternalModuleOutputs
-            cfg.repositories;
+            getExternalModuleOutputs
+            icedos.repositories;
 
           extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
 
@@ -121,7 +123,7 @@ in
                 in
                 {
                   imports = [./options.nix] ++ getModules ./.extra ++ getModules ./.private;
-                  config.system.stateVersion = "${cfg.system.version}";
+                  config.system.stateVersion = "${icedos.system.version}";
                 }
               )
 
@@ -142,9 +144,11 @@ in
 
               ${concatStringsSep "\n" (map (text: "(${text})") nixosModulesText)}
 
-              ${icedosLib.injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
-              ${icedosLib.injectIfExists { file = "/etc/nixos/extras.nix"; }}
-            ] ++ extraOptions ++ extraNixosModules;
+              ${injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
+              ${injectIfExists { file = "/etc/nixos/extras.nix"; }}
+            ]
+            ++ extraOptions
+            ++ extraNixosModules;
           };
         };
     }
