@@ -1,35 +1,34 @@
 [[icedos.repositories]]
 url = "github:icedos/apps"
 modules = [
-  "bash",
+  "ambiled",
   "btop",
   "celluloid",
-  "direnv",
-  "faugus-launcher",
+  "citron",
+  "docker",
   "gamemode",
   "gamescope",
   "git",
+  "harmony-music",
   "input-remapper",
   "kitty",
   "lact",
   "lsfg-vk",
   "mangohud",
+  "me3",
   "nautilus",
   "ncdu",
   "network-manager",
-  "nh",
-  "nix",
-  "nix-health",
-  "nixfmt",
   "obs",
   "proton-launch",
   "sd-inhibitor",
   "solaar",
-  "ssh",
   "steam",
   "sunshine",
-  "toolset",
+  "tailscale",
   "wg-quick",
+  "winboat",
+  "wolf",
   "zed",
   "zen",
   "zenergy",
@@ -39,20 +38,20 @@ modules = [
 
 [[icedos.repositories]]
 url = "github:icedos/desktop"
-modules = ["adwaita-qt", "clear-xdg-portals", "displays", "gdm"]
+modules = ["gdm"]
 
 [[icedos.repositories]]
 url = "github:icedos/hardware"
 modules = [
   "bluetooth",
   "disable-ipv6",
-  "graphics",
   "kernel",
   "mesa-unstable",
   "monitors",
   "mounts",
   "pipewire",
   "radeon",
+  "ryzen",
   "systemd-boot",
   "uinput",
   "upower",
@@ -70,10 +69,6 @@ modules = ["gaming", "kernel"]
 [[icedos.repositories]]
 url = "github:icedos/users"
 
-[[icedos.repositories]]
-url = "github:icedos/providers"
-modules = ["chaotic"]
-
 [icedos.applications]
 defaultBrowser = "zen.desktop"
 defaultEditor = "dev.zed.Zed.desktop"
@@ -84,12 +79,13 @@ extraPackages = [
   "fragments",
   "gimp3",
   "harmony-music",
-  "newsflash",
   "signal-desktop",
-  "umu-launcher",
   "warp",
 ]
 insecurePackages = []
+
+[icedos.applications.docker.daemonSettings]
+data-root = "/mnt/virtualisation/docker"
 
 [icedos.applications.git.users.icedborn]
 username = "IceDBorn"
@@ -97,6 +93,72 @@ email = "git.outsider841@simplelogin.fr"
 
 [icedos.applications.mangohud]
 fpsLimit = "144,60,0"
+
+[[icedos.applications.me3.profiles]]
+name = "nightreign"
+config = """
+profileVersion = "v1"
+
+[[supports]]
+game = "nightrein"
+
+[[natives]]
+path = "/home/icedborn/games/nightreign/natives/disable-chromatic-aberration.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nightreign/natives/disable-sharpening-filter.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nightreign/natives/disable-vignette.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nightreign/natives/ultrawide-fix.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nightreign/natives/unlock-the-fps.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nightreign/natives/seamless-coop/nrsc.dll"
+
+[[packages]]
+id = "blue-filter-removal"
+path = "/home/icedborn/games/nightreign/packages/blue-filter-removal/"
+
+[[packages]]
+id = "ultrawide-ui-fixes-21-33"
+path = "/home/icedborn/games/nightreign/packages/ultrawide-ui-fixes/21.33/"
+"""
+
+[[icedos.applications.me3.profiles]]
+name = "eldenring"
+config = """
+profileVersion = "v1"
+
+[[supports]]
+game = "eldenring"
+
+[[natives]]
+path = "/home/icedborn/games/eldenring/natives/disable-sharpen-filter.dll"
+
+[[natives]]
+path = "/home/icedborn/games/eldenring/natives/remove-chromatic-aberration.dll"
+
+[[natives]]
+path = "/home/icedborn/games/eldenring/natives/remove-vignette.dll"
+
+[[natives]]
+path = "/home/icedborn/games/eldenring/natives/erss2/ERSS2.dll"
+
+[[natives]]
+path = "/home/icedborn/games/eldenring/natives/erss2/dxgi.dll"
+
+[[natives]]
+path = "/home/icedborn/games/eldenring/natives/ultrawide-fix.dll"
+
+[[packages]]
+id = "remove-erdtree"
+path = "/home/icedborn/games/nightreign/packages/remove-erdtree/"
+"""
 
 [icedos.applications.network-manager]
 applet = true
@@ -107,10 +169,32 @@ outputsToIgnore = ["Discord", "Element"]
 
 [icedos.applications.steam]
 beta = true
+cpuUsageWorkaround = true
 downloadsWorkaround = true
 
 [icedos.applications.wg-quick]
 interfaces = ["protonvpn"]
+
+[icedos.applications.wolf]
+stateFolder = "/mnt/virtualisation/wolf"
+extraPackages = ["yad"]
+
+[[icedos.applications.zen.profiles]]
+default = true
+exec = "default"
+privacy = true
+
+[[icedos.applications.zen.profiles]]
+exec = "zen-social"
+name = "Zen Social"
+privacy = true
+pwa = true
+sites = [
+  "https://mail.proton.me",
+  "https://lumo.proton.me",
+  "https://develop.element.io",
+  "https://discord.com/app",
+]
 
 [[icedos.applications.zen.profiles]]
 default = true
@@ -160,7 +244,7 @@ windowRules = [
 mountPoint = "/boot"
 
 [icedos.hardware.kernel]
-version = "cachyos"
+version = "cachyos-rc"
 
 [[icedos.hardware.mounts]]
 path = "/"
@@ -169,13 +253,13 @@ fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.mounts]]
-path = "/mnt/games"
+path = "/mnt/virtualisation"
 device = "/dev/disk/by-uuid/040329ae-685d-4ba6-8bdd-e0a9785f9672"
 fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.mounts]]
-path = "/mnt/games2"
+path = "/mnt/games"
 device = "/dev/disk/by-uuid/60876d91-f863-45db-88c5-4c707879588f"
 fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
@@ -191,14 +275,15 @@ name = "DP-2"
 resolution = "3440x1440"
 refreshRate = 144
 position = "0x0"
-rotation = 0
 
 [[icedos.hardware.monitors]]
 name = "DP-1"
 resolution = "1920x1080"
 refreshRate = 144
 position = "3440x200"
-rotation = 0
+
+[icedos.hardware.network]
+firewall = false
 
 [icedos.system]
 version = "23.05"

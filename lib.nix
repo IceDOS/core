@@ -19,6 +19,7 @@ let
       foldl'
       hasAttr
       hasAttrByPath
+      listToAttrs
       lists
       mkOption
       pathExists
@@ -234,8 +235,17 @@ let
         repo = fetchModulesRepository repoCfg;
 
         modules =
+          let
+            isDefault = name: if hasAttr "noDefault" repoCfg then false else (name == "default");
+          in
           filter
-            (subModule: (elem subModule.meta.name repoCfg.modules or [ ]) || subModule.meta.name == "default")
+            (
+              subModule:
+              let
+                subModuleName = subModule.meta.name;
+              in
+              (elem subModuleName repoCfg.modules or [ ]) || isDefault subModuleName
+            )
             (
               map (
                 f:
@@ -261,6 +271,7 @@ let
               resolveExternalDependencyRecursively {
                 inherit (repoCfg) url;
                 inherit modules;
+                noDefault = true;
               }
             else
               resolveExternalDependencyRecursively {
@@ -269,7 +280,36 @@ let
           ) dependencies;
 
         allDeps = flatten ([ (repoCfg // { inherit modules repo; }) ] ++ dependencies);
-        deduped = attrValues (foldl' (acc: dep: acc // { ${dep.url} = dep; }) { } allDeps);
+
+        deduped = attrValues (
+          foldl' (
+            acc: dep:
+            acc
+            // {
+              ${dep.url} =
+                let
+                  inherit (dep) modules repo url;
+                in
+                {
+                  inherit repo url;
+                  modules =
+                    let
+                      # Accumulate attrsets keyed by their unique attribute
+                      modulesByName = listToAttrs (
+                        map (m: {
+                          name = m.meta.name;
+                          value = m;
+                        }) ((acc.${dep.url}.modules or [ ]) ++ modules)
+                      );
+
+                      # Extract unique attrsets
+                      uniqueModules = map (attr: modulesByName.${attr}) (attrNames modulesByName);
+                    in
+                    uniqueModules;
+                };
+            }
+          ) { } allDeps
+        );
       in
       deduped;
 
@@ -294,7 +334,6 @@ let
         inherit (lib)
           flatten
           hasAttr
-          listToAttrs
           map
           removeAttrs
           ;
