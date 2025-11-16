@@ -1,113 +1,30 @@
 {
-  self,
   config,
+  icedosLib,
+  inputs,
   lib,
   pkgs,
-  inputs ? { },
   ...
 }:
 
 let
-  myLib = rec {
-    INPUTS_PREFIX = "icedos";
+  inherit (builtins)
+    hasAttr
+    readFile
+    pathExists
+    ;
 
-    inherit (lib)
-      attrNames
-      filter
-      filterAttrs
-      flatten
-      foldl'
-      hasAttr
-      hasAttrByPath
-      lists
-      mkOption
-      pathExists
-      readFile
-      splitString
-      types
-      ;
+  inherit (lib) filterAttrs flatten;
 
-    mkBoolOption = args: mkOption (args // { type = types.bool; });
-    mkLinesOption = args: mkOption (args // { type = types.lines; });
-    mkNumberOption = args: mkOption (args // { type = types.number; });
-    mkStrListOption = args: mkOption (args // { type = with types; listOf str; });
-    mkStrOption = args: mkOption (args // { type = types.str; });
+  inherit (icedosLib)
+    filterByAttrs
+    hasAttrByPath
+    stringStartsWith
+    ICEDOS_STAGE
+    INPUTS_PREFIX
+    ;
 
-    mkFunctionOption =
-      args:
-      mkOption (
-        args
-        // {
-          type = types.function;
-        }
-      );
-
-    mkSubmoduleAttrsOption =
-      args: options:
-      mkOption (
-        args
-        // {
-          type = types.attrsOf (
-            types.submodule {
-              options = options;
-            }
-          );
-        }
-      );
-
-    mkSubmoduleListOption =
-      args: options:
-      mkOption (
-        args
-        // {
-          type = types.listOf (
-            types.submodule {
-              options = options;
-            }
-          );
-        }
-      );
-
-    generateAccentColor =
-      {
-        accentColor,
-        gnomeAccentColor,
-        hasGnome,
-      }:
-      if (!hasGnome) then
-        "#${accentColor}"
-      else
-        {
-          blue = "#3584e4";
-          green = "#3a944a";
-          orange = "#ed5b00";
-          pink = "#d56199";
-          purple = "#9141ac";
-          red = "#e62d42";
-          slate = "#6f8396";
-          teal = "#2190a4";
-          yellow = "#c88800";
-        }
-        .${gnomeAccentColor};
-
-    getNormalUsers =
-      { users }:
-      let
-        inherit (lib) mapAttrsToList;
-      in
-      mapAttrsToList (name: attrs: {
-        inherit name;
-        value = attrs;
-      }) (filterAttrs (n: v: v.isNormalUser) users);
-
-    pkgMapper =
-      pkgList: lists.map (pkgName: foldl' (acc: cur: acc.${cur}) pkgs (splitString "." pkgName)) pkgList;
-
-    filterByAttrs = path: listOfAttrSets: filter (attrSet: hasAttrByPath path attrSet) listOfAttrSets;
-
-    stringStartsWith =
-      text: original: text == (with builtins; substring 0 (stringLength text) original);
-
+  finalIcedosLib = icedosLib // (rec {
     inputIsOverride = { input }: (hasAttr "override" input) && input.override;
 
     getFullSubmoduleName =
@@ -116,43 +33,6 @@ let
         subMod ? null,
       }:
       if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}";
-
-    scanModules =
-      {
-        path,
-        filename,
-        maxDepth ? -1,
-      }:
-      let
-        inherit (builtins) readDir;
-        inherit (lib) optional;
-
-        getContentsByType = fileType: filterAttrs (name: type: type == fileType) contents;
-
-        targetPath = if (stringStartsWith "/nix/store" "${path}") then "${path}" else "${self}/${path}";
-        contents = readDir targetPath;
-
-        directories = getContentsByType "directory";
-        files = getContentsByType "regular";
-
-        directoriesPaths = map (n: "${path}/${n}") (attrNames directories);
-
-        icedosFiles = filterAttrs (n: v: n == filename) files;
-        icedosFilesPaths = map (n: "${targetPath}/${n}") (attrNames icedosFiles);
-      in
-      icedosFilesPaths
-      ++ optional (maxDepth != 0) (
-        flatten (
-          map (
-            dp:
-            scanModules {
-              inherit filename;
-              path = dp;
-              maxDepth = maxDepth - 1;
-            }
-          ) directoriesPaths
-        )
-      );
 
     fetchModulesRepository =
       {
@@ -176,7 +56,7 @@ let
           in
           if (getEnv "ICEDOS_UPDATE" == "1") then
             ""
-          else if (stringStartsWith "path:" url) && (getEnv "ICEDOS_STAGE" == "genflake") then
+          else if (stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake") then
             ""
           else if (hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock) then
             "/${lock.nodes.${repoName}.locked.rev}"
@@ -188,29 +68,15 @@ let
         rev = if (pathExists ./flake.lock) then flakeRev else "";
 
         flakeUrl = "${url}${rev}";
-        flake = if (getEnv "ICEDOS_STAGE" == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
+        flake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
 
-        modules = flake.icedosModules { icedosLib = myLib; };
+        modules = flake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
         inherit (flake) narHash;
         files = flatten modules;
       }
       // (optionalAttrs (hasAttr "rev" flake) { inherit (flake) rev; });
-
-    injectIfExists =
-      { file }:
-      let
-        inherit (lib) fileContents;
-      in
-      if (pathExists file) then
-        ''
-          (
-            ${fileContents file}
-          )
-        ''
-      else
-        "";
 
     resolveExternalDependencyRecursively =
       repoCfg:
@@ -235,16 +101,14 @@ let
                 f:
                 import f {
                   inherit config lib;
-                  icedosLib = myLib;
+                  icedosLib = finalIcedosLib;
                 }
               ) repo.files
             );
 
         dependencies =
           let
-            dependencies = flatten (
-              map (m: m.meta.dependencies) (filterByAttrs [ "meta" "dependencies" ] modules)
-            );
+            deps = flatten (map (m: m.meta.dependencies) (filterByAttrs [ "meta" "dependencies" ] modules));
           in
           map (
             {
@@ -260,7 +124,7 @@ let
               resolveExternalDependencyRecursively {
                 inherit url modules;
               }
-          ) dependencies;
+          ) deps;
 
         allDeps = flatten ([ (repoCfg // { inherit modules repo; }) ] ++ dependencies);
         deduped = attrValues (foldl' (acc: dep: acc // { ${dep.url} = dep; }) { } allDeps);
@@ -279,10 +143,11 @@ let
       flatten (modulesPerRepo);
 
     getExternalModuleOutputs =
-      cfgRepo:
+      modules:
       let
         inherit (builtins)
           attrNames
+          foldl'
           ;
 
         inherit (lib)
@@ -292,8 +157,6 @@ let
           map
           removeAttrs
           ;
-
-        modules = extractIcedosModules (resolveExternalDependencyRecursively cfgRepo);
 
         modulesAsInputs = map (
           { _repoInfo, ... }:
@@ -318,7 +181,12 @@ let
 
         moduleInputs = flatten (
           map (
-            { inputs, meta, ... }:
+            {
+              _repoInfo,
+              inputs,
+              meta,
+              ...
+            }:
             map (
               i:
               let
@@ -334,7 +202,7 @@ let
                   else
                     "${
                       getFullSubmoduleName {
-                        inherit (cfgRepo) url;
+                        inherit (_repoInfo) url;
                         subMod = meta.name;
                       }
                     }-${i}";
@@ -347,14 +215,15 @@ let
         inputs = modulesAsInputs ++ moduleInputs;
 
         options = map (
-          { options, ... }:
+          { options, meta, ... }:
           {
             inherit options;
           }
         ) (filterByAttrs [ "options" ] modules);
 
-        nixosModules =
+        nixosModulesPerIcedosModule =
           { inputs, ... }:
+          { _repoInfo, outputs, ... }:
           let
             remappedInputs = listToAttrs (
               map (i: {
@@ -366,18 +235,22 @@ let
             maskedInputs = {
               inherit (inputs) nixpkgs home-manager;
 
-              self = inputs.${getFullSubmoduleName { inherit (cfgRepo) url; }};
+              self = inputs.${getFullSubmoduleName { inherit (_repoInfo) url; }};
             }
             // remappedInputs;
           in
+          outputs.nixosModules { inputs = maskedInputs; };
+
+        nixosModules =
+          params:
           flatten (
-            map (mod: mod { inputs = maskedInputs; }) (
-              flatten (map (mod: if (hasAttr "outputs" mod) then mod.outputs.nixosModules else [ ]) modules)
-            )
+            map (nixosModulesPerIcedosModule params) (filterByAttrs [ "outputs" "nixosModules" ] modules)
           );
 
-        nixosModulesText = flatten (
-          map (mod: mod.outputs.nixosModulesText) (filterByAttrs [ "outputs" "nixosModulesText" ] modules)
+        nixosModulesText = (
+          flatten (
+            map (mod: mod.outputs.nixosModulesText) (filterByAttrs [ "outputs" "nixosModulesText" ] modules)
+          )
         );
       in
       {
@@ -416,6 +289,34 @@ let
           };
       in
       readFile inputsNix;
-  };
+
+    modulesFromConfig =
+      let
+        inherit (builtins)
+          attrValues
+          listToAttrs
+          ;
+
+        inherit (lib)
+          flatten
+          ;
+
+        modules = map (
+          repo: extractIcedosModules (resolveExternalDependencyRecursively repo)
+        ) config.repositories;
+
+        deduped = attrValues (
+          listToAttrs (
+            map (m: {
+              name = "${m._repoInfo.url}-${m.meta.name}";
+              value = m;
+            }) (flatten modules)
+          )
+        );
+
+        outputs = getExternalModuleOutputs deduped;
+      in
+      outputs;
+  });
 in
-myLib
+finalIcedosLib

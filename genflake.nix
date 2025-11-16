@@ -18,21 +18,20 @@ let
   cfg = (fromTOML (fileContents ./config.toml)).icedos;
   pkgs = import <nixpkgs> { inherit system; };
 
-  icedosLib = import ./lib.nix {
+  icedosLib = import ./icedos/lib {
     inherit lib pkgs;
     config = cfg;
     self = ./.;
+    inputs = { };
   };
 
   channels = cfg.system.channels or [ ];
   configurationLocation = fileContents "/tmp/icedos/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (cfg.system.forceFirstBuild or false);
 
-  externalModulesOutputs = map icedosLib.getExternalModuleOutputs cfg.repositories;
-  extraModulesInputs = flatten (map (mod: mod.inputs) externalModulesOutputs);
-
+  extraModulesInputs = icedosLib.modulesFromConfig.inputs;
   flakeInputs = icedosLib.serializeAllExternalInputs (listToAttrs extraModulesInputs);
-  nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
+  nixosModulesText = icedosLib.modulesFromConfig.nixosModulesText;
 in
 {
   flake.nix = ''
@@ -58,20 +57,11 @@ in
           cfg = (fromTOML (fileContents ./config.toml)).icedos;
           pkgs = nixpkgs.legacyPackages.''${system};
 
-          icedosLib = import ./lib.nix {
+          icedosLib = import ./icedos/lib {
             inherit lib pkgs inputs;
             config = cfg;
             self = ./.;
           };
-
-          externalModulesOutputs =
-            map
-            icedosLib.getExternalModuleOutputs
-            cfg.repositories;
-
-          extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
-
-          extraNixosModules = flatten (map (mod: mod.nixosModules { inherit inputs; }) externalModulesOutputs);
         in {
           apps.''${system}.init = {
             type = "app";
@@ -144,7 +134,9 @@ in
 
               ${icedosLib.injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
               ${icedosLib.injectIfExists { file = "/etc/nixos/extras.nix"; }}
-            ] ++ extraOptions ++ extraNixosModules;
+            ]
+            ++ icedosLib.modulesFromConfig.options
+            ++ (icedosLib.modulesFromConfig.nixosModules { inherit inputs; });
           };
         };
     }
