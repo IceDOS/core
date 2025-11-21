@@ -40,6 +40,10 @@ in
     {
       inputs = {
         ${flakeInputs}
+
+        ${concatMapStrings (
+          channel: ''"${channel}".url = github:NixOS/nixpkgs/${channel};''\n''
+        ) channels}
       };
 
       outputs =
