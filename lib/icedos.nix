@@ -18,6 +18,8 @@ let
 
   inherit (icedosLib)
     filterByAttrs
+    findFirst
+    flatMap
     hasAttrByPath
     stringStartsWith
     ICEDOS_STAGE
@@ -73,96 +75,25 @@ let
         modules = flake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
+        inherit url;
         inherit (flake) narHash;
         files = flatten modules;
       }
       // (optionalAttrs (hasAttr "rev" flake) { inherit (flake) rev; });
-
-    resolveExternalDependencyRecursively =
-      repoCfg:
-      let
-        inherit (builtins)
-          attrValues
-          elem
-          filter
-          foldl'
-          map
-          ;
-
-        inherit (lib) flatten;
-
-        repo = fetchModulesRepository repoCfg;
-
-        modules =
-          let
-            isDefault = name: if hasAttr "noDefault" repoCfg then false else (name == "default");
-          in
-          filter
-            (
-              subModule:
-              let
-                subModuleName = subModule.meta.name;
-              in
-              (elem subModuleName repoCfg.modules or [ ]) || isDefault subModuleName
-            )
-            (
-              map (
-                f:
-                import f {
-                  inherit config lib;
-                  icedosLib = finalIcedosLib;
-                }
-              ) repo.files
-            );
-
-        dependencies =
-          let
-            deps = flatten (map (m: m.meta.dependencies) (filterByAttrs [ "meta" "dependencies" ] modules));
-          in
-          map (
-            {
-              url ? "self",
-              modules ? [ ],
-            }:
-            if url == "self" then
-              resolveExternalDependencyRecursively {
-                inherit (repoCfg) url;
-                inherit modules;
-                noDefault = true;
-              }
-            else
-              resolveExternalDependencyRecursively {
-                inherit url modules;
-              }
-          ) deps;
-
-        allDeps = flatten ([ (repoCfg // { inherit modules repo; }) ] ++ dependencies);
-        deduped = attrValues (foldl' (acc: dep: acc // { ${dep.url} = dep; }) { } allDeps);
-      in
-      deduped;
-
-    extractIcedosModules =
-      repos:
-      let
-        inherit (builtins) map;
-
-        inherit (lib) flatten;
-
-        modulesPerRepo = map (r: map (m: m // { _repoInfo = r; }) r.modules) repos;
-      in
-      flatten (modulesPerRepo);
 
     getExternalModuleOutputs =
       modules:
       let
         inherit (builtins)
           attrNames
+          filter
           foldl'
           ;
 
         inherit (lib)
           flatten
           hasAttr
+          hasAttrByPath
           listToAttrs
           map
           removeAttrs
@@ -171,13 +102,13 @@ let
         modulesAsInputs = map (
           { _repoInfo, ... }:
           let
-            inherit (_repoInfo) repo url;
+            inherit (_repoInfo) url;
 
             flakeRev =
-              if (hasAttr "rev" repo) then
-                "/${repo.rev}"
-              else if (hasAttr "narHash" repo) then
-                "?narHash=${repo.narHash}"
+              if (hasAttr "rev" _repoInfo) then
+                "/${_repoInfo.rev}"
+              else if (hasAttr "narHash" _repoInfo) then
+                "?narHash=${_repoInfo.narHash}"
               else
                 "";
           in
@@ -301,6 +232,106 @@ let
       in
       readFile inputsNix;
 
+    resolveExternalDependencyRecursively =
+      {
+        newDeps,
+        existingDeps ? [ ],
+      }:
+      let
+        inherit (builtins)
+          elem
+          filter
+          foldl'
+          length
+          ;
+
+        inherit (lib) optional unique;
+
+        getModuleKey = url: name: "${url}#${name}";
+
+        loadModulesFromRepo =
+          repo:
+          let
+            modules = map (
+              f:
+              {
+                _repoInfo = repo;
+              }
+              // import f {
+                inherit config lib;
+                icedosLib = finalIcedosLib;
+              }
+            ) repo.files;
+
+            hasDefault = findFirst (mod: mod.meta.name == "default") modules != null;
+
+            result =
+              if (hasDefault) then
+                modules
+              else
+                (
+                  modules
+                  ++ [
+                    {
+                      _repoInfo = repo;
+                      meta.name = "default";
+                    }
+                  ]
+                );
+          in
+          result;
+
+        result = foldl' (
+          acc: newDep:
+          let
+            # Get list of needed modules
+            missingModules = (
+              filter (mod: !elem (getModuleKey newDep.url mod) existingDeps) (newDep.modules or [ ])
+            );
+
+            # Optional new repo
+            newRepo = optional (
+              (length missingModules) > 0 || !elem (getModuleKey newDep.url "default") existingDeps
+            ) (fetchModulesRepository newDep);
+
+            # Convert to list of modules
+            newModules = filter (
+              mod:
+              (!elem (getModuleKey mod._repoInfo.url mod.meta.name) existingDeps)
+              && (elem mod.meta.name (newDep.modules or []) || mod.meta.name == "default")
+            ) (flatMap loadModulesFromRepo newRepo);
+
+            # Convert to keys
+            newModulesKeys = map (mod: getModuleKey mod._repoInfo.url mod.meta.name) newModules;
+            allKnownKeys = (unique (existingDeps ++ newModulesKeys));
+
+            # Get deps
+            innerDeps = flatMap (
+              mod:
+              map (
+                {
+                  url ? newDep.url,
+                  modules,
+                }:
+                {
+                  url = if (url == "self") then newDep.url else url;
+                  modules = filter (mod: !elem (getModuleKey url mod) allKnownKeys) modules;
+                }
+              ) (mod.meta.dependencies or [ ])
+            ) newModules;
+          in
+          flatten (
+            acc
+            ++ newModules
+            ++ optional ((length innerDeps) > 0) (resolveExternalDependencyRecursively {
+              newDeps = innerDeps;
+              existingDeps = allKnownKeys;
+            })
+          )
+        ) [ ] newDeps;
+      in
+      result;
+
     modulesFromConfig =
       let
         inherit (builtins)
@@ -312,9 +343,7 @@ let
           flatten
           ;
 
-        modules = map (
-          repo: extractIcedosModules (resolveExternalDependencyRecursively repo)
-        ) config.repositories;
+        modules = (resolveExternalDependencyRecursively { newDeps = config.repositories; });
 
         deduped = attrValues (
           listToAttrs (

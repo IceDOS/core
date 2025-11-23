@@ -17,7 +17,7 @@ let
     pathExists
     ;
 
-  icedosLib = import ./icedos/lib {
+  icedosLib = import ./lib {
     inherit lib pkgs;
     config = icedos;
     self = ./.;
@@ -58,7 +58,7 @@ in
           inherit (builtins) fromTOML;
           inherit ((fromTOML (fileContents ./config.toml))) icedos;
 
-          icedosLib = import ./icedos/lib {
+          icedosLib = import ./lib {
             inherit lib pkgs inputs;
             config = icedos;
             self = ./.;
