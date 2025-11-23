@@ -1,78 +1,32 @@
 [[icedos.repositories]]
 url = "github:icedos/apps"
 modules = [
-  "bash",
   "btop",
   "celluloid",
-  "direnv",
-  "faugus-launcher",
   "gamemode",
   "gamescope",
-  "git",
+  "harmony-music",
   "input-remapper",
-  "kitty",
   "lact",
   "lsfg-vk",
   "mangohud",
-  "nautilus",
+  "me3",
   "ncdu",
   "network-manager",
-  "nh",
-  "nix",
-  "nix-health",
-  "nixfmt",
   "obs",
   "proton-launch",
+  "scx",
   "sd-inhibitor",
-  "solaar",
-  "ssh",
   "steam",
   "sunshine",
-  "toolset",
+  "tailscale",
   "wg-quick",
+  "wolf",
   "zed",
   "zen",
   "zenergy",
   "zenstates",
-  "zsh",
 ]
-
-[[icedos.repositories]]
-url = "github:icedos/desktop"
-modules = ["adwaita-qt", "clear-xdg-portals", "displays", "gdm"]
-
-[[icedos.repositories]]
-url = "github:icedos/hardware"
-modules = [
-  "bluetooth",
-  "disable-ipv6",
-  "graphics",
-  "kernel",
-  "mesa-unstable",
-  "monitors",
-  "mounts",
-  "pipewire",
-  "radeon",
-  "systemd-boot",
-  "uinput",
-  "upower",
-  "xpadneo",
-  "zram",
-]
-
-[[icedos.repositories]]
-url = "github:icedos/hyprland"
-
-[[icedos.repositories]]
-url = "github:icedos/tweaks"
-modules = ["gaming", "kernel"]
-
-[[icedos.repositories]]
-url = "github:icedos/users"
-
-[[icedos.repositories]]
-url = "github:icedos/providers"
-modules = ["chaotic"]
 
 [icedos.applications]
 defaultBrowser = "zen.desktop"
@@ -84,22 +38,75 @@ extraPackages = [
   "fragments",
   "gimp3",
   "harmony-music",
-  "newsflash",
+  "moonlight-qt",
+  "protonvpn-gui",
   "signal-desktop",
-  "umu-launcher",
   "warp",
 ]
 insecurePackages = []
+
+[icedos.applications.docker.daemonSettings]
+data-root = "/mnt/virtualisation/docker"
 
 [icedos.applications.git.users.icedborn]
 username = "IceDBorn"
 email = "git.outsider841@simplelogin.fr"
 
+[icedos.applications.kitty]
+hideDecorations = true
+
 [icedos.applications.mangohud]
-fpsLimit = "144,60,0"
+fpsLimit = "0,144,60,30"
+
+[[icedos.applications.me3.profiles]]
+name = "nr"
+config = """
+profileVersion = "v1"
+
+[[supports]]
+game = "nightrein"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/disable-chromatic-aberration.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/disable-sharpening-filter.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/disable-vignette.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/ultrawide-fix.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/unlock-the-fps.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/seamless-coop/nrsc.dll"
+
+[[packages]]
+id = "blue-filter-removal"
+path = "/home/icedborn/games/nr/packages/blue-filter-removal/"
+
+[[packages]]
+id = "ultrawide-ui-fixes-21-33"
+path = "/home/icedborn/games/nr/packages/ultrawide-ui-fixes/21.33/"
+"""
+
+[[icedos.applications.me3.profiles]]
+name = "nr-fsparty"
+dependencies = ["nr"]
+config = """
+[[packages]]
+id = "fsparty"
+path = "/home/icedborn/games/nr/packages/fsparty/"
+"""
 
 [icedos.applications.network-manager]
 applet = true
+
+[icedos.applications.scx]
+extraArgs = ["--performance"]
 
 [icedos.applications.sd-inhibitor.users.icedborn.watchers.pipewire]
 inputsToIgnore = ["Noise Canceling source", "Peak detect", "cava"]
@@ -107,10 +114,19 @@ outputsToIgnore = ["Discord", "Element"]
 
 [icedos.applications.steam]
 beta = true
+cpuUsageWorkaround = true
 downloadsWorkaround = true
 
-[icedos.applications.wg-quick]
-interfaces = ["protonvpn"]
+[icedos.applications.wolf]
+stateFolder = "/mnt/virtualisation/wolf"
+extraPackages = []
+extraVolumes = [
+  "/home/icedborn/.local/share/Steam/steamapps/appmanifest_2622380.acf:/home/retro/.steam/debian-installation/steamapps/appmanifest_2622380.acf",
+  "/home/icedborn/.local/share/Steam/steamapps/common/ELDEN RING NIGHTREIGN:/home/retro/.steam/debian-installation/steamapps/common/ELDEN RING NIGHTREIGN",
+]
+
+[icedos.applications.zed]
+vim = true
 
 [[icedos.applications.zen.profiles]]
 default = true
@@ -132,35 +148,99 @@ sites = [
 [icedos.applications.zenstates]
 serviceArgs = "-p 0 -v 3C -f A0"
 
+[[icedos.repositories]]
+url = "github:icedos/cosmic"
+
+[icedos.desktop.cosmic.wallpaper]
+wallpaper = "path:/home/icedborn/Pictures/wallpaper.jpg"
+
+[icedos.desktop.cosmic.windowManagement.focus]
+cursorFollowsFocus = true
+followsCursor = true
+
+[icedos.desktop.cosmic.windowManagement.controls]
+activeHint = true
+maximize = false
+minimize = false
+
+[icedos.desktop.cosmic.input.mouse]
+mouseSpeed = 65
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+action = "Close"
+keys = ["Super+semicolon"]
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+action = "Maximize"
+keys = ["Super+Greek_mu"]
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+command = "cosmic-screenshot"
+description = "Screenshot"
+keys = ["Super+p", "Super+Greek_pi"]
+variant = "Spawn"
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+command = "walker-emojis"
+description = "Emoji picker"
+keys = ["Super+e", "Super+Greek_epsilon"]
+variant = "Spawn"
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+command = "walker-clipboard"
+description = "Clipboard manager"
+keys = ["Super+v", "Super+Greek_omega"]
+variant = "Spawn"
+
+[icedos.desktop.cosmic.sound]
+showMediaControlsInPanel = true
+
+[icedos.desktop.cosmic.workspaces]
+tile = true
+
+[icedos.desktop.cosmic.users.icedborn]
+startupScript = """
+  sleep 3 &&
+  protonvpn-app &
+  signal-desktop &
+  zen-social &
+"""
+
+[[icedos.repositories]]
+url = "github:icedos/desktop"
+modules = ["cosmic-greeter"]
+
 [icedos.desktop]
 autologinUser = "icedborn"
 
-[icedos.desktop.hyprland.settings]
-startupScript = """
-nautilus -w &
-nautilus -w &
-signal-desktop &
-steam &
-zeditor &
-zen-beta --no-remote -P default --name zen-startup &
-zen-social &
-"""
-windowRules = [
-  "workspace 1 silent, class:^(zen-startup)$",
-  "workspace 2 silent, class:^(dev.zed.Zed)$",
-  "workspace 11 silent, class:^(signal|zen-social)$",
-  "workspace 12 silent, class:^(Steam|steam)$, title:^((?!notificationtoasts.*).)*$",
-  "workspace 12 silent, title:^(.*Steam[A-Za-z0-9\\s]*)$",
-  "workspace 13 silent, class:^(org\\.gnome\\.Nautilus)$",
-]
-
 [icedos.desktop.users.icedborn]
+
+[[icedos.repositories]]
+url = "github:icedos/hardware"
+modules = [
+  "bluetooth",
+  "disable-ipv6",
+  "kernel",
+  "mesa-unstable",
+  "monitors",
+  "mounts",
+  "pipewire",
+  "radeon",
+  "ryzen",
+  "systemd-boot",
+  "uinput",
+  "upower",
+  "zram",
+]
 
 [icedos.hardware.bootloaders.systemd-boot]
 mountPoint = "/boot"
 
+[icedos.hardware.graphics.radeon]
+featureMask = "0xffffffff"
+
 [icedos.hardware.kernel]
-version = "cachyos"
+version = "cachyos-rc"
 
 [[icedos.hardware.mounts]]
 path = "/"
@@ -169,13 +249,13 @@ fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.mounts]]
-path = "/mnt/games"
+path = "/mnt/virtualisation"
 device = "/dev/disk/by-uuid/040329ae-685d-4ba6-8bdd-e0a9785f9672"
 fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.mounts]]
-path = "/mnt/games2"
+path = "/mnt/games"
 device = "/dev/disk/by-uuid/60876d91-f863-45db-88c5-4c707879588f"
 fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
@@ -191,17 +271,25 @@ name = "DP-2"
 resolution = "3440x1440"
 refreshRate = 144
 position = "0x0"
-rotation = 0
 
 [[icedos.hardware.monitors]]
-name = "DP-1"
+name = "DP-3"
 resolution = "1920x1080"
 refreshRate = 144
 position = "3440x200"
-rotation = 0
 
-[icedos.system]
-version = "23.05"
+[icedos.hardware.network]
+firewall = false
+
+[[icedos.repositories]]
+url = "github:icedos/tweaks"
+modules = ["gaming", "kernel"]
+
+[[icedos.repositories]]
+url = "github:icedos/users"
 
 [icedos.users.icedborn]
 description = "IceDBorn"
+
+[icedos.system]
+version = "23.05"
