@@ -1,6 +1,6 @@
 let
   inherit (builtins) readFile;
-  inherit ((fromTOML (readFile ./config.toml))) icedos;
+  inherit ((fromTOML (readFile ../config.toml))) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
@@ -11,29 +11,27 @@ let
     concatMapStrings
     concatStringsSep
     fileContents
-    flatten
     listToAttrs
     map
     pathExists
     ;
 
-  icedosLib = import ./lib.nix {
+  icedosLib = import ../lib {
     inherit lib pkgs;
     config = icedos;
     self = ./.;
+    inputs = { };
   };
 
-  inherit (icedosLib) getExternalModuleOutputs serializeAllExternalInputs injectIfExists;
+  inherit (icedosLib) injectIfExists modulesFromConfig serializeAllExternalInputs;
 
   channels = icedos.system.channels or [ ];
   configurationLocation = fileContents "/tmp/icedos/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
-  externalModulesOutputs = map getExternalModuleOutputs icedos.repositories or [ ];
-  extraModulesInputs = flatten (map (mod: mod.inputs) externalModulesOutputs);
-
+  extraModulesInputs = modulesFromConfig.inputs;
   flakeInputs = serializeAllExternalInputs (listToAttrs extraModulesInputs);
-  nixosModulesText = flatten (map (mod: mod.nixosModulesText) externalModulesOutputs);
+  nixosModulesText = modulesFromConfig.nixosModulesText;
 in
 {
   flake.nix = ''
@@ -59,22 +57,13 @@ in
           inherit (builtins) fromTOML;
           inherit ((fromTOML (fileContents ./config.toml))) icedos;
 
-          icedosLib = import ./lib.nix {
+          icedosLib = import ./lib {
             inherit lib pkgs inputs;
             config = icedos;
             self = ./.;
           };
 
-          inherit (icedosLib) getExternalModuleOutputs;
-
-          externalModulesOutputs =
-            map
-            getExternalModuleOutputs
-            icedos.repositories;
-
-          extraOptions = flatten (map (mod: mod.options) externalModulesOutputs);
-
-          extraNixosModules = flatten (map (mod: mod.nixosModules { inherit inputs; }) externalModulesOutputs);
+          inherit (icedosLib) modulesFromConfig;
         in {
           apps.''${system}.init = {
             type = "app";
@@ -123,7 +112,7 @@ in
                     );
                 in
                 {
-                  imports = [./options.nix] ++ getModules ./.extra ++ getModules ./.private;
+                  imports = [ ./modules/options.nix ] ++ getModules ./.extra ++ getModules ./.private;
                   config.system.stateVersion = "${icedos.system.version}";
                 }
               )
@@ -148,8 +137,8 @@ in
               ${injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
               ${injectIfExists { file = "/etc/nixos/extras.nix"; }}
             ]
-            ++ extraOptions
-            ++ extraNixosModules;
+            ++ modulesFromConfig.options
+            ++ (modulesFromConfig.nixosModules { inherit inputs; });
           };
         };
     }

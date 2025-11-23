@@ -40,5 +40,5 @@ in
     };
   };
 
-  config = fromTOML (fileContents ./config.toml);
+  config = fromTOML (fileContents ../config.toml);
 }
