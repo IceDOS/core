@@ -40,10 +40,7 @@ in
     {
       inputs = {
         ${flakeInputs}
-
-        ${concatMapStrings (
-          channel: ''"${channel}".url = github:NixOS/nixpkgs/${channel};''\n''
-        ) channels}
+        ${concatMapStrings (channel: ''"${channel.name}".url = ${channel.url};''\n'') channels}
       };
 
       outputs =
@@ -107,7 +104,7 @@ in
               # Symlink configuration state on "/run/current-system/source"
               {
                 # Source: https://github.com/NixOS/nixpkgs/blob/5e4fbfb6b3de1aa2872b76d49fafc942626e2add/nixos/modules/system/activation/top-level.nix#L191
-                system.extraSystemBuilderCmds = "ln -s ''${self} $out/source";
+                system.systemBuilderCommands = "ln -s ''${self} $out/source";
               }
 
               # Internal modules and config
@@ -136,7 +133,7 @@ in
               ${concatMapStrings (channel: ''
                 (
                   {config, ...}: {
-                    nixpkgs.config.packageOverrides."${channel}" = import inputs."${channel}" {
+                    nixpkgs.config.packageOverrides."${channel.name}" = import inputs."${channel.name}" {
                       inherit system;
                       config = config.nixpkgs.config;
                     };
