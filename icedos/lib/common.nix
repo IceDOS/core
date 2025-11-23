@@ -2,16 +2,18 @@
 
 let
   inherit (builtins)
-    filter
     attrNames
+    filter
     foldl'
+    head
+    length
     listToAttrs
     map
     stringLength
     substring
     ;
 
-  inherit (lib) hasAttrByPath unique;
+  inherit (lib) flatten hasAttrByPath unique;
 
 in
 {
@@ -38,4 +40,13 @@ in
     );
 
   stringStartsWith = text: original: text == (substring 0 (stringLength text) original);
+
+  flatMap = cb: list: flatten (map cb list);
+
+  findFirst =
+    cb: list:
+    let
+      found = filter cb list;
+    in
+    if (length found) > 0 then head found else null;
 }
