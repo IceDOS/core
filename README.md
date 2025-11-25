@@ -10,8 +10,8 @@ This is a NixOS configuration project that aims to create a highly opinionated g
 ## Install
 
 ```bash
-git clone https://github.com/icedborn/icedos
-cd icedos
+git clone https://github.com/icedos/core
+cd core
 nix-shell ./build.sh --boot --first-install
 ```
 
