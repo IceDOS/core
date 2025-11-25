@@ -9,6 +9,7 @@ action="switch"
 globalBuildArgs=()
 nhBuildArgs=()
 nixBuildArgs=()
+isFirstInstall=""
 
 set -e
 
@@ -42,12 +43,27 @@ while [[ $# -gt 0 ]]; do
       globalBuildArgs=("$@")
       break
       ;;
+    --first-install)
+      shift
+      isFirstInstall=1
+      ;;
     -*|--*)
       echo "Unknown arg: $1" >&2
       exit 1
       ;;
   esac
 done
+
+export NIX_CONFIG="experimental-features = flakes nix-command"
+
+nixBin=$(nix eval --impure --raw --expr "
+    let pkgs = import <nixpkgs> {};
+    in with builtins;
+    if (compareVersions \"2.31.0\" pkgs.nix.version) > 0
+    then toString (getFlake \"github:NixOS/nixpkgs/nixpkgs-unstable\").legacyPackages.\${pkgs.stdenv.hostPlatform.system}.nix
+    else toString pkgs.nix
+")
+export PATH="$nixBin/bin:$PATH"
 
 mkdir -p "$ICEDOS_DIR"
 
@@ -57,9 +73,18 @@ printf "$PWD" > "$CONFIG"
 
 # Generate flake.nix
 [ -f "$FLAKE" ] && rm -f "$FLAKE"
-ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval $refresh --option build-use-sandbox false --show-trace --extra-experimental-features nix-command --write-to "$FLAKE" --file "./lib/genflake.nix" "$FLAKE"
+
+export ICEDOS_FLAKE_INPUTS=$(mktemp)
+
+ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval $refresh --show-trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
+(printf "{ inputs = {" ; cat $ICEDOS_FLAKE_INPUTS ; printf "}; outputs = { ... }: {}; }") >$FLAKE
+nix flake prefetch-inputs
+
+ICEDOS_STAGE="genflake" nix eval --show-trace --file "./lib/genflake.nix" --raw flakeFinal >$FLAKE
 nixfmt "$FLAKE"
-nix run .#init
+
+rm $ICEDOS_FLAKE_INPUTS
+unset ICEDOS_FLAKE_INPUTS
 
 [ "$update" == "1" ] && nix flake update
 
@@ -83,7 +108,7 @@ rsync -a ./ "$TMP_BUILD_FOLDER" \
 echo "Building from path $TMP_BUILD_FOLDER"
 
 # Build the system configuration
-if (( ${#nixBuildArgs[@]} != 0 )); then
+if (( ${#nixBuildArgs[@]} != 0 )) || [[ "$isFirstInstall" == 1 ]]; then
   sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" ${nixBuildArgs[*]} ${globalBuildArgs[*]}
   exit 0
 fi
