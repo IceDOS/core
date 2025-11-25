@@ -57,9 +57,18 @@ printf "$PWD" > "$CONFIG"
 
 # Generate flake.nix
 [ -f "$FLAKE" ] && rm -f "$FLAKE"
-ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval $refresh --option build-use-sandbox false --show-trace --extra-experimental-features nix-command --write-to "$FLAKE" --file "./lib/genflake.nix" "$FLAKE"
+
+export ICEDOS_FLAKE_INPUTS=$(mktemp)
+
+ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval $refresh --show-trace --extra-experimental-features nix-command --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
+(printf "{ inputs = {" ; cat $ICEDOS_FLAKE_INPUTS ; printf "}; outputs = { ... }: {}; }") >$FLAKE
+nix flake prefetch-inputs
+
+ICEDOS_STAGE="genflake" nix eval --show-trace --extra-experimental-features nix-command --file "./lib/genflake.nix" --raw flakeFinal >$FLAKE
 nixfmt "$FLAKE"
-nix run .#init
+
+rm $ICEDOS_FLAKE_INPUTS
+unset ICEDOS_FLAKE_INPUTS
 
 [ "$update" == "1" ] && nix flake update
 

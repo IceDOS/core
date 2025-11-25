@@ -1,5 +1,5 @@
 let
-  inherit (builtins) readFile;
+  inherit (builtins) getEnv readFile;
   inherit ((fromTOML (readFile ../config.toml))) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
@@ -23,21 +23,23 @@ let
     inputs = { };
   };
 
-  inherit (icedosLib) injectIfExists modulesFromConfig serializeAllExternalInputs;
+  inherit (icedosLib) injectIfExists modulesFromConfig;
 
   channels = icedos.system.channels or [ ];
   configurationLocation = fileContents "/tmp/icedos/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
   extraModulesInputs = modulesFromConfig.inputs;
-  flakeInputs = serializeAllExternalInputs (listToAttrs extraModulesInputs);
+  flakeInputs = listToAttrs extraModulesInputs;
   nixosModulesText = modulesFromConfig.nixosModulesText;
 in
 {
-  flake.nix = ''
+  inherit flakeInputs;
+
+  flakeFinal = ''
     {
       inputs = {
-        ${flakeInputs}
+        ${fileContents (getEnv "ICEDOS_FLAKE_INPUTS")}
         ${concatMapStrings (channel: ''"${channel.name}".url = ${channel.url};''\n'') channels}
       };
 
@@ -65,11 +67,6 @@ in
 
           inherit (icedosLib) modulesFromConfig;
         in {
-          apps.''${system}.init = {
-            type = "app";
-            program = toString (with pkgs; writeShellScript "icedos-flake-init" "exit");
-          };
-
           nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
               inherit icedosLib inputs;

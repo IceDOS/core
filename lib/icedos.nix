@@ -198,35 +198,6 @@ let
           ;
       };
 
-    serializeAllExternalInputs =
-      inputs:
-      let
-        inherit (builtins)
-          toFile
-          toJSON
-          ;
-
-        inputsJson = toFile "inputs.json" (toJSON inputs);
-
-        inputsNix =
-          with pkgs;
-          derivation {
-            inherit (pkgs.stdenv.hostPlatform) system;
-            __noChroot = true;
-            builder = "${bash}/bin/bash";
-            name = "inputs.nix";
-
-            args = [
-              "-c"
-              ''
-                export PATH=${coreutils}/bin:${gnused}/bin:${nix}/bin:${nixfmt-rfc-style}/bin
-                nix-instantiate --eval -E 'with builtins; fromJSON (readFile ${inputsJson})' | nixfmt | sed '1,1d' | sed '$d' >$out
-              ''
-            ];
-          };
-      in
-      readFile inputsNix;
-
     resolveExternalDependencyRecursively =
       {
         newDeps,
