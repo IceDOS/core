@@ -19,7 +19,7 @@ let
   icedosLib = import ../lib {
     inherit lib pkgs;
     config = icedos;
-    self = ./.;
+    self = ./..;
     inputs = { };
   };
 

@@ -3,7 +3,7 @@
   icedosLib,
   inputs,
   lib,
-  pkgs,
+  self,
   ...
 }:
 
@@ -14,13 +14,12 @@ let
     pathExists
     ;
 
-  inherit (lib) flatten;
+  inherit (lib) flatten hasAttrByPath;
 
   inherit (icedosLib)
     filterByAttrs
     findFirst
     flatMap
-    hasAttrByPath
     stringStartsWith
     ICEDOS_STAGE
     INPUTS_PREFIX
@@ -54,7 +53,7 @@ let
 
         flakeRev =
           let
-            lock = fromJSON (readFile ./flake.lock);
+            lock = fromJSON (readFile "${self}/flake.lock");
           in
           if (getEnv "ICEDOS_UPDATE" == "1") then
             ""
@@ -67,7 +66,7 @@ let
           else
             "";
 
-        rev = if (pathExists ./flake.lock) then flakeRev else "";
+        rev = if (pathExists "${self}/flake.lock") then flakeRev else "";
 
         flakeUrl = "${url}${rev}";
         flake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
