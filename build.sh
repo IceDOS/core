@@ -25,7 +25,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --update)
       update="1"
-      refresh="--refresh"
+      update_repos="1"
+      shift
+      ;;
+    --update-nix)
+      update="1"
+      shift
+      ;;
+    --update-repos)
+      update_repos="1"
       shift
       ;;
     --ask)
@@ -76,7 +84,9 @@ printf "$PWD" > "$CONFIG"
 
 export ICEDOS_FLAKE_INPUTS=$(mktemp)
 
-ICEDOS_UPDATE="$update" ICEDOS_STAGE="genflake" nix eval $refresh --show-trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
+[ "$update_repos" == "1" ] && refresh="--refresh"
+
+ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh --show-trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
 (printf "{ inputs = {" ; cat $ICEDOS_FLAKE_INPUTS ; printf "}; outputs = { ... }: {}; }") >$FLAKE
 nix flake prefetch-inputs
 
