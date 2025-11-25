@@ -30,7 +30,14 @@ let
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
   extraModulesInputs = modulesFromConfig.inputs;
-  flakeInputs = listToAttrs extraModulesInputs;
+  flakeInputs = listToAttrs (
+    extraModulesInputs
+    ++ (map (c: {
+      inherit (c) name;
+      value = { inherit (c) url; };
+    }) channels)
+  );
+
   nixosModulesText = modulesFromConfig.nixosModulesText;
 in
 {
@@ -40,7 +47,6 @@ in
     {
       inputs = {
         ${fileContents (getEnv "ICEDOS_FLAKE_INPUTS")}
-        ${concatMapStrings (channel: ''"${channel.name}".url = ${channel.url};''\n'') channels}
       };
 
       outputs =
