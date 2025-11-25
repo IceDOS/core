@@ -12,7 +12,7 @@ This is a NixOS configuration project that aims to create a highly opinionated g
 ```bash
 mkdir -p ~/.config/nix
 echo "experimental-features = flakes nix-command" > ~/.config/nix/nix.conf
-git clone https://github.com/icedborn/icedos
+git clone https://github.com/icedos/core
 cd icedos
 nix-shell ./build.sh
 ```
