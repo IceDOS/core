@@ -9,17 +9,18 @@
 let
   inherit (builtins)
     attrNames
-    foldl'
+    listToAttrs
     map
     pathExists
     ;
+
+  inherit (icedosLib) generateAttrPath;
 
   inherit (lib)
     fileContents
     filterAttrs
     flatten
     mapAttrsToList
-    splitString
     ;
 
   inherit (icedosLib) stringStartsWith;
@@ -55,8 +56,7 @@ rec {
       value = attrs;
     }) (filterAttrs (n: v: v.isNormalUser) users);
 
-  pkgMapper =
-    pkgList: map (pkgName: foldl' (acc: cur: acc.${cur}) pkgs (splitString "." pkgName)) pkgList;
+  pkgMapper = pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
 
   injectIfExists =
     { file }:
@@ -105,4 +105,16 @@ rec {
         ) directoriesPaths
       )
     );
+
+  generatePackageOverlaysFromChannel = channel: packages: [
+    (
+      self: super:
+      listToAttrs (
+        map (package: {
+          name = package;
+          value = generateAttrPath super.${channel} package;
+        }) packages
+      )
+    )
+  ];
 }

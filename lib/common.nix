@@ -13,7 +13,12 @@ let
     substring
     ;
 
-  inherit (lib) flatten hasAttrByPath unique;
+  inherit (lib)
+    flatten
+    hasAttrByPath
+    splitString
+    unique
+    ;
 
 in
 {
@@ -49,4 +54,6 @@ in
       found = filter cb list;
     in
     if (length found) > 0 then head found else null;
+
+  generateAttrPath = base: string: foldl' (acc: cur: acc.${cur}) base (splitString "." string);
 }
