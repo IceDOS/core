@@ -33,8 +33,8 @@ in
       };
 
       repositories = mkSubmoduleListOption { } {
-        name = mkStrOption { };
         url = mkStrOption { };
+        fetchOptionalDependencies = mkBoolOption { };
         modules = mkStrListOption { };
       };
     };

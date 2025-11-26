@@ -60,7 +60,7 @@ in
           system = "${system}";
           pkgs = nixpkgs.legacyPackages.''${system};
           inherit (pkgs) lib;
-          inherit (lib) fileContents flatten map;
+          inherit (lib) fileContents map;
 
           inherit (builtins) fromTOML;
           inherit ((fromTOML (fileContents ./config.toml))) icedos;
