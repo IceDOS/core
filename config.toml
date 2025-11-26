@@ -1,5 +1,6 @@
 [[icedos.repositories]]
 url = "github:icedos/apps"
+fetchOptionalDependencies = true
 modules = [
   "btop",
   "celluloid",
@@ -15,6 +16,7 @@ modules = [
   "network-manager",
   "obs",
   "proton-launch",
+  "reigntweak",
   "scx",
   "sd-inhibitor",
   "steam",
@@ -150,6 +152,7 @@ serviceArgs = "-p 0 -v 3C -f A0"
 
 [[icedos.repositories]]
 url = "github:icedos/cosmic"
+fetchOptionalDependencies = true
 
 [icedos.desktop.cosmic.wallpaper]
 wallpaper = "path:/home/icedborn/Pictures/wallpaper.jpg"
@@ -293,3 +296,19 @@ description = "IceDBorn"
 
 [icedos.system]
 version = "23.05"
+
+# [[icedos.system.channels]]
+# name = "master"
+# url = "github:nixos/nixpkgs/master"
+
+# [[icedos.system.channels]]
+# name = "small"
+# url = "github:nixos/nixpkgs/nixos-unstable-small"
+
+# [[icedos.system.channels]]
+# name = "unstable"
+# url = "github:nixos/nixpkgs/nixpkgs-unstable"
+
+# [[icedos.system.channels]]
+# name = "stable"
+# url = "github:nixos/nixpkgs/nixos-25.05"

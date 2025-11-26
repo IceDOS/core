@@ -213,7 +213,7 @@ let
           length
           ;
 
-        inherit (lib) optional unique;
+        inherit (lib) optional optionals unique;
 
         getModuleKey = url: name: "${url}/${name}";
 
@@ -276,16 +276,24 @@ let
             # Get deps
             innerDeps = flatMap (
               mod:
-              map (
-                {
-                  url ? newDep.url,
-                  modules ? [ ],
-                }:
-                {
-                  url = if (url == "self") then newDep.url else url;
-                  modules = filter (mod: !elem (getModuleKey url mod) allKnownKeys) modules;
-                }
-              ) (mod.meta.dependencies or [ ])
+              map
+                (
+                  {
+                    url ? newDep.url,
+                    modules ? [ ],
+                  }:
+                  {
+                    url = if (url == "self") then newDep.url else url;
+                    modules = filter (mod: !elem (getModuleKey url mod) allKnownKeys) modules;
+                  }
+                )
+                (
+                  let
+                    inherit (mod) meta;
+                  in
+                  (meta.dependencies or [ ])
+                  ++ optionals (newDep.fetchOptionalDependencies or false) (meta.optionalDependencies or [ ])
+                )
             ) newModules;
           in
           flatten (
