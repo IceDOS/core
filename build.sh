@@ -1,5 +1,8 @@
-#! /usr/bin/env nix-shell
-#! nix-shell -i bash -p git jq jsonfmt nh nixfmt rsync toml2json
+#!/usr/bin/env bash
+
+ICEDOS_DIR="/tmp/icedos"
+CONFIG="$ICEDOS_DIR/configuration-location"
+FLAKE="flake.nix"
 
 cd "$(dirname "$(readlink -f "$0")")"
 FLAKE="flake.nix"
@@ -72,23 +75,23 @@ done
 
 export NIX_CONFIG="experimental-features = flakes nix-command"
 
-nixBin=$(nix eval --impure --raw --expr "
-    let pkgs = import <nixpkgs> {};
-    in with builtins;
-    if (compareVersions \"2.31.0\" pkgs.nix.version) > 0
-    then toString (getFlake \"github:NixOS/nixpkgs/nixpkgs-unstable\").legacyPackages.\${pkgs.stdenv.hostPlatform.system}.nix
-    else toString pkgs.nix
-")
-export PATH="$nixBin/bin:$PATH"
+mkdir -p "$ICEDOS_DIR"
+
+export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
+mkdir -p "$ICEDOS_BUILD_DIR"
+
+# Save current directory into a file
+[ -f "$CONFIG" ] && rm -f "$CONFIG" || sudo rm -rf "$CONFIG"
+printf "$ICEDOS_STATE_DIR" > "$CONFIG"
 
 [ "$update_repos" == "1" ] && refresh="--refresh"
 
-export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d")"
-echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >$FLAKE
-nix flake prefetch-inputs
+export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d")"
+echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >"$ICEDOS_STATE_DIR/$FLAKE"
+( cd "$ICEDOS_STATE_DIR" ; nix flake prefetch-inputs )
 
-ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" --raw flakeFinal >$FLAKE
-nixfmt "$FLAKE"
+ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
+nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 
 if [ "$export_full_config" == "1" ]; then
   ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
@@ -100,26 +103,23 @@ if [ "$export_full_config" == "1" ]; then
   exit 0
 fi
 
-[ "$update" == "1" ] && nix flake update
+[ "$update" == "1" ] && (
+    cd "$ICEDOS_STATE_DIR"
+    nix flake update
+)
 
-# Make a tmp folder and build from there
-TMP_BUILD_FOLDER="$(mktemp -d -t icedos-build-XXXXXXX-0 | xargs echo)/"
-
-mkdir -p "$TMP_BUILD_FOLDER"
-
-rsync -a ./ "$TMP_BUILD_FOLDER" \
---exclude='.cache' \
---exclude='.editorconfig' \
+rsync -a "$ICEDOS_CONFIG_ROOT" "$ICEDOS_BUILD_DIR" \
 --exclude='.git' \
 --exclude='.gitignore' \
---exclude='.lib' \
---exclude='.modules' \
---exclude='.taplo.toml' \
+--exclude='flake.lock' \
+--exclude='flake.nix' \
 --exclude='LICENSE' \
---exclude='README.md' \
---exclude='build.sh'
+--exclude='README.md'
 
-echo "Building from path $TMP_BUILD_FOLDER"
+cp "$ICEDOS_STATE_DIR"/* "$ICEDOS_BUILD_DIR"
+
+echo "Building from path $ICEDOS_BUILD_DIR"
+cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
 if (( ${#nixBuildArgs[@]} != 0 )) || [[ "$isFirstInstall" == 1 ]]; then
@@ -127,4 +127,4 @@ if (( ${#nixBuildArgs[@]} != 0 )) || [[ "$isFirstInstall" == 1 ]]; then
   exit 0
 fi
 
-nh os $action "$TMP_BUILD_FOLDER" ${nhBuildArgs[*]} -- $trace ${globalBuildArgs[*]}
+nh os $action . ${nhBuildArgs[*]} -- $trace ${globalBuildArgs[*]}

@@ -1,5 +1,6 @@
 {
   icedosLib,
+  inputs,
   lib,
   ...
 }:
@@ -40,5 +41,5 @@ in
     };
   };
 
-  config = fromTOML (fileContents ../config.toml);
+  config = fromTOML (fileContents "${inputs.icedos-config}/config.toml");
 }
