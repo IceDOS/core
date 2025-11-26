@@ -10,8 +10,9 @@
 let
   inherit (builtins)
     hasAttr
-    readFile
     pathExists
+    readFile
+    replaceStrings
     ;
 
   inherit (lib) flatten hasAttrByPath;
@@ -33,7 +34,9 @@ let
         url,
         subMod ? null,
       }:
-      if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}";
+      replaceStrings [ ":" "/" ] [ "_" "_" ] (
+        if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}"
+      );
 
     fetchModulesRepository =
       {
@@ -263,7 +266,7 @@ let
             newModules = filter (
               mod:
               (!elem (getModuleKey mod._repoInfo.url mod.meta.name) existingDeps)
-              && (elem mod.meta.name (newDep.modules or []) || mod.meta.name == "default")
+              && (elem mod.meta.name (newDep.modules or [ ]) || mod.meta.name == "default")
             ) (flatMap loadModulesFromRepo newRepo);
 
             # Convert to keys
@@ -276,7 +279,7 @@ let
               map (
                 {
                   url ? newDep.url,
-                  modules ? [],
+                  modules ? [ ],
                 }:
                 {
                   url = if (url == "self") then newDep.url else url;
