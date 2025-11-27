@@ -43,8 +43,7 @@ while [[ $# -gt 0 ]]; do
     --builder)
       nixBuildArgs+=("--build-host")
       nixBuildArgs+=("$2")
-      shift
-      shift
+      shift 2
       ;;
     --build-args)
       shift
@@ -52,8 +51,13 @@ while [[ $# -gt 0 ]]; do
       break
       ;;
     --first-install)
-      shift
       isFirstInstall=1
+      shift
+      ;;
+    --logs)
+      export ICEDOS_LOGGING=1
+      trace="--show-trace"
+      shift
       ;;
     -*|--*)
       echo "Unknown arg: $1" >&2
@@ -86,11 +90,11 @@ export ICEDOS_FLAKE_INPUTS=$(mktemp)
 
 [ "$update_repos" == "1" ] && refresh="--refresh"
 
-ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh --show-trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
+ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
 (printf "{ inputs = {" ; cat $ICEDOS_FLAKE_INPUTS ; printf "}; outputs = { ... }: {}; }") >$FLAKE
 nix flake prefetch-inputs
 
-ICEDOS_STAGE="genflake" nix eval --show-trace --file "./lib/genflake.nix" --raw flakeFinal >$FLAKE
+ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" --raw flakeFinal >$FLAKE
 nixfmt "$FLAKE"
 
 rm $ICEDOS_FLAKE_INPUTS
@@ -119,8 +123,8 @@ echo "Building from path $TMP_BUILD_FOLDER"
 
 # Build the system configuration
 if (( ${#nixBuildArgs[@]} != 0 )) || [[ "$isFirstInstall" == 1 ]]; then
-  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" ${nixBuildArgs[*]} ${globalBuildArgs[*]}
+  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" $trace ${nixBuildArgs[*]} ${globalBuildArgs[*]}
   exit 0
 fi
 
-nh os $action "$TMP_BUILD_FOLDER" ${nhBuildArgs[*]} -- ${globalBuildArgs[*]}
+nh os $action "$TMP_BUILD_FOLDER" ${nhBuildArgs[*]} -- $trace ${globalBuildArgs[*]}

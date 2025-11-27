@@ -1,10 +1,14 @@
-_: {
+_:
+let
+  inherit (builtins) getEnv;
+in
+{
   INPUTS_PREFIX = "icedos";
-  ENABLE_LOGGING = false;
+  ENABLE_LOGGING = if ((getEnv "ICEDOS_LOGGING") == "1") then true else false;
 
   ICEDOS_STAGE =
     let
-      stage = builtins.getEnv "ICEDOS_STAGE";
+      stage = getEnv "ICEDOS_STAGE";
     in
     if stage != "" then stage else "nixos_build";
 }
