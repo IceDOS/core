@@ -1,6 +1,6 @@
 let
-  inherit (builtins) getEnv readFile;
-  inherit ((fromTOML (readFile ../config.toml))) icedos;
+  inherit (builtins) getEnv getFlake readFile;
+  inherit (fromTOML (readFile "${getEnv "ICEDOS_CONFIG_ROOT"}/config.toml")) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
@@ -36,6 +36,20 @@ let
       inherit (c) name;
       value = { inherit (c) url; };
     }) channels)
+    ++ [
+      {
+        name = "icedos-config";
+        value = {
+          url = "path:${getEnv "ICEDOS_CONFIG_ROOT"}";
+        };
+      }
+      {
+        name = "icedos-core";
+        value = {
+          follows = "icedos-config/icedos";
+        };
+      }
+    ]
   );
 
   nixosModulesText = modulesFromConfig.nixosModulesText;
@@ -62,13 +76,13 @@ in
           inherit (pkgs) lib;
           inherit (lib) fileContents map;
 
-          inherit (builtins) fromTOML;
-          inherit ((fromTOML (fileContents ./config.toml))) icedos;
+          inherit (builtins) fromTOML pathExists;
+          inherit ((fromTOML (fileContents "''${inputs.icedos-config}/config.toml"))) icedos;
 
-          icedosLib = import ./lib {
+          icedosLib = import "''${inputs.icedos-core}/lib" {
             inherit lib pkgs inputs;
             config = icedos;
-            self = ./.;
+            self = toString inputs.icedos-core;
           };
 
           inherit (icedosLib) modulesFromConfig;
@@ -115,7 +129,7 @@ in
                     );
                 in
                 {
-                  imports = [ ./modules/options.nix ] ++ getModules ./.extra ++ getModules ./.private;
+                  imports = [ "''${inputs.icedos-core}/modules/options.nix" ] ++ (if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else []);
                   config.system.stateVersion = "${icedos.system.version}";
                 }
               )
