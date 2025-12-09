@@ -29,7 +29,28 @@ let
   configurationLocation = fileContents "/tmp/icedos/configuration-location";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
-  extraModulesInputs = modulesFromConfig.inputs;
+  nixpkgsInput = {
+    name = "nixpkgs";
+
+    value = {
+      url = "github:nixos/nixpkgs/nixos-unstable";
+    };
+  };
+
+  homeManagerInput = {
+    name = "home-manager";
+
+    value = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  extraModulesInputs = modulesFromConfig.inputs ++ [
+    homeManagerInput
+    nixpkgsInput
+  ];
+
   flakeInputs = listToAttrs (
     extraModulesInputs
     ++ (map (c: {
