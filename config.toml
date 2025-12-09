@@ -12,6 +12,7 @@ modules = [
   "lsfg-vk",
   "mangohud",
   "me3",
+  "nautilus",
   "ncdu",
   "network-manager",
   "obs",
@@ -43,6 +44,7 @@ extraPackages = [
   "moonlight-qt",
   "protonvpn-gui",
   "signal-desktop",
+  "steamtinkerlaunch",
   "warp",
 ]
 insecurePackages = []
@@ -50,7 +52,7 @@ insecurePackages = []
 [icedos.applications.docker.daemonSettings]
 data-root = "/mnt/virtualisation/docker"
 
-[icedos.applications.git.users.icedborn]
+[icedos.applications.git.users.ice]
 username = "IceDBorn"
 email = "git.outsider841@simplelogin.fr"
 
@@ -64,44 +66,45 @@ fpsLimit = "0,144,60,30"
 name = "nr"
 config = """
 profileVersion = "v1"
+start_online = true
 
 [[supports]]
 game = "nightrein"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/disable-chromatic-aberration.dll"
+path = "/home/ice/games/nr/natives/disable-sharpening.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/disable-sharpening-filter.dll"
+path = "/home/ice/games/nr/natives/remove-chromatic-aberration.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/disable-vignette.dll"
+path = "/home/ice/games/nr/natives/remove-vignette.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/ultrawide-fix.dll"
+path = "/home/ice/games/nr/natives/ultrawide.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/unlock-the-fps.dll"
-
-[[natives]]
-path = "/home/icedborn/games/nr/natives/seamless-coop/nrsc.dll"
-
-[[packages]]
-id = "blue-filter-removal"
-path = "/home/icedborn/games/nr/packages/blue-filter-removal/"
-
-[[packages]]
-id = "ultrawide-ui-fixes-21-33"
-path = "/home/icedborn/games/nr/packages/ultrawide-ui-fixes/21.33/"
+path = "/home/ice/games/nr/natives/unlock-fps/unlock-fps.dll"
 """
 
 [[icedos.applications.me3.profiles]]
-name = "nr-fsparty"
+name = "nr-seamless"
 dependencies = ["nr"]
 config = """
+[[natives]]
+path = "/home/ice/games/nr/natives/seamless-coop/nrsc.dll"
+
 [[packages]]
-id = "fsparty"
-path = "/home/icedborn/games/nr/packages/fsparty/"
+id = "blue-filter-removal"
+path = "/home/ice/games/nr/packages/blue-filter-removal/"
+"""
+
+[[icedos.applications.me3.profiles]]
+name = "nr-cl"
+dependencies = ["nr"]
+config = """
+[[natives]]
+path = "/home/ice/games/nr/natives/cl_server_redirector.dll"
 """
 
 [icedos.applications.network-manager]
@@ -110,7 +113,7 @@ applet = true
 [icedos.applications.scx]
 extraArgs = ["--performance"]
 
-[icedos.applications.sd-inhibitor.users.icedborn.watchers.pipewire]
+[icedos.applications.sd-inhibitor.users.ice.watchers.pipewire]
 inputsToIgnore = ["Noise Canceling source", "Peak detect", "cava"]
 outputsToIgnore = ["Discord", "Element"]
 
@@ -123,8 +126,8 @@ downloadsWorkaround = true
 stateFolder = "/mnt/virtualisation/wolf"
 extraPackages = []
 extraVolumes = [
-  "/home/icedborn/.local/share/Steam/steamapps/appmanifest_2622380.acf:/home/retro/.steam/debian-installation/steamapps/appmanifest_2622380.acf",
-  "/home/icedborn/.local/share/Steam/steamapps/common/ELDEN RING NIGHTREIGN:/home/retro/.steam/debian-installation/steamapps/common/ELDEN RING NIGHTREIGN",
+  "/home/ice/.local/share/Steam/steamapps/appmanifest_2622380.acf:/home/retro/.steam/debian-installation/steamapps/appmanifest_2622380.acf",
+  "/home/ice/.local/share/Steam/steamapps/common/ELDEN RING NIGHTREIGN:/home/retro/.steam/debian-installation/steamapps/common/ELDEN RING NIGHTREIGN",
 ]
 
 [icedos.applications.zed]
@@ -154,8 +157,16 @@ serviceArgs = "-p 0 -v 3C -f A0"
 url = "github:icedos/cosmic"
 fetchOptionalDependencies = true
 
+[icedos.desktop.cosmic]
+excludeDefaultPackages = [
+  "cosmic-applibrary",
+  "cosmic-files",
+  "cosmic-initial-setup",
+  "cosmic-launcher",
+]
+
 [icedos.desktop.cosmic.wallpaper]
-wallpaper = "path:/home/icedborn/Pictures/wallpaper.jpg"
+wallpaper = "path:/home/ice/Pictures/wallpaper.jpg"
 
 [icedos.desktop.cosmic.windowManagement.focus]
 cursorFollowsFocus = true
@@ -178,6 +189,10 @@ action = "Maximize"
 keys = ["Super+Greek_mu"]
 
 [[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+action = "ToggleWindowFloating"
+keys = ["Super+g", "Super+Greek_gamma"]
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
 command = "cosmic-screenshot"
 description = "Screenshot"
 keys = ["Super+p", "Super+Greek_pi"]
@@ -195,19 +210,19 @@ description = "Clipboard manager"
 keys = ["Super+v", "Super+Greek_omega"]
 variant = "Spawn"
 
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+command = "walker-applications"
+description = "Application launcher"
+keys = ["Super+r", "Super+Greek_rho"]
+variant = "Spawn"
+
 [icedos.desktop.cosmic.sound]
 showMediaControlsInPanel = true
 
 [icedos.desktop.cosmic.workspaces]
 tile = true
 
-[icedos.desktop.cosmic.users.icedborn]
-startupScript = """
-  sleep 3 &&
-  protonvpn-app &
-  signal-desktop &
-  zen-social &
-"""
+[icedos.desktop.cosmic.users.ice]
 
 [[icedos.repositories]]
 url = "github:icedos/hardware"
@@ -215,7 +230,6 @@ modules = [
   "bluetooth",
   "disable-ipv6",
   "kernel",
-  "mesa-unstable",
   "monitors",
   "mounts",
   "pipewire",
@@ -224,7 +238,7 @@ modules = [
   "systemd-boot",
   "uinput",
   "upower",
-  "zram",
+  "xpadneo",
 ]
 
 [icedos.hardware.bootloaders.systemd-boot]
@@ -234,11 +248,11 @@ mountPoint = "/boot"
 featureMask = "0xffffffff"
 
 [icedos.hardware.kernel]
-version = "cachyos-rc"
+version = "zen"
 
 [[icedos.hardware.mounts]]
 path = "/"
-device = "/dev/disk/by-uuid/e2a8d4bf-b1fc-446f-b347-c3671eda1ccb"
+device = "/dev/mapper/luks-f71c56ea-2db0-47d2-b57c-21b8f7ea1b22"
 fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
@@ -277,29 +291,38 @@ firewall = false
 
 [[icedos.repositories]]
 url = "github:icedos/tweaks"
-modules = ["gaming", "kernel"]
+modules = [
+  "cachyos",
+  "gaming",
+  "kernel"
+]
 
 [[icedos.repositories]]
 url = "github:icedos/users"
 
-[icedos.users.icedborn]
+[icedos.users.ice]
 description = "IceDBorn"
 
 [icedos.desktop]
-autologinUser = "icedborn"
+autologinUser = "ice"
 
-[icedos.desktop.users.icedborn]
+[icedos.desktop.users.ice]
+startupScript = """
+  protonvpn-app &
+  signal-desktop &
+  zen-social &
+"""
 
 [icedos.system]
-version = "23.05"
+version = "25.11"
 
 # [[icedos.system.channels]]
 # name = "master"
 # url = "github:nixos/nixpkgs/master"
 
-[[icedos.system.channels]]
-name = "small"
-url = "github:nixos/nixpkgs/nixos-unstable-small"
+# [[icedos.system.channels]]
+# name = "small"
+# url = "github:nixos/nixpkgs/nixos-unstable-small"
 
 # [[icedos.system.channels]]
 # name = "unstable"
