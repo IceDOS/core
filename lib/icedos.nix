@@ -34,7 +34,7 @@ let
         url,
         subMod ? null,
       }:
-      replaceStrings [ ":" "/" ] [ "_" "_" ] (
+      replaceStrings [ ":" "/" "." ] [ "_" "_" "_" ] (
         if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}"
       );
 

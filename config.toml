@@ -43,6 +43,7 @@ extraPackages = [
   "moonlight-qt",
   "protonvpn-gui",
   "signal-desktop",
+  "steamtinkerlaunch",
   "warp",
 ]
 insecurePackages = []
@@ -69,30 +70,41 @@ profileVersion = "v1"
 game = "nightrein"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/disable-chromatic-aberration.dll"
+path = "/home/icedborn/games/nr/natives/disable-sharpening.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/disable-sharpening-filter.dll"
+path = "/home/icedborn/games/nr/natives/nrss/dxgi.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/disable-vignette.dll"
+path = "/home/icedborn/games/nr/natives/nrss/nrss.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/ultrawide-fix.dll"
+path = "/home/icedborn/games/nr/natives/remove-chromatic-aberration.dll"
 
 [[natives]]
-path = "/home/icedborn/games/nr/natives/unlock-the-fps.dll"
+path = "/home/icedborn/games/nr/natives/remove-vignette.dll"
 
 [[natives]]
 path = "/home/icedborn/games/nr/natives/seamless-coop/nrsc.dll"
 
+[[natives]]
+path = "/home/icedborn/games/nr/natives/ultrawide.dll"
+
+[[natives]]
+path = "/home/icedborn/games/nr/natives/unlock-fps/unlock-fps.dll"
+
 [[packages]]
 id = "blue-filter-removal"
 path = "/home/icedborn/games/nr/packages/blue-filter-removal/"
+"""
 
+[[icedos.applications.me3.profiles]]
+name = "nr-free"
+dependencies = ["nr"]
+config = """
 [[packages]]
-id = "ultrawide-ui-fixes-21-33"
-path = "/home/icedborn/games/nr/packages/ultrawide-ui-fixes/21.33/"
+id = "free"
+path = "/home/icedborn/games/nr/packages/free/"
 """
 
 [[icedos.applications.me3.profiles]]
@@ -202,12 +214,6 @@ showMediaControlsInPanel = true
 tile = true
 
 [icedos.desktop.cosmic.users.icedborn]
-startupScript = """
-  sleep 3 &&
-  protonvpn-app &
-  signal-desktop &
-  zen-social &
-"""
 
 [[icedos.repositories]]
 url = "github:icedos/hardware"
@@ -215,7 +221,6 @@ modules = [
   "bluetooth",
   "disable-ipv6",
   "kernel",
-  "mesa-unstable",
   "monitors",
   "mounts",
   "pipewire",
@@ -234,7 +239,7 @@ mountPoint = "/boot"
 featureMask = "0xffffffff"
 
 [icedos.hardware.kernel]
-version = "cachyos-rc"
+version = "zen"
 
 [[icedos.hardware.mounts]]
 path = "/"
@@ -289,6 +294,12 @@ description = "IceDBorn"
 autologinUser = "icedborn"
 
 [icedos.desktop.users.icedborn]
+startupScript = """
+  sleep 1 &&
+  protonvpn-app &
+  signal-desktop &
+  zen-social &
+"""
 
 [icedos.system]
 version = "23.05"
