@@ -19,7 +19,7 @@ in
   options = {
     icedos = {
       system = {
-        arch = mkStrOption { };
+        arch = mkStrOption { default = "x86_64-linux"; };
 
         channels = mkSubmoduleListOption { default = [ ]; } {
           name = mkStrOption { };
@@ -34,8 +34,8 @@ in
 
       repositories = mkSubmoduleListOption { } {
         url = mkStrOption { };
-        fetchOptionalDependencies = mkBoolOption { };
-        modules = mkStrListOption { };
+        fetchOptionalDependencies = mkBoolOption { default = false; };
+        modules = mkStrListOption { default = [ ]; };
       };
     };
   };

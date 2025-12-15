@@ -1,5 +1,5 @@
 #! /usr/bin/env nix-shell
-#! nix-shell -i bash -p git nh nixfmt-rfc-style rsync
+#! nix-shell -i bash -p git jq jsonfmt nh nixfmt-rfc-style rsync
 
 ICEDOS_DIR="/tmp/icedos"
 CONFIG="$ICEDOS_DIR/configuration-location"
@@ -21,6 +21,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --build)
       action="build"
+      shift
+      ;;
+    --export-full-config)
+      export_full_config=1
       shift
       ;;
     --update)
@@ -99,6 +103,13 @@ nixfmt "$FLAKE"
 
 rm $ICEDOS_FLAKE_INPUTS
 unset ICEDOS_FLAKE_INPUTS
+
+if [ "$export_full_config" == "1" ]; then
+  ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > full-config.json
+  jsonfmt ./full-config.json -w
+  echo "Full config saved at $PWD/full-config.json"
+  exit 0
+fi
 
 [ "$update" == "1" ] && nix flake update
 
