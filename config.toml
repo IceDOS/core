@@ -308,6 +308,7 @@ autologinUser = "ice"
 
 [icedos.desktop.users.ice]
 startupScript = """
+  sleep 1 &&
   protonvpn-app &
   signal-desktop &
   zen-social &
