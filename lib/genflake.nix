@@ -1,6 +1,7 @@
 let
-  inherit (builtins) getEnv readFile;
-  inherit ((fromTOML (readFile ../config.toml))) icedos;
+  inherit (builtins) getEnv readFile toJSON;
+  config = (fromTOML (readFile ../config.toml));
+  inherit (config) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
@@ -10,10 +11,13 @@ let
     boolToString
     concatMapStrings
     concatStringsSep
+    evalModules
     fileContents
+    foldl'
     listToAttrs
     map
     pathExists
+    recursiveUpdate
     ;
 
   icedosLib = import ../lib {
@@ -60,9 +64,28 @@ let
   );
 
   nixosModulesText = modulesFromConfig.nixosModulesText;
+
+  evaluatedConfig =
+    toJSON
+      (evalModules {
+        modules = [
+          {
+            inherit config;
+
+            options =
+              let
+                mergedOptions =
+                  foldl' (acc: cur: recursiveUpdate acc cur.options)
+                    (import ../modules/options.nix { inherit icedosLib lib; }).options
+                    modulesFromConfig.options;
+              in
+              mergedOptions;
+          }
+        ];
+      }).config;
 in
 {
-  inherit flakeInputs;
+  inherit flakeInputs evaluatedConfig;
 
   flakeFinal = ''
     {
