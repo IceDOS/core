@@ -30,7 +30,7 @@ let
   inherit (icedosLib) injectIfExists modulesFromConfig;
 
   channels = icedos.system.channels or [ ];
-  configurationLocation = fileContents "/tmp/icedos/configuration-location";
+  configurationLocation = getEnv "ICEDOS_CONFIG_PATH";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
   nixpkgsInput = {
@@ -90,7 +90,7 @@ in
   flakeFinal = ''
     {
       inputs = {
-        ${fileContents (getEnv "ICEDOS_FLAKE_INPUTS")}
+        ${getEnv "ICEDOS_FLAKE_INPUTS"}
       };
 
       outputs =
@@ -134,6 +134,8 @@ in
                     type = types.str;
                     default = "${configurationLocation}";
                   };
+
+                  config.environment.sessionVariables.ICEDOS_CONFIG_PATH = "${configurationLocation}";
                 }
               )
 

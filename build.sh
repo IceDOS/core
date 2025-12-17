@@ -1,9 +1,9 @@
 #! /usr/bin/env nix-shell
-#! nix-shell -i bash -p git jq jsonfmt nh nixfmt-rfc-style rsync
+#! nix-shell -i bash -p git jq jsonfmt nh nixfmt-rfc-style rsync toml2json
 
-ICEDOS_DIR="/tmp/icedos"
-CONFIG="$ICEDOS_DIR/configuration-location"
+cd "$(dirname "$(readlink -f "$0")")"
 FLAKE="flake.nix"
+export ICEDOS_CONFIG_PATH="$(pwd)"
 
 action="switch"
 globalBuildArgs=()
@@ -81,33 +81,22 @@ nixBin=$(nix eval --impure --raw --expr "
 ")
 export PATH="$nixBin/bin:$PATH"
 
-mkdir -p "$ICEDOS_DIR"
-
-# Save current directory into a file
-[ -f "$CONFIG" ] && rm -f "$CONFIG" || sudo rm -rf "$CONFIG"
-printf "$PWD" > "$CONFIG"
-
-# Generate flake.nix
-[ -f "$FLAKE" ] && rm -f "$FLAKE"
-
-export ICEDOS_FLAKE_INPUTS=$(mktemp)
-
 [ "$update_repos" == "1" ] && refresh="--refresh"
 
-ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d" >$ICEDOS_FLAKE_INPUTS
-(printf "{ inputs = {" ; cat $ICEDOS_FLAKE_INPUTS ; printf "}; outputs = { ... }: {}; }") >$FLAKE
+export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "./lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d")"
+echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >$FLAKE
 nix flake prefetch-inputs
 
 ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" --raw flakeFinal >$FLAKE
 nixfmt "$FLAKE"
 
-rm $ICEDOS_FLAKE_INPUTS
-unset ICEDOS_FLAKE_INPUTS
-
 if [ "$export_full_config" == "1" ]; then
-  ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > full-config.json
-  jsonfmt ./full-config.json -w
-  echo "Full config saved at $PWD/full-config.json"
+  ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
+  jsonfmt .cache/full-config.json -w
+
+  toml2json ./config.toml > .cache/config.json
+  jsonfmt .cache/config.json -w
+
   exit 0
 fi
 
