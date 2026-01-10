@@ -4,9 +4,11 @@ fetchOptionalDependencies = true
 modules = [
   "btop",
   "celluloid",
+  "eden",
   "gamemode",
   "gamescope",
   "harmony-music",
+  "helium",
   "input-remapper",
   "lact",
   "lsfg-vk",
@@ -17,32 +19,29 @@ modules = [
   "network-manager",
   "obs",
   "proton-launch",
+  "protonvpn-cli",
   "reigntweak",
   "scx",
   "sd-inhibitor",
   "steam",
   "sunshine",
   "tailscale",
-  "wg-quick",
   "wolf",
   "zed",
-  "zen",
   "zenergy",
   "zenstates",
 ]
 
 [icedos.applications]
-defaultBrowser = "zen.desktop"
+defaultBrowser = "helium.desktop"
 defaultEditor = "dev.zed.Zed.desktop"
 extraPackages = [
   "appimage-run",
-  "blanket",
   "faugus-launcher",
   "fragments",
   "gimp3",
-  "harmony-music",
   "moonlight-qt",
-  "protonvpn-gui",
+  "rpcs3",
   "signal-desktop",
   "steamtinkerlaunch",
   "warp",
@@ -56,11 +55,74 @@ data-root = "/mnt/virtualisation/docker"
 username = "IceDBorn"
 email = "git.outsider841@simplelogin.fr"
 
+[[icedos.applications.helium.profiles]]
+exec = "helium-social"
+name = "Helium Social"
+sites = [
+  "https://mail.proton.me",
+  "https://lumo.proton.me",
+  "https://develop.element.io",
+  "https://discord.com/app",
+]
+
 [icedos.applications.kitty]
 hideDecorations = true
 
 [icedos.applications.mangohud]
 fpsLimit = "0,144,60,30"
+
+[[icedos.applications.me3.profiles]]
+name = "er"
+config = """
+profileVersion = "v1"
+start_online = true
+
+[[supports]]
+game = "eldenring"
+
+[[natives]]
+path = "/home/ice/games/er/natives/disable-sharpening.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/er-practice-tool.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/increase-animation-distance.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/remove-chromatic-aberration.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/remove-vignette.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/ultrawide.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/erss2/d3d12.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/erss2/ERSS-FG.dll"
+
+[[natives]]
+path = "/home/ice/games/er/natives/seamless-coop/ersc.dll"
+"""
+
+[[icedos.applications.me3.profiles]]
+name = "er-nr"
+dependencies = ["er"]
+config = """
+[[natives]]
+path = "/home/ice/games/er/natives/no-fall-damage.dll"
+
+[[packages]]
+id = "fast-torrent"
+path = "/home/ice/games/er/packages/fast-torrent"
+
+[[packages]]
+id = "nightreign-movement-speed"
+path = "/home/ice/games/er/packages/nightreign-movement-speed"
+"""
 
 [[icedos.applications.me3.profiles]]
 name = "nr"
@@ -72,46 +134,67 @@ start_online = true
 game = "nightrein"
 
 [[natives]]
-path = "/home/ice/games/nr/natives/disable-sharpening.dll"
-
-[[natives]]
 path = "/home/ice/games/nr/natives/remove-chromatic-aberration.dll"
 
 [[natives]]
 path = "/home/ice/games/nr/natives/remove-vignette.dll"
 
 [[natives]]
+path = "/home/ice/games/nr/natives/nrss/dxgi.dll"
+
+[[natives]]
+path = "/home/ice/games/nr/natives/nrss/nrss.dll"
+
+[[natives]]
 path = "/home/ice/games/nr/natives/ultrawide.dll"
-
-[[natives]]
-path = "/home/ice/games/nr/natives/unlock-fps/unlock-fps.dll"
-"""
-
-[[icedos.applications.me3.profiles]]
-name = "nr-seamless"
-dependencies = ["nr"]
-config = """
-[[natives]]
-path = "/home/ice/games/nr/natives/seamless-coop/nrsc.dll"
 
 [[packages]]
 id = "blue-filter-removal"
-path = "/home/ice/games/nr/packages/blue-filter-removal/"
+path = "/home/ice/games/nr/packages/blue-filter-removal"
 """
 
 [[icedos.applications.me3.profiles]]
-name = "nr-cl"
+name = "nr-online"
 dependencies = ["nr"]
 config = """
 [[natives]]
+load_early = true
 path = "/home/ice/games/nr/natives/cl_server_redirector.dll"
+
+# [[natives]]
+# load_early = true
+# path = "/home/ice/games/nr/natives/seamless-coop/nrsc.dll"
+"""
+
+[[icedos.applications.me3.profiles]]
+name = "nr-bots"
+dependencies = ["nr", "nr-online"]
+config = """
+[[natives]]
+path = "/home/ice/games/nr/natives/storm-control/storm-control.dll"
+
+[[packages]]
+id = "bots"
+path = "/home/ice/games/nr/packages/bots"
+"""
+
+[[icedos.applications.me3.profiles]]
+name = "nr-relics"
+dependencies = ["nr", "nr-online"]
+config = """
+[[packages]]
+id = "relic-filter"
+path = "/home/ice/games/nr/packages/relic-filter"
 """
 
 [icedos.applications.network-manager]
 applet = true
 
+[icedos.applications.protonvpn-cli]
+country = "BG"
+
 [icedos.applications.scx]
-extraArgs = ["--performance"]
+scheduler = "cake"
 
 [icedos.applications.sd-inhibitor.users.ice.watchers.pipewire]
 inputsToIgnore = ["Noise Canceling source", "Peak detect", "cava"]
@@ -126,29 +209,14 @@ downloadsWorkaround = true
 stateFolder = "/mnt/virtualisation/wolf"
 extraPackages = []
 extraVolumes = [
-  "/home/ice/.local/share/Steam/steamapps/appmanifest_2622380.acf:/home/retro/.steam/debian-installation/steamapps/appmanifest_2622380.acf",
-  "/home/ice/.local/share/Steam/steamapps/common/ELDEN RING NIGHTREIGN:/home/retro/.steam/debian-installation/steamapps/common/ELDEN RING NIGHTREIGN",
+  "/home/ice/.local/share/Steam/steamapps:/home/retro/.steam/debian-installation/steamapps",
+  "/home/ice/.local/share/Steam/compatibilitytools.d:/home/retro/.steam/debian-installation/compatibilitytools.d",
+  "/home/ice/games:/home/retro/games",
+  "/home/ice/.local/share/me3:/home/retro/.local/share/me3",
 ]
 
 [icedos.applications.zed]
 vim = true
-
-[[icedos.applications.zen.profiles]]
-default = true
-exec = "default"
-privacy = true
-
-[[icedos.applications.zen.profiles]]
-exec = "zen-social"
-name = "Zen Social"
-privacy = true
-pwa = true
-sites = [
-  "https://mail.proton.me",
-  "https://lumo.proton.me",
-  "https://develop.element.io",
-  "https://discord.com/app",
-]
 
 [icedos.applications.zenstates]
 serviceArgs = "-p 0 -v 3C -f A0"
@@ -158,6 +226,7 @@ url = "github:icedos/cosmic"
 fetchOptionalDependencies = true
 
 [icedos.desktop.cosmic]
+disableExcludedPackagesWarning = true
 excludeDefaultPackages = [
   "cosmic-applibrary",
   "cosmic-files",
@@ -193,6 +262,11 @@ action = "ToggleWindowFloating"
 keys = ["Super+g", "Super+Greek_gamma"]
 
 [[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+action = "WorkspaceOverview"
+keys = ["Super+Greek_finalsmallsigma"]
+variant = "System"
+
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
 command = "cosmic-screenshot"
 description = "Screenshot"
 keys = ["Super+p", "Super+Greek_pi"]
@@ -216,6 +290,12 @@ description = "Application launcher"
 keys = ["Super+r", "Super+Greek_rho"]
 variant = "Spawn"
 
+[[icedos.desktop.cosmic.input.keyboard.shortcuts]]
+command = "killall -9 .cosmic-panel-wrapped .walker-wrapped"
+description = "Soft Reset"
+keys = ["Ctrl+Alt+Delete"]
+variant = "Spawn"
+
 [icedos.desktop.cosmic.sound]
 showMediaControlsInPanel = true
 
@@ -231,7 +311,6 @@ modules = [
   "disable-ipv6",
   "kernel",
   "monitors",
-  "mounts",
   "pipewire",
   "radeon",
   "ryzen",
@@ -240,6 +319,9 @@ modules = [
   "upower",
   "xpadneo",
 ]
+
+[icedos.hardware]
+swapDevices = ["/swap/swapfile"]
 
 [icedos.hardware.bootloaders.systemd-boot]
 mountPoint = "/boot"
@@ -275,13 +357,13 @@ fsType = "btrfs"
 flags = ["compress=zstd", "nofail", "x-gvfs-show"]
 
 [[icedos.hardware.monitors]]
-name = "DP-2"
+name = "DP-1"
 resolution = "3440x1440"
 refreshRate = 144
 position = "0x0"
 
 [[icedos.hardware.monitors]]
-name = "DP-3"
+name = "DP-2"
 resolution = "1920x1080"
 refreshRate = 144
 position = "3440x200"
@@ -294,7 +376,7 @@ url = "github:icedos/tweaks"
 modules = [
   "cachyos",
   "gaming",
-  "kernel"
+  "kernel",
 ]
 
 [[icedos.repositories]]
@@ -309,9 +391,8 @@ autologinUser = "ice"
 [icedos.desktop.users.ice]
 startupScript = """
   sleep 1 &&
-  protonvpn-app &
   signal-desktop &
-  zen-social &
+  helium-social &
 """
 
 [icedos.system]
@@ -332,3 +413,6 @@ version = "25.11"
 # [[icedos.system.channels]]
 # name = "stable"
 # url = "github:nixos/nixpkgs/nixos-25.05"
+
+# [[icedos.repositories]]
+# url = "path:/home/ice/.code/icedos/tests"

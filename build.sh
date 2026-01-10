@@ -1,5 +1,5 @@
 #! /usr/bin/env nix-shell
-#! nix-shell -i bash -p git jq jsonfmt nh nixfmt-rfc-style rsync toml2json
+#! nix-shell -i bash -p git jq jsonfmt nh nixfmt rsync toml2json
 
 cd "$(dirname "$(readlink -f "$0")")"
 FLAKE="flake.nix"
