@@ -88,10 +88,10 @@ printf "$ICEDOS_STATE_DIR" > "$CONFIG"
 export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d")"
 echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >"$ICEDOS_STATE_DIR/$FLAKE"
 (
-    cd "$ICEDOS_STATE_DIR"
-    nix flake prefetch-inputs
-    nix flake update icedos || true
-    nix flake update icedos-config || true
+  cd "$ICEDOS_STATE_DIR"
+  nix flake prefetch-inputs
+  nix flake update icedos || true
+  nix flake update icedos-config || true
 )
 
 ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
@@ -108,8 +108,11 @@ if [ "$export_full_config" == "1" ]; then
 fi
 
 [ "$update" == "1" ] && (
-    cd "$ICEDOS_STATE_DIR"
-    nix flake update
+  set -e
+  cd "$ICEDOS_CONFIG_ROOT"
+  nix flake update
+  cd "$ICEDOS_STATE_DIR"
+  nix flake update
 )
 
 rsync -a "$ICEDOS_CONFIG_ROOT" "$ICEDOS_BUILD_DIR" \
