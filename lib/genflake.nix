@@ -29,7 +29,7 @@ let
   inherit (icedosLib) injectIfExists modulesFromConfig;
 
   channels = icedos.system.channels or [ ];
-  configurationLocation = getEnv "ICEDOS_CONFIG_PATH";
+  configurationLocation = getEnv "ICEDOS_STATE_DIR";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
   nixpkgsInput = {
@@ -147,8 +147,6 @@ in
                     type = types.str;
                     default = "${configurationLocation}";
                   };
-
-                  config.environment.sessionVariables.ICEDOS_CONFIG_PATH = "${configurationLocation}";
                 }
               )
 

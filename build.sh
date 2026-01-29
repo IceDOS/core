@@ -6,7 +6,6 @@ FLAKE="flake.nix"
 
 cd "$(dirname "$(readlink -f "$0")")"
 FLAKE="flake.nix"
-export ICEDOS_CONFIG_PATH="$(pwd)"
 
 action="switch"
 globalBuildArgs=()
