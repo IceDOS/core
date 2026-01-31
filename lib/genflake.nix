@@ -9,7 +9,7 @@ let
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
-  inherit (pkgs) lib runCommand;
+  inherit (pkgs) lib;
 
   inherit (lib)
     boolToString
@@ -19,7 +19,6 @@ let
     fileContents
     foldl'
     listToAttrs
-    map
     optional
     pathExists
     recursiveUpdate
