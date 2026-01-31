@@ -1,10 +1,15 @@
 let
-  inherit (builtins) getEnv getFlake readFile toJSON;
+  inherit (builtins)
+    getEnv
+    getFlake
+    readFile
+    toJSON
+    ;
   inherit (fromTOML (readFile "${getEnv "ICEDOS_CONFIG_ROOT"}/config.toml")) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
-  inherit (pkgs) lib;
+  inherit (pkgs) lib runCommand;
 
   inherit (lib)
     boolToString
@@ -15,6 +20,7 @@ let
     foldl'
     listToAttrs
     map
+    optional
     pathExists
     recursiveUpdate
     ;
@@ -74,6 +80,13 @@ let
         };
       }
     ]
+    ++ (optional (pathExists /etc/icedos) {
+      name = "icedos-state";
+      value = {
+        url = "path:${/etc/icedos}";
+        flake = false;
+      };
+    })
   );
 
   nixosModulesText = modulesFromConfig.nixosModulesText;
@@ -168,6 +181,7 @@ in
               {
                 imports = [
                   "''${inputs.icedos-core}/modules/rebuild.nix"
+                  "''${inputs.icedos-core}/modules/state.nix"
                   "''${inputs.icedos-core}/modules/toolset.nix"
                   "''${inputs.icedos-core}/modules/users.nix"
                 ];

@@ -171,7 +171,7 @@ let
             );
 
             maskedInputs = {
-              inherit (inputs) nixpkgs home-manager;
+              inherit (inputs) nixpkgs home-manager icedos-state;
 
               self = inputs.${getFullSubmoduleName { inherit (_repoInfo) url; }};
             }
