@@ -166,7 +166,11 @@ in
               }
 
               {
-                imports = ["''${inputs.icedos-core}/modules/rebuild.nix" "''${inputs.icedos-core}/modules/toolset.nix"];
+                imports = [
+                  "''${inputs.icedos-core}/modules/rebuild.nix"
+                  "''${inputs.icedos-core}/modules/toolset.nix"
+                  "''${inputs.icedos-core}/modules/users.nix"
+                ];
               }
 
               # Internal modules and config
