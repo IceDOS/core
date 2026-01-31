@@ -117,7 +117,7 @@ in
           system = "${system}";
           pkgs = nixpkgs.legacyPackages.''${system};
           inherit (pkgs) lib;
-          inherit (lib) fileContents map;
+          inherit (lib) fileContents map filterAttrs;
 
           inherit (builtins) fromTOML pathExists;
           inherit ((fromTOML (fileContents "''${inputs.icedos-config}/config.toml"))) icedos;
@@ -129,6 +129,15 @@ in
           };
 
           inherit (icedosLib) modulesFromConfig;
+
+          getModules =
+            path:
+            map (dir: "/''${path}/''${dir}") (
+              let
+                inherit (lib) attrNames;
+              in
+              attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path))
+            );
         in {
           nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
@@ -156,26 +165,15 @@ in
                 system.systemBuilderCommands = "ln -s ''${self} $out/source";
               }
 
-              # Internal modules and config
-              (
-                { lib, ... }:
-                let
-                  inherit (lib) filterAttrs;
+              {
+                imports = ["''${inputs.icedos-core}/modules/rebuild.nix" "''${inputs.icedos-core}/modules/toolset.nix"];
+              }
 
-                  getModules =
-                    path:
-                    map (dir: "/''${path}/''${dir}") (
-                      let
-                        inherit (lib) attrNames;
-                      in
-                      attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path))
-                    );
-                in
-                {
-                  imports = [ "''${inputs.icedos-core}/modules/options.nix" ] ++ (if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else []);
-                  config.system.stateVersion = "${icedos.system.version}";
-                }
-              )
+              # Internal modules and config
+              {
+                imports = [ "''${inputs.icedos-core}/modules/options.nix" ] ++ (if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else []);
+                config.system.stateVersion = "${icedos.system.version}";
+              }
 
               home-manager.nixosModules.home-manager
 
