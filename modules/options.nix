@@ -1,5 +1,6 @@
 {
   icedosLib,
+  inputs,
   lib,
   ...
 }:
@@ -12,6 +13,7 @@ let
     mkNumberOption
     mkStrListOption
     mkStrOption
+    mkSubmoduleAttrsOption
     mkSubmoduleListOption
     ;
 in
@@ -32,13 +34,24 @@ in
         version = mkStrOption { }; # Set according to docs at https://search.nixos.org/options?show=system.stateVersion
       };
 
-      repositories = mkSubmoduleListOption { } {
+      repositories = mkSubmoduleListOption { default = [ ]; } {
         url = mkStrOption { };
         fetchOptionalDependencies = mkBoolOption { default = false; };
         modules = mkStrListOption { default = [ ]; };
       };
+
+      users = mkSubmoduleAttrsOption { } {
+        defaultPassword = mkStrOption { default = "1"; };
+        description = mkStrOption { default = ""; };
+        extraGroups = mkStrListOption { default = [ ]; };
+        extraPackages = mkStrListOption { default = [ ]; };
+        home = mkStrOption { default = ""; };
+        isNormalUser = mkBoolOption { default = true; };
+        isSystemUser = mkBoolOption { default = false; };
+        sudo = mkBoolOption { default = true; };
+      };
     };
   };
 
-  config = fromTOML (fileContents ../config.toml);
+  config = fromTOML (fileContents "${inputs.icedos-config}/config.toml");
 }
