@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
       trace="--show-trace"
       shift
       ;;
-    -*|--*)
+    *)
       echo "Unknown arg: $1" >&2
       exit 1
       ;;
