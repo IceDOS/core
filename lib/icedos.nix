@@ -34,7 +34,7 @@ let
         url,
         subMod ? null,
       }:
-      replaceStrings [ ":" "/" "." ] [ "_" "_" "_" ] (
+      replaceStrings [ ":" "/" "." "?" "=" ] [ "_" "_" "_" "_" "_" ] (
         if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}"
       );
 
@@ -87,14 +87,7 @@ let
       modules:
       let
         inherit (builtins) attrNames;
-
-        inherit (lib)
-          flatten
-          hasAttr
-          listToAttrs
-          map
-          removeAttrs
-          ;
+        inherit (lib) flatten hasAttr listToAttrs;
 
         modulesAsInputs = map (
           { _repoInfo, ... }:
@@ -172,7 +165,7 @@ let
 
             maskedInputs = {
               inherit (inputs) nixpkgs home-manager;
-
+              icedos-state = if (hasAttr "icedos-state" inputs) then inputs.icedos-state else null;
               self = inputs.${getFullSubmoduleName { inherit (_repoInfo) url; }};
             }
             // remappedInputs;

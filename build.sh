@@ -94,6 +94,7 @@ echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >"$ICEDOS_
   cd "$ICEDOS_STATE_DIR"
   nix flake prefetch-inputs
   nix flake update icedos-config 2>/dev/null || true
+  nix flake update icedos-state 2>/dev/null || true
 )
 
 ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
