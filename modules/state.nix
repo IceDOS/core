@@ -1,4 +1,4 @@
-{ config, inputs, ... }:
+{ config, ... }:
 
 let
   inherit (builtins) attrNames foldl' toJSON;

@@ -36,6 +36,7 @@ in
 
       repositories = mkSubmoduleListOption { default = [ ]; } {
         url = mkStrOption { };
+        overrideUrl = mkStrOption { default = ""; };
         fetchOptionalDependencies = mkBoolOption { default = false; };
         modules = mkStrListOption { default = [ ]; };
       };

@@ -41,6 +41,7 @@ let
     fetchModulesRepository =
       {
         url,
+        overrides,
         ...
       }:
       let
@@ -50,9 +51,11 @@ let
           getFlake
           ;
 
+        _url = if (hasAttr url overrides) then overrides.${url} else url;
+
         inherit (lib) optionalAttrs;
 
-        repoName = getFullSubmoduleName { inherit url; };
+        repoName = getFullSubmoduleName { url = _url; };
 
         flakeRev =
           let
@@ -60,7 +63,7 @@ let
           in
           if (getEnv "ICEDOS_UPDATE" == "1") then
             ""
-          else if (stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake") then
+          else if (stringStartsWith "path:" _url) && (ICEDOS_STAGE == "genflake") then
             ""
           else if (hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock) then
             "/${lock.nodes.${repoName}.locked.rev}"
@@ -71,13 +74,13 @@ let
 
         rev = if (pathExists "${self}/flake.lock") then flakeRev else "";
 
-        flakeUrl = "${url}${rev}";
+        flakeUrl = "${_url}${rev}";
         flake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
 
         modules = flake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
-        inherit url;
+        url = _url;
         inherit (flake) narHash;
         files = flatten modules;
       }
@@ -197,6 +200,8 @@ let
       {
         newDeps,
         existingDeps ? [ ],
+        existingOverrides ? [ ],
+        loadOverrides ? false,
       }:
       let
         inherit (builtins)
@@ -204,11 +209,25 @@ let
           filter
           foldl'
           length
+          listToAttrs
           ;
 
         inherit (lib) optional optionals unique;
 
         getModuleKey = url: name: "${url}/${name}";
+
+        overrides =
+          let
+            filteredDeps = filter (hasAttr "overrideUrl") newDeps;
+
+            result = listToAttrs (
+              map (dep: {
+                name = dep.url;
+                value = dep.overrideUrl;
+              }) filteredDeps
+            );
+          in
+          if loadOverrides then result else existingOverrides;
 
         loadModulesFromRepo =
           repo:
@@ -253,7 +272,7 @@ let
             # Optional new repo
             newRepo = optional (
               (length missingModules) > 0 || !elem (getModuleKey newDep.url "default") existingDeps
-            ) (fetchModulesRepository newDep);
+            ) (fetchModulesRepository (newDep // { inherit overrides; }));
 
             # Convert to list of modules
             newModules = filter (
@@ -295,6 +314,7 @@ let
             ++ optional ((length innerDeps) > 0) (resolveExternalDependencyRecursively {
               newDeps = innerDeps;
               existingDeps = allKnownKeys;
+              existingOverrides = overrides;
             })
           )
         ) [ ] newDeps;
@@ -312,7 +332,12 @@ let
           flatten
           ;
 
-        modules = (resolveExternalDependencyRecursively { newDeps = config.repositories; });
+        modules = (
+          resolveExternalDependencyRecursively {
+            newDeps = config.repositories;
+            loadOverrides = true;
+          }
+        );
 
         deduped = attrValues (
           listToAttrs (
