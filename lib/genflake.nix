@@ -1,10 +1,5 @@
 let
-  inherit (builtins)
-    getEnv
-    getFlake
-    readFile
-    toJSON
-    ;
+  inherit (builtins) getEnv readFile toJSON;
   inherit (fromTOML (readFile "${getEnv "ICEDOS_CONFIG_ROOT"}/config.toml")) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
