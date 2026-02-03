@@ -1,5 +1,11 @@
 let
-  inherit (builtins) getEnv readFile toJSON;
+  inherit (builtins)
+    getEnv
+    readDir
+    readFile
+    toJSON
+    ;
+
   inherit (fromTOML (readFile "${getEnv "ICEDOS_CONFIG_ROOT"}/config.toml")) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
@@ -7,11 +13,15 @@ let
   inherit (pkgs) lib;
 
   inherit (lib)
+    attrsToList
     boolToString
     concatMapStrings
     concatStringsSep
     evalModules
     fileContents
+    filter
+    filterAttrs
+    flatten
     foldl'
     listToAttrs
     optional
@@ -29,8 +39,32 @@ let
   inherit (icedosLib) injectIfExists modulesFromConfig;
 
   channels = icedos.system.channels or [ ];
-  configurationLocation = getEnv "ICEDOS_STATE_DIR";
+  configStatePath = getEnv "ICEDOS_STATE_DIR";
+  configRootPath = getEnv "ICEDOS_CONFIG_ROOT";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
+
+  modulesFromExtraModulesDir =
+    let
+      # Find extra-modules directories
+      getModules =
+        path:
+        map (dir: "${path}/${dir}/icedos.nix") (
+          let
+            inherit (lib) attrNames;
+          in
+          attrNames (filterAttrs (n: v: v == "directory") (readDir path))
+        );
+
+      # Filter directiories containing icedos.nix and load them as modules
+      modulePaths = filter (path: pathExists path) (getModules "${configRootPath}/extra-modules");
+      loadedModules = map (path: import path { }) modulePaths;
+
+      # Gather inputs from all modules in the form [ { name = "input-name"; value = { url = "example://url"; ... }; } ... ]
+      inputs = flatten (map (module: attrsToList module.inputs) loadedModules);
+    in
+    {
+      inherit inputs;
+    };
 
   nixpkgsInput = {
     name = "nixpkgs";
@@ -49,10 +83,13 @@ let
     };
   };
 
-  extraModulesInputs = modulesFromConfig.inputs ++ [
-    homeManagerInput
-    nixpkgsInput
-  ];
+  extraModulesInputs =
+    modulesFromConfig.inputs
+    ++ modulesFromExtraModulesDir.inputs
+    ++ [
+      homeManagerInput
+      nixpkgsInput
+    ];
 
   flakeInputs = listToAttrs (
     extraModulesInputs
@@ -161,7 +198,7 @@ in
                 {
                   options.icedos.configurationLocation = mkOption {
                     type = types.str;
-                    default = "${configurationLocation}";
+                    default = "${configStatePath}";
                   };
                 }
               )
