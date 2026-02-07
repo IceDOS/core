@@ -31,12 +31,17 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --update)
-      update="1"
+      update_core="1"
+      update_nix="1"
       update_repos="1"
       shift
       ;;
+    --update-core)
+      update_core="1"
+      shift
+      ;;
     --update-nix)
-      update="1"
+      update_nix="1"
       shift
       ;;
     --update-repos)
@@ -86,6 +91,9 @@ printf "$ICEDOS_STATE_DIR" > "$CONFIG"
 
 if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
+fi
+
+if [ "$update_core" == "1" ]; then
   (
     set -e
     cd "$ICEDOS_CONFIG_ROOT"
@@ -93,6 +101,7 @@ if [ "$update_repos" == "1" ]; then
   )
 fi
 
+# Generate flake inputs
 export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d")"
 if [[ "${ICEDOS_FLAKE_INPUTS}" == "" ]]; then
   exit 1
@@ -107,6 +116,7 @@ echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >"$ICEDOS_
   nix flake update icedos-state 2>/dev/null || true
 )
 
+# Generate flake
 ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
 nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 
@@ -120,7 +130,7 @@ if [ "$export_full_config" == "1" ]; then
   exit 0
 fi
 
-[ "$update" == "1" ] && (
+[ "$update_nix" == "1" ] && (
   set -e
   cd "$ICEDOS_STATE_DIR"
   nix flake update
