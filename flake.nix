@@ -71,6 +71,7 @@
                 ]
               }:$PATH"
               export ICEDOS_ROOT="${self}"
+              export ICEDOS_CONFIG_FLAKE="${_configRoot}"
               export ICEDOS_CONFIG_ROOT="$PWD"
               export ICEDOS_STATE_DIR="$PWD/${_stateDir}"
               mkdir -p "$ICEDOS_STATE_DIR"

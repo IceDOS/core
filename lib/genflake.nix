@@ -1,6 +1,11 @@
 let
-  inherit (builtins) getEnv readFile toJSON;
-  inherit (fromTOML (readFile "${getEnv "ICEDOS_CONFIG_ROOT"}/config.toml")) icedos;
+  inherit (builtins)
+    getEnv
+    readFile
+    toJSON
+    ;
+
+  inherit (fromTOML (readFile "${ICEDOS_CONFIG_FLAKE}/config.toml")) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
@@ -26,10 +31,14 @@ let
     inputs = { };
   };
 
-  inherit (icedosLib) injectIfExists modulesFromConfig;
+  inherit (icedosLib)
+    ICEDOS_STATE_DIR
+    ICEDOS_CONFIG_FLAKE
+    injectIfExists
+    modulesFromConfig
+    ;
 
   channels = icedos.system.channels or [ ];
-  configurationLocation = getEnv "ICEDOS_STATE_DIR";
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
   nixpkgsInput = {
@@ -49,10 +58,12 @@ let
     };
   };
 
-  extraModulesInputs = modulesFromConfig.inputs ++ [
-    homeManagerInput
-    nixpkgsInput
-  ];
+  extraModulesInputs =
+    modulesFromConfig.inputs
+    ++ [
+      homeManagerInput
+      nixpkgsInput
+    ];
 
   flakeInputs = listToAttrs (
     extraModulesInputs
@@ -64,7 +75,7 @@ let
       {
         name = "icedos-config";
         value = {
-          url = "path:${getEnv "ICEDOS_CONFIG_ROOT"}";
+          url = "path:${ICEDOS_CONFIG_FLAKE}";
         };
       }
       {
@@ -161,7 +172,7 @@ in
                 {
                   options.icedos.configurationLocation = mkOption {
                     type = types.str;
-                    default = "${configurationLocation}";
+                    default = "${ICEDOS_STATE_DIR}";
                   };
                 }
               )
