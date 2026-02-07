@@ -18,12 +18,12 @@ let
   inherit (lib) flatten hasAttrByPath;
 
   inherit (icedosLib)
+    ICEDOS_STAGE
+    INPUTS_PREFIX
     filterByAttrs
     findFirst
     flatMap
     stringStartsWith
-    ICEDOS_STAGE
-    INPUTS_PREFIX
     ;
 
   finalIcedosLib = icedosLib // rec {
