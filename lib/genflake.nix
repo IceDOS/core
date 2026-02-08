@@ -1,10 +1,5 @@
 let
-  inherit (builtins)
-    getEnv
-    readFile
-    toJSON
-    ;
-
+  inherit (builtins) readFile toJSON;
   inherit (fromTOML (readFile "${ICEDOS_CONFIG_ROOT}/config.toml")) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
@@ -33,6 +28,7 @@ let
 
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
+    ICEDOS_FLAKE_INPUTS
     ICEDOS_STATE_DIR
     injectIfExists
     modulesFromConfig
@@ -58,12 +54,10 @@ let
     };
   };
 
-  extraModulesInputs =
-    modulesFromConfig.inputs
-    ++ [
-      homeManagerInput
-      nixpkgsInput
-    ];
+  extraModulesInputs = modulesFromConfig.inputs ++ [
+    homeManagerInput
+    nixpkgsInput
+  ];
 
   flakeInputs = listToAttrs (
     extraModulesInputs
@@ -121,7 +115,7 @@ in
   flakeFinal = ''
     {
       inputs = {
-        ${getEnv "ICEDOS_FLAKE_INPUTS"}
+        ${ICEDOS_FLAKE_INPUTS}
       };
 
       outputs =
@@ -185,6 +179,8 @@ in
 
               {
                 imports = [
+                  "''${inputs.icedos-core}/modules/nh.nix"
+                  "''${inputs.icedos-core}/modules/nix.nix"
                   "''${inputs.icedos-core}/modules/rebuild.nix"
                   "''${inputs.icedos-core}/modules/state.nix"
                   "''${inputs.icedos-core}/modules/toolset.nix"

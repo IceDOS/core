@@ -20,6 +20,13 @@ in
 {
   options = {
     icedos = {
+      applications.nh.gc = {
+        automatic = mkBoolOption { default = true; };
+        days = mkNumberOption { default = 0; };
+        generations = mkNumberOption { default = 10; };
+        interval = mkStrOption { default = "Mon *-*-* 00:00:00"; };
+      };
+
       system = {
         arch = mkStrOption { default = "x86_64-linux"; };
 
