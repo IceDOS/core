@@ -15,6 +15,8 @@ nixBuildArgs=()
 set -e
 set -o pipefail
 
+previous_arguments=$@
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --boot)
@@ -88,12 +90,11 @@ if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
 fi
 
-if [ "$update_core" == "1" ]; then
-  (
-    set -e
-    cd "$ICEDOS_CONFIG_ROOT"
-    nix flake update
-  )
+if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
+  cd "$ICEDOS_CONFIG_ROOT"
+  nix flake update
+  exec env skip_update_core=1 nix run . -- $previous_arguments
+  exit 0
 fi
 
 # Generate flake inputs
@@ -116,7 +117,7 @@ ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" -
 nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 
 if [ "$export_full_config" == "1" ]; then
-  ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
+  ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
   jsonfmt .cache/full-config.json -w
 
   toml2json ./config.toml > .cache/config.json
