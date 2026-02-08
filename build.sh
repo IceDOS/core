@@ -11,7 +11,6 @@ action="switch"
 globalBuildArgs=()
 nhBuildArgs=()
 nixBuildArgs=()
-isFirstInstall=""
 
 set -e
 set -o pipefail
@@ -61,10 +60,6 @@ while [[ $# -gt 0 ]]; do
       shift
       globalBuildArgs=("$@")
       break
-      ;;
-    --first-install)
-      isFirstInstall=1
-      shift
       ;;
     --logs)
       export ICEDOS_LOGGING=1
@@ -150,7 +145,7 @@ echo "Building from path $ICEDOS_BUILD_DIR"
 cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
-if (( ${#nixBuildArgs[@]} != 0 )) || [[ "$isFirstInstall" == 1 ]]; then
+if (( ${#nixBuildArgs[@]} != 0 )); then
   sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" $trace ${nixBuildArgs[*]} ${globalBuildArgs[*]}
   exit 0
 fi
