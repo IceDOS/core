@@ -11,10 +11,11 @@ action="switch"
 globalBuildArgs=()
 nhBuildArgs=()
 nixBuildArgs=()
-isFirstInstall=""
 
 set -e
 set -o pipefail
+
+previous_arguments=$@
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -62,10 +63,6 @@ while [[ $# -gt 0 ]]; do
       globalBuildArgs=("$@")
       break
       ;;
-    --first-install)
-      isFirstInstall=1
-      shift
-      ;;
     --logs)
       export ICEDOS_LOGGING=1
       trace="--show-trace"
@@ -78,7 +75,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-export NIX_CONFIG="experimental-features = flakes nix-command"
+export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
 mkdir -p "$ICEDOS_DIR"
 
@@ -93,12 +90,11 @@ if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
 fi
 
-if [ "$update_core" == "1" ]; then
-  (
-    set -e
-    cd "$ICEDOS_CONFIG_ROOT"
-    nix flake update
-  )
+if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
+  cd "$ICEDOS_CONFIG_ROOT"
+  nix flake update
+  exec env skip_update_core=1 nix run . -- $previous_arguments
+  exit 0
 fi
 
 # Generate flake inputs
@@ -121,7 +117,7 @@ ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" -
 nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 
 if [ "$export_full_config" == "1" ]; then
-  ICEDOS_STAGE="genflake" nix eval $trace --file "./lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
+  ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
   jsonfmt .cache/full-config.json -w
 
   toml2json ./config.toml > .cache/config.json
@@ -150,7 +146,7 @@ echo "Building from path $ICEDOS_BUILD_DIR"
 cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
-if (( ${#nixBuildArgs[@]} != 0 )) || [[ "$isFirstInstall" == 1 ]]; then
+if (( ${#nixBuildArgs[@]} != 0 )); then
   sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" $trace ${nixBuildArgs[*]} ${globalBuildArgs[*]}
   exit 0
 fi
