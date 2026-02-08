@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+export NIXPKGS_ALLOW_UNFREE=1
+
 ICEDOS_DIR="/tmp/icedos"
 CONFIG="$ICEDOS_DIR/configuration-location"
 FLAKE="flake.nix"
