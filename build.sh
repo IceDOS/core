@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-export NIX_CONFIG="experimental-features = flakes nix-command"
+export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
 mkdir -p "$ICEDOS_DIR"
 
