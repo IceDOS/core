@@ -21,7 +21,7 @@ To get started with the default template, run the following commands:
 ```bash
 git clone https://github.com/icedos/template icedos
 cd icedos
-nix run . --boot --first-install
+nix --extra-experimental-features "flakes nix-command pipe-operators" run . --boot
 ```
 
 ## ⚙️ Configuration
