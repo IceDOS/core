@@ -18,6 +18,7 @@ let
   inherit (lib) flatten hasAttrByPath;
 
   inherit (icedosLib)
+    ICEDOS_CONFIG_ROOT
     ICEDOS_STAGE
     INPUTS_PREFIX
     filterByAttrs
@@ -89,29 +90,36 @@ let
     getExternalModuleOutputs =
       modules:
       let
-        inherit (builtins) attrNames;
+        inherit (builtins) attrNames filter;
         inherit (lib) flatten hasAttr listToAttrs;
 
-        modulesAsInputs = map (
-          { _repoInfo, ... }:
-          let
-            inherit (_repoInfo) url;
+        modulesAsInputs =
+          map
+            (
+              { _repoInfo, ... }:
+              let
+                inherit (_repoInfo) url;
 
-            flakeRev =
-              if (hasAttr "rev" _repoInfo) then
-                "/${_repoInfo.rev}"
-              else if (hasAttr "narHash" _repoInfo) then
-                "?narHash=${_repoInfo.narHash}"
-              else
-                "";
-          in
-          {
-            name = getFullSubmoduleName { inherit url; };
-            value = {
-              url = "${url}${flakeRev}";
-            };
-          }
-        ) modules;
+                flakeRev =
+                  if (hasAttr "rev" _repoInfo) then
+                    "/${_repoInfo.rev}"
+                  else if (hasAttr "narHash" _repoInfo) then
+                    "?narHash=${_repoInfo.narHash}"
+                  else
+                    "";
+              in
+              {
+                name = getFullSubmoduleName { inherit url; };
+                value = {
+                  url = "${url}${flakeRev}";
+                };
+              }
+            )
+            (
+              filter (
+                mod: !(hasAttr "skipModuleAsInput" mod._repoInfo && mod._repoInfo.skipModuleAsInput)
+              ) modules
+            );
 
         moduleInputs = flatten (
           map (
@@ -135,10 +143,13 @@ let
                     i
                   else
                     "${
-                      getFullSubmoduleName {
-                        inherit (_repoInfo) url;
-                        subMod = meta.name;
-                      }
+                      if (hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput) then
+                        "icedos-config"
+                      else
+                        getFullSubmoduleName {
+                          inherit (_repoInfo) url;
+                          subMod = meta.name;
+                        }
                     }-${i}";
                 value = removeAttrs inputs.${i} [ "override" ];
               }
@@ -169,7 +180,11 @@ let
             maskedInputs = {
               inherit (inputs) nixpkgs home-manager;
               icedos-state = if (hasAttr "icedos-state" inputs) then inputs.icedos-state else null;
-              self = inputs.${getFullSubmoduleName { inherit (_repoInfo) url; }};
+              self =
+                if (hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput) then
+                  "icedos-config"
+                else
+                  inputs.${getFullSubmoduleName { inherit (_repoInfo) url; }};
             }
             // remappedInputs;
           in
@@ -348,7 +363,53 @@ let
           )
         );
 
-        outputs = getExternalModuleOutputs deduped;
+        outputsFromDeps = getExternalModuleOutputs deduped;
+
+        outputsFromExtraModules =
+          let
+            configFlake =
+              if (hasAttr "icedos-config" inputs) then
+                inputs.icedos-config
+              else
+                builtins.getFlake "path:${ICEDOS_CONFIG_ROOT}";
+            inherit (configFlake) narHash;
+
+            importExtraModule =
+              extra:
+              (import extra { icedosLib = finalIcedosLib; })
+              // {
+                _repoInfo = {
+                  inherit narHash;
+                  url = "path:${extra}";
+                  skipModuleAsInput = true;
+                };
+                meta.name = extra;
+              };
+
+            extraModules =
+              if (pathExists "${configFlake}/extra-modules") then
+                map importExtraModule (
+                  flatten (
+                    icedosLib.scanModules {
+                      path = "${configFlake}/extra-modules";
+                      filename = "icedos.nix";
+                    }
+                  )
+                )
+              else
+                [ ];
+          in
+          getExternalModuleOutputs (flatten extraModules);
+
+        nixosModules =
+          params: (outputsFromDeps.nixosModules params) ++ (outputsFromExtraModules.nixosModules params);
+
+        outputs = outputsFromDeps // {
+          inherit nixosModules;
+          inputs = outputsFromDeps.inputs ++ outputsFromExtraModules.inputs;
+          outputs = outputsFromDeps.outputs ++ outputsFromExtraModules.outputs;
+          nixosModulesText = outputsFromDeps.nixosModulesText ++ outputsFromExtraModules.nixosModulesText;
+        };
       in
       outputs;
   };
