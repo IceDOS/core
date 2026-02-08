@@ -127,7 +127,18 @@ in
         }@inputs:
         let
           system = "${system}";
-          pkgs = nixpkgs.legacyPackages.''${system};
+
+          pkgs = import nixpkgs {
+            inherit system;
+            config = {
+              allowUnfree = true;
+
+              permittedInsecurePackages = [
+                ${concatMapStrings (pkg: ''"${pkg}"'') (icedos.applications.insecurePackages or [])}
+              ];
+            };
+          };
+
           inherit (pkgs) lib;
           inherit (lib) fileContents map filterAttrs;
 

@@ -1,18 +1,12 @@
 {
   config,
   lib,
-  pkgs,
+  icedosLib,
   ...
 }:
 
 let
-  inherit (lib)
-    attrNames
-    mapAttrs
-    foldl'
-    splitString
-    ;
-
+  inherit (lib) attrNames foldl' mapAttrs;
   cfg = config.icedos;
 in
 {
@@ -26,8 +20,6 @@ in
     let
       userAttrs = cfg.users.${user};
       homeDir = userAttrs.home;
-      pkgMapper =
-        pkgList: map (pkgName: foldl' (acc: cur: acc.${cur}) pkgs (splitString "." pkgName)) pkgList;
     in
     {
       description = "${userAttrs.description}";
@@ -36,7 +28,7 @@ in
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
       password = userAttrs.defaultPassword;
-      packages = [ ] ++ (pkgMapper cfg.users.${user}.extraPackages);
+      packages = [ ] ++ (icedosLib.pkgMapper cfg.users.${user}.extraPackages);
     }
   ) cfg.users;
 
