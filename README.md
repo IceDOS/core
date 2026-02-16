@@ -16,7 +16,7 @@
 
 ## 🚀 Installation
 
-To get started with the default template, run the following commands:
+To get started with the default [template](https://github.com/IceDOS/template), run the following commands:
 
 ```bash
 git clone https://github.com/icedos/template icedos
