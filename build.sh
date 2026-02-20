@@ -135,12 +135,15 @@ fi
 )
 
 rsync -a "$ICEDOS_CONFIG_ROOT" "$ICEDOS_BUILD_DIR" \
+--exclude='.editorconfig' \
 --exclude='.git' \
 --exclude='.gitignore' \
---exclude='flake.lock' \
---exclude='flake.nix' \
+--exclude='.state/.cache' \
+--exclude='.taplo.toml' \
 --exclude='LICENSE' \
---exclude='README.md'
+--exclude='README.md' \
+--exclude='flake.lock' \
+--exclude='flake.nix'
 
 cp "$ICEDOS_STATE_DIR"/* "$ICEDOS_BUILD_DIR"
 
