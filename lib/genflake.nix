@@ -140,9 +140,9 @@ in
           };
 
           inherit (pkgs) lib;
-          inherit (lib) fileContents map filterAttrs;
+          inherit (lib) fileContents filterAttrs;
 
-          inherit (builtins) fromTOML pathExists;
+          inherit (builtins) pathExists;
           inherit ((fromTOML (fileContents "''${inputs.icedos-config}/config.toml"))) icedos;
 
           icedosLib = import "''${inputs.icedos-core}/lib" {
