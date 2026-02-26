@@ -36,6 +36,7 @@ in
         }; # e.g. https://github.com/NixOS/nixpkgs/branches/active
 
         forceFirstBuild = mkBoolOption { default = false; };
+        nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
         isFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
         version = mkStrOption { }; # Set according to docs at https://search.nixos.org/options?show=system.stateVersion

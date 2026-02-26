@@ -41,7 +41,7 @@ let
     name = "nixpkgs";
 
     value = {
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      url = icedos.system.nixpkgsChannel or "github:nixos/nixpkgs/nixos-unstable";
     };
   };
 
