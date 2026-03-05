@@ -7,7 +7,6 @@ CONFIG="$ICEDOS_DIR/configuration-location"
 FLAKE="flake.nix"
 
 cd "$(dirname "$(readlink -f "$0")")"
-FLAKE="flake.nix"
 
 action="switch"
 globalBuildArgs=()
@@ -119,11 +118,14 @@ ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" -
 nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 
 if [ "$export_full_config" == "1" ]; then
-  ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
-  jsonfmt .cache/full-config.json -w
+  (
+    cd "$ICEDOS_STATE_DIR"
+    ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
+    jsonfmt .cache/full-config.json -w
 
-  toml2json ./config.toml > .cache/config.json
-  jsonfmt .cache/config.json -w
+    toml2json "$ICEDOS_CONFIG_ROOT/config.toml" > .cache/config.json
+    jsonfmt .cache/config.json -w
+  )
 
   exit 0
 fi
