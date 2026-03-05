@@ -12,11 +12,9 @@ let
     concatStringsSep
     evalModules
     fileContents
-    foldl'
     listToAttrs
     optional
     pathExists
-    recursiveUpdate
     ;
 
   icedosLib = import ../lib {
@@ -94,19 +92,13 @@ let
     toJSON
       (evalModules {
         modules = [
-          {
-            config = icedos;
-
-            options =
-              let
-                mergedOptions =
-                  foldl' (acc: cur: recursiveUpdate acc cur.options)
-                    (import ../modules/options.nix { inherit icedosLib lib; }).options
-                    modulesFromConfig.options;
-              in
-              mergedOptions;
-          }
-        ];
+          { config = { inherit icedos; }; }
+          (import ../modules/options.nix {
+            inherit icedosLib lib;
+            inputs.icedos-config = ICEDOS_CONFIG_ROOT;
+          })
+        ]
+        ++ modulesFromConfig.options;
       }).config;
 in
 {
@@ -134,7 +126,7 @@ in
               allowUnfree = true;
 
               permittedInsecurePackages = [
-                ${concatMapStrings (pkg: ''"${pkg}"'') (icedos.applications.insecurePackages or [])}
+                ${concatMapStrings (pkg: ''"${pkg}"'') (icedos.applications.insecurePackages or [ ])}
               ];
             };
           };

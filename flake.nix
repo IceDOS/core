@@ -20,7 +20,6 @@
             isString
             pathExists
             readFile
-            throw
             ;
 
           isFlake = value: (value._type or null) == "flake";
@@ -47,11 +46,14 @@
 
           inherit (pkgs)
             git
+            jq
+            jsonfmt
             lib
             nh
             nix
             nixfmt
             rsync
+            toml2json
             writeShellScript
             ;
 
@@ -64,10 +66,13 @@
               export PATH="${
                 makeBinPath [
                   git
+                  jq
+                  jsonfmt
                   nh
                   nix
                   nixfmt
                   rsync
+                  toml2json
                 ]
               }:$PATH"
               export ICEDOS_ROOT="${self}"
