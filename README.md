@@ -21,7 +21,7 @@ To get started with the default [template](https://github.com/IceDOS/template), 
 ```bash
 git clone https://github.com/icedos/template icedos
 cd icedos
-nix --extra-experimental-features "flakes nix-command pipe-operators" run . --boot
+nix --extra-experimental-features "flakes nix-command pipe-operators" run . -- --boot
 ```
 
 ## ⚙️ Configuration
