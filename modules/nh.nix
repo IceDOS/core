@@ -52,8 +52,8 @@ in
 {
   icedos.applications.toolset.commands = [
     {
+      inherit command;
       bin = "${pkgs.writeShellScript command ''"${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}''}";
-      command = command;
       help = "clean nix plus home manager, store and profiles";
     }
   ];

@@ -31,8 +31,8 @@ in
               command = "list";
             in
             {
+              inherit command;
               bin = "${pkgs.writeShellScript command "nix-store --query --requisites /run/current-system | cut -d- -f2- | sort | uniq"}";
-              command = command;
               help = "list installed packages";
             }
           )
@@ -41,6 +41,8 @@ in
               command = "build";
             in
             {
+              inherit command;
+
               bin = "${pkgs.writeShellScript command ''
                 ${colorBashHeader}
 
@@ -72,7 +74,6 @@ in
                 bash -c "$BUILD $RUN"
               ''}";
 
-              command = command;
               help = "build provided package derivation";
             }
           )
@@ -81,6 +82,8 @@ in
         command = "pkgs";
       in
       {
+        inherit command;
+
         bin = "${pkgs.writeShellScript command ''
           ${colorBashHeader}
 
@@ -108,7 +111,6 @@ in
           esac
         ''}";
 
-        command = command;
         help = "print package related commands";
       }
     )
@@ -118,8 +120,8 @@ in
         command = "repair";
       in
       {
+        inherit command;
         bin = "${pkgs.writeShellScript command "nix-store --verify --check-contents --repair"}";
-        command = command;
         help = "repair nix store";
       }
     )
@@ -129,6 +131,8 @@ in
         command = "shell";
       in
       {
+        inherit command;
+
         bin = "${pkgs.writeShellScript command ''
           ${colorBashHeader}
 
@@ -147,7 +151,6 @@ in
 
           nix-shell $@
         ''}";
-        command = command;
         help = "spawn a nix shell with optimized env";
       }
     )

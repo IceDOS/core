@@ -69,8 +69,8 @@ in
         command = "rebuild";
       in
       {
+        inherit command;
         bin = toString (builder command "false");
-        command = command;
         help = "rebuild the system";
       }
     )
@@ -80,8 +80,8 @@ in
         command = "update";
       in
       {
+        inherit command;
         bin = toString (builder command "true");
-        command = command;
         help = "update flake.lock and rebuild the system";
       }
     )
