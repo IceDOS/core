@@ -180,6 +180,11 @@ in
                 system.systemBuilderCommands = "ln -s ''${self} $out/source";
               }
 
+              # Remove nixos manual package
+              {
+                documentation.nixos.enable = false;
+              }
+
               {
                 imports = [
                   "''${inputs.icedos-core}/modules/nh.nix"
