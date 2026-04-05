@@ -56,7 +56,7 @@ rec {
       value = attrs;
     }) (filterAttrs (n: v: v.isNormalUser) users);
 
-  pkgMapper = pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
+  pkgMapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
 
   injectIfExists =
     { file }:

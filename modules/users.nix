@@ -2,6 +2,7 @@
   config,
   lib,
   icedosLib,
+  pkgs,
   ...
 }:
 
@@ -28,7 +29,7 @@ in
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
       password = userAttrs.defaultPassword;
-      packages = [ ] ++ (icedosLib.pkgMapper cfg.users.${user}.extraPackages);
+      packages = [ ] ++ (icedosLib.pkgMapper pkgs cfg.users.${user}.extraPackages);
     }
   ) cfg.users;
 
