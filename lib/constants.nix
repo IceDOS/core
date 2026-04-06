@@ -4,7 +4,7 @@ let
 in
 {
   INPUTS_PREFIX = "icedos";
-  ENABLE_LOGGING = if ((getEnv "ICEDOS_LOGGING") == "1") then true else false;
+  ENABLE_LOGGING = (getEnv "ICEDOS_LOGGING") == "1";
 
   ICEDOS_CONFIG_ROOT = getEnv "ICEDOS_CONFIG_ROOT";
   ICEDOS_FLAKE_INPUTS = getEnv "ICEDOS_FLAKE_INPUTS";

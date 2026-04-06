@@ -72,7 +72,10 @@ let
         url,
         repoName,
       }:
-      if (!(pathExists "${self}/flake.lock")) || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake")) then
+      if
+        (!(pathExists "${self}/flake.lock"))
+        || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake"))
+      then
         ""
       else
         _getRevisionFromLock {
