@@ -33,5 +33,8 @@ in
     }
   ) cfg.users;
 
-  home-manager.users = mapAttrs (_: _: { home.stateVersion = cfg.system.version; }) cfg.users;
+  home-manager.users = mapAttrs (_: _: {
+    home.stateVersion = cfg.system.version;
+    systemd.user.startServices = "sd-switch"; # Auto-restart user services whose unit files changed
+  }) cfg.users;
 }
