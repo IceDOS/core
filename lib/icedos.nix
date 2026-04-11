@@ -3,12 +3,14 @@
   icedosLib,
   inputs,
   lib,
+  pkgs,
   ...
 }:
 
 let
   inherit (builtins)
     hasAttr
+    length
     pathExists
     readFile
     replaceStrings
@@ -35,6 +37,7 @@ let
 
   finalIcedosLib = icedosLib // rec {
     inputIsOverride = { input }: (hasAttr "override" input) && input.override;
+    inputHasPatches = { input }: (hasAttr "patches" input) && length input.patches > 0;
 
     # Build a flake-input name from arbitrary identifying parts. Joins with
     # `-`, prefixes with `INPUTS_PREFIX`, and replaces flake-URL-unsafe
@@ -200,7 +203,8 @@ let
     _getModuleInputs =
       modules:
       let
-        inherit (builtins) attrNames filter;
+        inherit (builtins) attrNames filter getFlake;
+        inherit (pkgs) applyPatches;
         modulesWithInputs = filter (hasAttr "inputs") modules;
       in
       flatten (
@@ -215,6 +219,8 @@ let
             i:
             let
               isOverride = inputIsOverride { input = inputs.${i}; };
+              hasPatches = inputHasPatches { input = inputs.${i}; };
+
               moduleIdentifier =
                 if (hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput) then
                   "icedos-config"
@@ -225,12 +231,42 @@ let
                       meta.name
                     ];
                   };
+
+              patchedInputSource = applyPatches {
+                name = "${i}-patched";
+                patches = inputs.${i}.patches;
+                src = getFlake inputs.${i}.url |> toString;
+              };
+
+              normalInput = rec {
+                _originalName = if hasPatches then "${i}_source" else i;
+                name = if isOverride then _originalName else "${moduleIdentifier}-${_originalName}";
+                value = removeAttrs inputs.${i} [
+                  "override"
+                  "patches"
+                ];
+              };
+
+              patchedInput = rec {
+                _originalName = i;
+                name = if isOverride then _originalName else "${moduleIdentifier}-${_originalName}";
+                value =
+                  (removeAttrs inputs.${i} [
+                    "override"
+                    "patches"
+                  ])
+                  // {
+                    url = "path:${patchedInputSource}";
+                  };
+              };
             in
-            {
-              _originalName = i;
-              name = if isOverride then i else "${moduleIdentifier}-${i}";
-              value = removeAttrs inputs.${i} [ "override" ];
-            }
+            if hasPatches then
+              [
+                normalInput
+                patchedInput
+              ]
+            else
+              normalInput
           ) (attrNames inputs)
         ) modulesWithInputs
       );

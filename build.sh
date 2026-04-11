@@ -99,11 +99,11 @@ if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
 fi
 
 # Generate flake inputs
-export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" flakeInputs | nixfmt | sed "1,1d" | sed "\$d")"
+ICEDOS_FLAKE_INPUTS_JSON="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix build $refresh $trace --no-link --print-out-paths --file "$ICEDOS_ROOT/lib/genflake.nix" flakeInputsJson)"
+export ICEDOS_FLAKE_INPUTS="$(cat $ICEDOS_FLAKE_INPUTS_JSON | json2nix | sed "1,1d" | sed "\$d")"
 if [[ "${ICEDOS_FLAKE_INPUTS}" == "" ]]; then
   exit 1
 fi
-
 echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >"$ICEDOS_STATE_DIR/$FLAKE"
 (
   set -e
