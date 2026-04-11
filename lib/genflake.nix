@@ -4,7 +4,7 @@ let
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
-  inherit (pkgs) lib;
+  inherit (pkgs) lib writeText;
 
   inherit (lib)
     boolToString
@@ -102,7 +102,9 @@ let
       }).config;
 in
 {
-  inherit flakeInputs evaluatedConfig;
+  inherit evaluatedConfig;
+
+  flakeInputsJson = flakeInputs |> toJSON |> writeText "inputs.json";
 
   flakeFinal = ''
     {
