@@ -83,6 +83,28 @@ let
           lock = _readFlakeLock;
         };
 
+    # Split a flake URL of the form `scheme:owner/repo/<ref>` into
+    # { baseUrl = "scheme:owner/repo"; ref = "<ref>"; }. Only applies to schemes
+    # that encode the ref as the third path segment (github, gitlab, sourcehut).
+    # For any other URL shape returns the URL unchanged and ref = null.
+    _parseFlakeUrl =
+      url:
+      let
+        match = builtins.match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)/([^?]+)(.*)" url;
+      in
+      if match == null then
+        {
+          baseUrl = url;
+          ref = null;
+        }
+      else
+        {
+          baseUrl = "${builtins.elemAt match 0}:${builtins.elemAt match 1}/${builtins.elemAt match 2}${
+            builtins.elemAt match 4
+          }";
+          ref = builtins.elemAt match 3;
+        };
+
     # Fetch a modules repository, resolving the URL and loading its icedos modules
     # Handles overrides, flake resolution, and module file loading
     fetchModulesRepository =
@@ -97,16 +119,34 @@ let
 
         # Apply override URL if available
         _url = if (hasAttr url overrides) then overrides.${url} else url;
-        repoName = getFullSubmoduleName { url = _url; };
+
+        # Split any inline ref (SHA/branch/tag) out of the URL so naming and
+        # flake-URL construction don't duplicate it.
+        parsed = _parseFlakeUrl _url;
+        inherit (parsed) baseUrl;
+        inlineRef = parsed.ref;
+
+        repoName = getFullSubmoduleName { url = baseUrl; };
 
         # Resolve the flake revision from lock file
-        flakeRev = _resolveFlakeRevision {
-          url = _url;
+        lockRev = _resolveFlakeRevision {
+          url = baseUrl;
           inherit repoName;
         };
 
+        # Prefer the rev recorded in flake.lock; fall back to the inline ref the
+        # user wrote in config.toml so the first build (before the lock exists)
+        # still pins to what they asked for.
+        flakeRev =
+          if lockRev != "" then
+            lockRev
+          else if inlineRef != null then
+            "/${inlineRef}"
+          else
+            "";
+
         # Build complete flake URL with revision
-        flakeUrl = "${_url}${flakeRev}";
+        flakeUrl = "${baseUrl}${flakeRev}";
 
         # Load the flake (either fresh or from inputs)
         flake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
@@ -115,7 +155,7 @@ let
         modules = flake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
-        url = _url;
+        url = baseUrl;
         inherit (flake) narHash;
         files = flatten modules;
       }
