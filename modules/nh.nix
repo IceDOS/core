@@ -7,7 +7,6 @@
 
 let
   cfg = config.icedos.applications.nh.gc;
-  command = "gc";
   days = "${toString (cfg.days)}d";
   generations = toString (cfg.generations);
 
@@ -52,8 +51,8 @@ in
 {
   icedos.applications.toolset.commands = [
     {
-      inherit command;
-      bin = "${pkgs.writeShellScript command ''"${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}''}";
+      command = "gc";
+      script = ''"${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}'';
       help = "clean nix plus home manager, store and profiles";
     }
   ];

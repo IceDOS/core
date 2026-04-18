@@ -1,7 +1,6 @@
 {
   icedosLib,
   lib,
-  pkgs,
   self,
   ...
 }:
@@ -10,23 +9,67 @@ let
   inherit (builtins)
     attrNames
     listToAttrs
-    map
     pathExists
     ;
 
   inherit (icedosLib) generateAttrPath;
 
   inherit (lib)
+    concatMapStrings
     fileContents
     filterAttrs
     flatten
     mapAttrsToList
+    sort
     ;
 
   inherit (icedosLib) stringStartsWith;
 
 in
 rec {
+  colorBashHeader = ''
+    NC='\033[0m'
+    PURPLE='\033[0;35m'
+    RED='\033[0;31m'
+  '';
+
+  helpFlags = ''"$1" == "" || "$1" == "--help" || "$1" == "-h" || "$1" == "help" || "$1" == "h"'';
+
+  purpleString = s: "\${PURPLE}${s}\${NC}";
+  redString = s: "\${RED}${s}\${NC}";
+
+  mkToolsetDispatcher =
+    { commands }:
+    let
+      sorted = sort (a: b: a.command < b.command) commands;
+    in
+    ''
+      ${colorBashHeader}
+
+      if [[ ${helpFlags} ]]; then
+        echo "Available commands:"
+
+        ${concatMapStrings (c: ''
+          echo -e "> ${purpleString c.command}: ${c.help} "
+        '') sorted}
+
+        exit 0
+      fi
+
+      case "$1" in
+        ${concatMapStrings (c: ''
+          ${c.command})
+            shift
+            exec ${c.bin} "$@"
+            ;;
+        '') commands}
+        *|-*|--*)
+          echo -e "${redString "Unknown arg"}: $1" >&2
+          exit 1
+          ;;
+      esac
+    '';
+
   generateAccentColor =
     {
       accentColor,

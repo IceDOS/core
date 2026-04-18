@@ -6,7 +6,11 @@
 }:
 
 let
-  inherit (lib) fileContents;
+  inherit (lib)
+    fileContents
+    mkOption
+    types
+    ;
 
   inherit (icedosLib)
     mkBoolOption
@@ -16,6 +20,25 @@ let
     mkSubmoduleAttrsOption
     mkSubmoduleListOption
     ;
+
+  toolsetCommandType = types.submodule {
+    options = {
+      command = mkOption { type = types.str; };
+      help = mkOption { type = types.str; };
+      bin = mkOption {
+        type = types.str;
+        default = "";
+      };
+      script = mkOption {
+        type = types.lines;
+        default = "";
+      };
+      commands = mkOption {
+        type = types.listOf toolsetCommandType;
+        default = [ ];
+      };
+    };
+  };
 in
 {
   options = {
@@ -25,6 +48,11 @@ in
         days = mkNumberOption { default = 0; };
         generations = mkNumberOption { default = 10; };
         interval = mkStrOption { default = "Mon *-*-* 00:00:00"; };
+      };
+
+      applications.toolset.commands = mkOption {
+        type = types.listOf toolsetCommandType;
+        default = [ ];
       };
 
       system = {

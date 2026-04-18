@@ -1,159 +1,96 @@
 {
   config,
+  icedosLib,
   inputs,
   lib,
-  pkgs,
   ...
 }:
 
 let
   inherit (lib) mapAttrs mapAttrsToList;
-
-  colorBashHeader = ''
-    NC='\033[0m'
-    PURPLE='\033[0;35m'
-    RED='\033[0;31m'
-  '';
-
-  helpFlags = ''"$1" == "" || "$1" == "--help" || "$1" == "-h" || "$1" == "help" || "$1" == "h"'';
-  purpleString = string: "\${PURPLE}${string}\${NC}";
-  redString = string: "\${RED}${string}\${NC}";
+  inherit (icedosLib)
+    colorBashHeader
+    helpFlags
+    purpleString
+    redString
+    ;
 in
 {
   icedos.applications.toolset.commands = [
-    (
-      let
-        inherit (lib) concatMapStrings sort;
+    {
+      command = "pkgs";
+      help = "print package related commands";
+      commands = [
+        {
+          command = "list";
+          script = "nix-store --query --requisites /run/current-system | cut -d- -f2- | sort | uniq";
+          help = "list installed packages";
+        }
+        {
+          command = "build";
+          help = "build provided package derivation";
+          script = ''
+            ${colorBashHeader}
 
-        commands = [
-          (
-            let
-              command = "list";
-            in
-            {
-              inherit command;
-              bin = "${pkgs.writeShellScript command "nix-store --query --requisites /run/current-system | cut -d- -f2- | sort | uniq"}";
-              help = "list installed packages";
-            }
-          )
-          (
-            let
-              command = "build";
-            in
-            {
-              inherit command;
+            if [[ ${helpFlags} ]]; then
+              echo "Available arguments:"
+              echo -e "> ${purpleString "--run|-r"}: provide binary name to launch after building"
+              echo -e "> ${purpleString "--path|-p"}: provide nix derivation path to build"
+              exit 0
+            fi
 
-              bin = "${pkgs.writeShellScript command ''
-                ${colorBashHeader}
+            while [[ $# -gt 0 ]]; do
+              case "$1" in
+                --path|-p)
+                  BUILD="nix-build -E '(import <nixpkgs> {}).callPackage $2 {}'"
+                  shift 2
+                  ;;
+                --run|-r)
+                  RUN="| xargs -I {} bash -c '{}/bin/$2'"
+                  shift 2
+                  ;;
+                *)
+                  echo -e "${redString "Unknown arg"}: $1"
+                  exit 1
+              esac
+            done
 
-                if [[ ${helpFlags} ]]; then
-                  echo "Available arguments:"
-                  echo -e "> ${purpleString "--run|-r"}: provide binary name to launch after building"
-                  echo -e "> ${purpleString "--path|-p"}: provide nix derivation path to build"
-                  exit 0
-                fi
+            [ "$BUILD" == "" ] && echo -e "${redString "error"}: --path|-p is required" && exit 1
 
-                while [[ $# -gt 0 ]]; do
-                  case "$1" in
-                    --path|-p)
-                      BUILD="nix-build -E '(import <nixpkgs> {}).callPackage $2 {}'"
-                      shift 2
-                      ;;
-                    --run|-r)
-                      RUN="| xargs -I {} bash -c '{}/bin/$2'"
-                      shift 2
-                      ;;
-                    *)
-                      echo -e "${redString "Unknown arg"}: $1"
-                      exit 1
-                  esac
-                done
+            bash -c "$BUILD $RUN"
+          '';
+        }
+      ];
+    }
 
-                [ "$BUILD" == "" ] && echo -e "${redString "error"}: --path|-p is required" && exit 1
+    {
+      command = "repair";
+      script = "nix-store --verify --check-contents --repair";
+      help = "repair nix store";
+    }
 
-                bash -c "$BUILD $RUN"
-              ''}";
+    {
+      command = "shell";
+      help = "spawn a nix shell with optimized env";
+      script = ''
+        ${colorBashHeader}
 
-              help = "build provided package derivation";
-            }
-          )
-        ];
+        export NIXPKGS_ALLOW_UNFREE=1
 
-        command = "pkgs";
-      in
-      {
-        inherit command;
+        if [[ ${helpFlags} ]]; then
+          echo "Available arguments:"
+          echo -e "> ${purpleString "--insecure"}: allow insecure packages"
+          exit 0
+        fi
 
-        bin = "${pkgs.writeShellScript command ''
-          ${colorBashHeader}
+        if [ "$1" == "--insecure" ]; then
+          export NIXPKGS_ALLOW_INSECURE=1
+          shift
+        fi
 
-          if [[ ${helpFlags} ]]; then
-            echo "Available commands:"
-
-            ${concatMapStrings (tool: ''
-              echo -e "> ${purpleString tool.command}: ${tool.help} "
-            '') (sort (a: b: a.command < b.command) commands)}
-
-            exit 0
-          fi
-
-          case "$1" in
-            ${concatMapStrings (tool: ''
-              ${tool.command})
-                shift
-                exec ${tool.bin} "$@"
-                ;;
-            '') commands}
-            *|-*|--*)
-              echo -e "${redString "Unknown arg"}: $1" >&2
-              exit 1
-              ;;
-          esac
-        ''}";
-
-        help = "print package related commands";
-      }
-    )
-
-    (
-      let
-        command = "repair";
-      in
-      {
-        inherit command;
-        bin = "${pkgs.writeShellScript command "nix-store --verify --check-contents --repair"}";
-        help = "repair nix store";
-      }
-    )
-
-    (
-      let
-        command = "shell";
-      in
-      {
-        inherit command;
-
-        bin = "${pkgs.writeShellScript command ''
-          ${colorBashHeader}
-
-          export NIXPKGS_ALLOW_UNFREE=1
-
-          if [[ ${helpFlags} ]]; then
-            echo "Available arguments:"
-            echo -e "> ${purpleString "--insecure"}: allow insecure packages"
-            exit 0
-          fi
-
-          if [ "$1" == "--insecure" ]; then
-            export NIXPKGS_ALLOW_INSECURE=1
-            shift
-          fi
-
-          nix-shell $@
-        ''}";
-        help = "spawn a nix shell with optimized env";
-      }
-    )
+        nix-shell $@
+      '';
+    }
   ];
 
   nix = {
