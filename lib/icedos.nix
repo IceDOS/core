@@ -513,7 +513,10 @@ let
       if (hasAttr "icedos-config" inputs) then
         inputs.icedos-config
       else
-        builtins.getFlake "path:${ICEDOS_CONFIG_ROOT}";
+        fetchTree {
+          type = "path";
+          path = ICEDOS_CONFIG_ROOT;
+        };
 
     # Main function to resolve and process all modules from config
     # Deduplicates modules, extracts outputs, and combines external + extra modules
