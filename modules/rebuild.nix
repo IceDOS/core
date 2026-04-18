@@ -5,85 +5,67 @@
 }:
 
 let
-  builder =
-    c: u:
-    let
-      inherit (pkgs) flatpak writeShellScript;
-      flatpakUpdate = if (config.services.flatpak.enable) then "${flatpak}/bin/flatpak update" else "";
-    in
-    "${writeShellScript "${c}" ''
-      RED='\033[0;31m'
-      NC='\033[0m'
-      CACHE_DIR=".cache"
+  inherit (pkgs) flatpak writeShellScript;
+  flatpakUpdate = if (config.services.flatpak.enable) then "${flatpak}/bin/flatpak update" else "";
 
-      cd "${config.icedos.configurationLocation}"
+  rebuild = writeShellScript "rebuild" ''
+    RED='\033[0;31m'
+    NC='\033[0m'
+    CACHE_DIR=".cache"
 
-      LATEST_CACHE_FOLDER=$(ls -dt "$CACHE_DIR"/*/ 2>/dev/null | head -1)
+    cd "${config.icedos.configurationLocation}"
 
-      function cache() {
-        IS_CACHED=0
-        FILE="$1"
-        NAME="$(basename $1)$2"
+    LATEST_CACHE_FOLDER=$(ls -dt "$CACHE_DIR"/*/ 2>/dev/null | head -1)
 
-        if [ -n "$LATEST_CACHE_FOLDER" ]; then
-          CACHED_FILE=$(find "$LATEST_CACHE_FOLDER" -name "$NAME" | head -1)
+    function cache() {
+      IS_CACHED=0
+      FILE="$1"
+      NAME="$(basename $1)$2"
 
-          if [ -f "$CACHED_FILE" ]; then
-            if diff -q "$FILE" "$CACHED_FILE" &> /dev/null; then
-              IS_CACHED=1
-            fi
+      if [ -n "$LATEST_CACHE_FOLDER" ]; then
+        CACHED_FILE=$(find "$LATEST_CACHE_FOLDER" -name "$NAME" | head -1)
+
+        if [ -f "$CACHED_FILE" ]; then
+          if diff -q "$FILE" "$CACHED_FILE" &> /dev/null; then
+            IS_CACHED=1
           fi
         fi
-
-        if [[ ! "$IS_CACHED" -eq 1 ]]; then
-          DATE_FOLDER="$CACHE_DIR/$(date -Is)"
-          mkdir -p "$DATE_FOLDER"
-          cp "$FILE" "$DATE_FOLDER/$NAME"
-        fi
-      }
-
-      if [ ! -d "${config.icedos.configurationLocation}" ]; then
-        echo -e "''${RED}error''${NC}: configuration path is invalid, run build.sh located inside the configuration scripts directory to update the path."
-        exit 1
       fi
 
+      if [[ ! "$IS_CACHED" -eq 1 ]]; then
+        DATE_FOLDER="$CACHE_DIR/$(date -Is)"
+        mkdir -p "$DATE_FOLDER"
+        cp "$FILE" "$DATE_FOLDER/$NAME"
+      fi
+    }
 
-      if ${u}; then
+    if [ ! -d "${config.icedos.configurationLocation}" ]; then
+      echo -e "''${RED}error''${NC}: configuration path is invalid, execute 'nix run .' inside the configuration directory to update the path."
+      exit 1
+    fi
+
+    for arg in "$@"; do
+      if [ "$arg" = "--update" ]; then
         ${flatpakUpdate}
-        bash ./build.sh --update $@
-      else
-        bash ./build.sh $@
+        break
       fi
+    done
 
-      cache "../config.toml"
-      cache "../flake.lock" ".config"
-      cache "../flake.nix" ".config"
-      cache "flake.lock" ".state"
-      cache "flake.nix" ".state"
-    ''}";
+    bash ./build.sh "$@"
+
+    cache "../config.toml"
+    cache "../flake.lock" ".config"
+    cache "../flake.nix" ".config"
+    cache "flake.lock" ".state"
+    cache "flake.nix" ".state"
+  '';
 in
 {
   icedos.applications.toolset.commands = [
-    (
-      let
-        command = "rebuild";
-      in
-      {
-        inherit command;
-        bin = toString (builder command "false");
-        help = "rebuild the system";
-      }
-    )
-
-    (
-      let
-        command = "update";
-      in
-      {
-        inherit command;
-        bin = toString (builder command "true");
-        help = "update flake.lock and rebuild the system";
-      }
-    )
+    {
+      command = "rebuild";
+      bin = toString rebuild;
+      help = "rebuild the system";
+    }
   ];
 }
