@@ -10,12 +10,16 @@ let
     attrNames
     listToAttrs
     pathExists
+    replaceStrings
     ;
 
   inherit (icedosLib) generateAttrPath;
 
   inherit (lib)
+    concatMap
     concatMapStrings
+    concatStringsSep
+    escapeShellArg
     fileContents
     filterAttrs
     flatten
@@ -68,6 +72,119 @@ rec {
           exit 1
           ;;
       esac
+    '';
+
+  # Walks the toolset command tree and yields one record per branch node (a
+  # node with at least one child), describing which children are valid
+  # completions at that point in the command line. Used by the shell
+  # completion generators below.
+  toolsetBranches =
+    commands:
+    let
+      go =
+        parentPath: cmds:
+        if cmds == [ ] then
+          [ ]
+        else
+          [
+            {
+              path = parentPath;
+              children = sort (a: b: a.name < b.name) (
+                map (c: {
+                  name = c.command;
+                  help = c.help;
+                }) cmds
+              );
+            }
+          ]
+          ++ concatMap (c: go (parentPath ++ [ c.command ]) c.commands) cmds;
+    in
+    go [ ] commands;
+
+  mkBashCompletion =
+    { commands }:
+    let
+      branches = toolsetBranches commands;
+      childNames = b: concatStringsSep " " (map (c: c.name) b.children);
+      caseArm = b: ''
+        ${escapeShellArg (concatStringsSep " " b.path)})
+            words=${escapeShellArg (childNames b)}
+            ;;
+      '';
+    in
+    ''
+      _icedos() {
+          local cur="''${COMP_WORDS[COMP_CWORD]}"
+          local -a _icedos_args=("''${COMP_WORDS[@]:1:$((COMP_CWORD - 1))}")
+          local IFS=' '
+          local key="''${_icedos_args[*]}"
+          local words=""
+          case "$key" in
+      ${concatMapStrings (b: "      " + caseArm b) branches}      esac
+          COMPREPLY=( $(compgen -W "$words" -- "$cur") )
+      }
+      complete -F _icedos icedos
+    '';
+
+  mkZshCompletion =
+    { commands }:
+    let
+      branches = toolsetBranches commands;
+      # Escape colons (zsh _describe's name/help delimiter) with a backslash.
+      escColons = replaceStrings [ ":" ] [ "\\:" ];
+      entryStr = c: escapeShellArg "${c.name}:${escColons c.help}";
+      caseArm = b: ''
+        ${escapeShellArg (concatStringsSep " " b.path)})
+            entries=(
+      ${concatMapStrings (c: "          " + entryStr c + "\n") b.children}          )
+            ;;
+      '';
+    in
+    ''
+      #compdef icedos
+      _icedos() {
+          local -a path entries
+          local key
+          path=("''${(@)words[2,$((CURRENT - 1))]}")
+          key="''${(j: :)path}"
+          entries=()
+          case "$key" in
+      ${concatMapStrings (b: "      " + caseArm b) branches}      esac
+          if (( ''${#entries} > 0 )); then
+              _describe -t commands 'icedos command' entries
+          fi
+      }
+      _icedos "$@"
+    '';
+
+  mkFishCompletion =
+    { commands }:
+    let
+      branches = toolsetBranches commands;
+      line =
+        c:
+        "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
+      caseArm = b: ''
+        case ${escapeShellArg (concatStringsSep " " b.path)}
+      ${concatMapStrings line b.children}'';
+    in
+    ''
+      function __icedos_complete_path
+          set -l tokens (commandline -opc)
+          set -l cur (commandline -ct)
+          set -e tokens[1]
+          if test -n "$cur"; and set -q tokens[1]
+              set -e tokens[-1]
+          end
+          string join ' ' -- $tokens
+      end
+
+      function __icedos_complete
+          switch (__icedos_complete_path)
+      ${concatMapStrings (b: "        " + caseArm b) branches}    end
+      end
+
+      complete -c icedos -f -a '(__icedos_complete)'
     '';
 
   generateAccentColor =

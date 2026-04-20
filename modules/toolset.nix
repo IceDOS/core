@@ -7,10 +7,16 @@
 }:
 
 let
-  inherit (lib) concatMap;
-  inherit (icedosLib) mkToolsetDispatcher;
   inherit (config.icedos.applications.toolset) commands;
 
+  inherit (icedosLib)
+    mkBashCompletion
+    mkFishCompletion
+    mkToolsetDispatcher
+    mkZshCompletion
+    ;
+
+  inherit (lib) concatMap;
   validNameRegex = "[a-zA-Z0-9_-]+";
 
   resolve =
@@ -57,8 +63,31 @@ in
     }) allCommands);
 
   environment.systemPackages = [
-    (pkgs.writeShellScriptBin "icedos" (mkToolsetDispatcher {
-      commands = resolvedCommands;
-    }))
+    (pkgs.symlinkJoin {
+      name = "icedos";
+      paths = [
+        (pkgs.writeShellScriptBin "icedos" (mkToolsetDispatcher {
+          commands = resolvedCommands;
+        }))
+
+        (pkgs.writeTextFile {
+          name = "icedos-bash-completion";
+          destination = "/share/bash-completion/completions/icedos";
+          text = mkBashCompletion { inherit commands; };
+        })
+
+        (pkgs.writeTextFile {
+          name = "icedos-zsh-completion";
+          destination = "/share/zsh/site-functions/_icedos";
+          text = mkZshCompletion { inherit commands; };
+        })
+
+        (pkgs.writeTextFile {
+          name = "icedos-fish-completion";
+          destination = "/share/fish/vendor_completions.d/icedos.fish";
+          text = mkFishCompletion { inherit commands; };
+        })
+      ];
+    })
   ];
 }
