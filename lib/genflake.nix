@@ -147,12 +147,12 @@ in
 
           getModules =
             path:
-            map (dir: "/''${path}/''${dir}") (
-              let
-                inherit (lib) attrNames;
-              in
-              attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path))
-            );
+            let
+              inherit (lib) attrNames;
+              dirs = attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path));
+              hasDefaultNix = dir: pathExists "''${path}/''${dir}/default.nix";
+            in
+            map (dir: "/''${path}/''${dir}") (builtins.filter hasDefaultNix dirs);
         in {
           nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
