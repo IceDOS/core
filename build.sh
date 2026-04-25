@@ -154,8 +154,8 @@ cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
 if (( ${#nixBuildArgs[@]} != 0 )); then
-  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" $trace ${nixBuildArgs[*]} ${globalBuildArgs[*]}
+  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace ${nixBuildArgs[*]} ${globalBuildArgs[*]}
   exit 0
 fi
 
-nh os $action . ${nhBuildArgs[*]} -- $trace ${globalBuildArgs[*]}
+nh os $action --no-update-lock-file . ${nhBuildArgs[*]} -- $trace ${globalBuildArgs[*]}
