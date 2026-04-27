@@ -10,6 +10,7 @@ let
   inherit (config.icedos.applications.toolset) commands;
 
   inherit (icedosLib)
+    colorBashHeader
     mkBashCompletion
     mkFishCompletion
     mkToolsetDispatcher
@@ -37,7 +38,7 @@ let
             })
           )
         else if hasScript then
-          toString (pkgs.writeShellScript cmd.command cmd.script)
+          toString (pkgs.writeShellScript cmd.command "${colorBashHeader}\n${cmd.script}")
         else
           cmd.bin;
     };

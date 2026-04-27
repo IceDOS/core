@@ -31,16 +31,38 @@ let
 
 in
 rec {
+  # Bold + color (`1;3N`) for severity-style prefixes that end with `:` —
+  # `error:`, `warning:`, etc. matches nh's look. Dim variants (`0;3N`) for
+  # inline highlights that aren't level prefixes (status arrows, arg names in
+  # help text, file paths). Pick the *String helper based on whether the
+  # colored fragment is followed by a `:` in the surrounding sentence.
   colorBashHeader = ''
     NC='\033[0m'
-    PURPLE='\033[0;35m'
-    RED='\033[0;31m'
+    BLUE='\033[1;34m'
+    GREEN='\033[1;32m'
+    PURPLE='\033[1;35m'
+    RED='\033[1;31m'
+    YELLOW='\033[1;33m'
+    DIM_BLUE='\033[0;34m'
+    DIM_GREEN='\033[0;32m'
+    DIM_PURPLE='\033[0;35m'
+    DIM_RED='\033[0;31m'
+    DIM_YELLOW='\033[0;33m'
   '';
 
   helpFlags = ''"$1" == "" || "$1" == "--help" || "$1" == "-h" || "$1" == "help" || "$1" == "h"'';
 
+  blueString = s: "\${BLUE}${s}\${NC}";
+  greenString = s: "\${GREEN}${s}\${NC}";
   purpleString = s: "\${PURPLE}${s}\${NC}";
   redString = s: "\${RED}${s}\${NC}";
+  yellowString = s: "\${YELLOW}${s}\${NC}";
+
+  dimBlueString = s: "\${DIM_BLUE}${s}\${NC}";
+  dimGreenString = s: "\${DIM_GREEN}${s}\${NC}";
+  dimPurpleString = s: "\${DIM_PURPLE}${s}\${NC}";
+  dimRedString = s: "\${DIM_RED}${s}\${NC}";
+  dimYellowString = s: "\${DIM_YELLOW}${s}\${NC}";
 
   mkToolsetDispatcher =
     { commands }:
@@ -134,10 +156,10 @@ rec {
       escColons = replaceStrings [ ":" ] [ "\\:" ];
       entryStr = c: escapeShellArg "${c.name}:${escColons c.help}";
       caseArm = b: ''
-        ${escapeShellArg (concatStringsSep " " b.path)})
-            entries=(
-      ${concatMapStrings (c: "          " + entryStr c + "\n") b.children}          )
-            ;;
+          ${escapeShellArg (concatStringsSep " " b.path)})
+              entries=(
+        ${concatMapStrings (c: "          " + entryStr c + "\n") b.children}          )
+              ;;
       '';
     in
     ''
@@ -161,12 +183,11 @@ rec {
     { commands }:
     let
       branches = toolsetBranches commands;
-      line =
-        c:
-        "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
+      line = c: "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
+
       caseArm = b: ''
-        case ${escapeShellArg (concatStringsSep " " b.path)}
-      ${concatMapStrings line b.children}'';
+          case ${escapeShellArg (concatStringsSep " " b.path)}
+        ${concatMapStrings line b.children}'';
     in
     ''
       function __icedos_complete_path

@@ -1,11 +1,13 @@
 {
   config,
+  icedosLib,
   lib,
   pkgs,
   ...
 }:
 
 let
+  inherit (icedosLib) dimBlueString dimGreenString dimRedString;
   cfg = config.icedos.applications.nh.gc;
   days = "${toString (cfg.days)}d";
   generations = toString (cfg.generations);
@@ -16,20 +18,16 @@ let
       command = "nh-clean-extra";
     in
     "${pkgs.writeShellScriptBin command ''
-      BLUE='\e[34m'
-      GREEN='\033[0;32m'
-      RED='\033[0;31m'
-      NC='\033[0m'
+      ${icedosLib.colorBashHeader}
 
-
-      echo -e "\n''${BLUE}/tmp/nix-shell-*/icedos-build''${NC}"
+      echo -e "\n${dimBlueString "/tmp/nix-shell-*/icedos-build"}"
 
       tempBuildDirs=$(find /tmp -type d -name "icedos-build*" 2>/dev/null)
       totalSize=0
       buildPathsCount=0
 
       for dir in $tempBuildDirs; do
-          echo -e "- ''${RED}DEL''${NC} $dir"
+          echo -e "- ${dimRedString "DEL"} $dir"
           sizeKb=$(du -sk "$dir" | cut -f1)
           sizeMb=$(echo "scale=2; $sizeKb / 1024" | ${bc})
           totalSize=$(echo "scale=2; $totalSize + $sizeMb" | ${bc})
@@ -41,7 +39,7 @@ let
       echo -e
 
       for dir in $tempBuildDirs; do
-          echo -e "''${GREEN}>''${NC} Removing $dir"
+          echo -e "${dimGreenString ">"} Removing $dir"
           rm -r "$dir"
       done
 

@@ -99,9 +99,7 @@ let
         }
       else
         {
-          baseUrl = "${builtins.elemAt match 0}:${builtins.elemAt match 1}/${builtins.elemAt match 2}${
-            builtins.elemAt match 4
-          }";
+          baseUrl = "${builtins.elemAt match 0}:${builtins.elemAt match 1}/${builtins.elemAt match 2}${builtins.elemAt match 4}";
           ref = builtins.elemAt match 3;
         };
 
