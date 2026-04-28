@@ -179,7 +179,7 @@ in
           shift
         fi
 
-        nix-shell $@
+        nix-shell "$@"
       '';
     }
   ];

@@ -16,7 +16,7 @@ nixBuildArgs=()
 set -e
 set -o pipefail
 
-previous_arguments=$@
+previous_arguments=("$@")
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -85,7 +85,7 @@ mkdir -p "$ICEDOS_BUILD_DIR"
 
 # Save current directory into a file
 [ -f "$CONFIG" ] && rm -f "$CONFIG" || sudo rm -rf "$CONFIG"
-printf "$ICEDOS_STATE_DIR" > "$CONFIG"
+printf '%s' "$ICEDOS_STATE_DIR" > "$CONFIG"
 
 if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
@@ -94,7 +94,7 @@ fi
 if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
   cd "$ICEDOS_CONFIG_ROOT"
   nix flake update
-  exec env skip_update_core=1 nix run . -- $previous_arguments
+  exec env skip_update_core=1 nix run . -- "${previous_arguments[@]}"
   exit 0
 fi
 
@@ -154,8 +154,8 @@ cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
 if (( ${#nixBuildArgs[@]} != 0 )); then
-  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace ${nixBuildArgs[*]} ${globalBuildArgs[*]}
+  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
   exit 0
 fi
 
-nh os $action --no-update-lock-file . ${nhBuildArgs[*]} -- $trace ${globalBuildArgs[*]}
+nh os $action --no-update-lock-file . "${nhBuildArgs[@]}" -- $trace "${globalBuildArgs[@]}"
