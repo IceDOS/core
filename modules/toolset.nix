@@ -9,11 +9,11 @@
 let
   inherit (config.icedos.applications.toolset) commands;
 
-  inherit (icedosLib)
-    colorBashHeader
+  inherit (icedosLib.bash) prelude;
+  inherit (icedosLib.toolset)
     mkBashCompletion
+    mkDispatcher
     mkFishCompletion
-    mkToolsetDispatcher
     mkZshCompletion
     ;
 
@@ -33,12 +33,12 @@ let
       bin =
         if hasChildren then
           toString (
-            pkgs.writeShellScript cmd.command (mkToolsetDispatcher {
+            pkgs.writeShellScript cmd.command (mkDispatcher {
               commands = resolvedChildren;
             })
           )
         else if hasScript then
-          toString (pkgs.writeShellScript cmd.command "${colorBashHeader}\n${cmd.script}")
+          toString (pkgs.writeShellScript cmd.command "${prelude}\n${cmd.script}")
         else
           cmd.bin;
     };
@@ -67,7 +67,7 @@ in
     (pkgs.symlinkJoin {
       name = "icedos";
       paths = [
-        (pkgs.writeShellScriptBin "icedos" (mkToolsetDispatcher {
+        (pkgs.writeShellScriptBin "icedos" (mkDispatcher {
           commands = resolvedCommands;
         }))
 

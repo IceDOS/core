@@ -7,7 +7,12 @@
 }:
 
 let
-  inherit (icedosLib) dimBlueString dimGreenString dimRedString;
+  inherit (icedosLib.bash)
+    prelude
+    dimBlueString
+    dimGreenString
+    dimRedString
+    ;
   cfg = config.icedos.applications.nh.gc;
   days = "${toString (cfg.days)}d";
   generations = toString (cfg.generations);
@@ -18,7 +23,7 @@ let
       command = "nh-clean-extra";
     in
     "${pkgs.writeShellScriptBin command ''
-      ${icedosLib.colorBashHeader}
+      ${prelude}
 
       echo -e "\n${dimBlueString "/tmp/nix-shell-*/icedos-build"}"
 

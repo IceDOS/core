@@ -29,7 +29,7 @@ in
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
       password = userAttrs.defaultPassword;
-      packages = icedosLib.pkgMapper pkgs cfg.users.${user}.extraPackages;
+      packages = icedosLib.pkgs.mapper pkgs cfg.users.${user}.extraPackages;
     }
   ) cfg.users;
 
