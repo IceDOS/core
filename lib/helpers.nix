@@ -23,6 +23,7 @@ let
     fileContents
     filterAttrs
     flatten
+    mapAttrs
     mapAttrsToList
     sort
     ;
@@ -236,6 +237,16 @@ rec {
       inherit name;
       value = attrs;
     }) (filterAttrs (n: v: v.isNormalUser) users);
+
+  # Per-normal-user attrset for `users` submodule options. Lets modules avoid
+  # forcing the user to write `[icedos.<path>.users.<name>]` per system user
+  # just to materialise the option's submodule defaults.
+  genUserDefaults =
+    {
+      users,
+      value ? { },
+    }:
+    mapAttrs (_: _: value) (filterAttrs (_: v: v.isNormalUser) users);
 
   pkgMapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
 
