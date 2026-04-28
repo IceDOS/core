@@ -7,7 +7,7 @@
 }:
 
 let
-  inherit (lib) attrNames mapAttrs;
+  inherit (lib) attrNames mapAttrs optional;
   cfg = config.icedos;
 in
 {
@@ -24,12 +24,12 @@ in
     in
     {
       description = userAttrs.description;
-      extraGroups = lib.optional userAttrs.sudo "wheel" ++ userAttrs.extraGroups;
+      extraGroups = optional userAttrs.sudo "wheel" ++ userAttrs.extraGroups;
       home = if (builtins.stringLength homeDir != 0) then homeDir else "/home/${user}";
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
       password = userAttrs.defaultPassword;
-      packages = icedosLib.pkgMapper pkgs cfg.users.${user}.extraPackages;
+      packages = icedosLib.pkgs.mapper pkgs cfg.users.${user}.extraPackages;
     }
   ) cfg.users;
 

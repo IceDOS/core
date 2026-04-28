@@ -7,7 +7,7 @@
 
 let
   inherit (pkgs) flatpak;
-  inherit (icedosLib) dimGreenString redString;
+  inherit (icedosLib.bash) dimGreenString redString;
   flatpakUpdate = if (config.services.flatpak.enable) then "${flatpak}/bin/flatpak update" else "";
 in
 {

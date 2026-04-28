@@ -8,9 +8,10 @@
 
 let
   inherit (lib) mapAttrs mapAttrsToList;
-  inherit (icedosLib)
-    colorBashHeader
-    helpFlags
+
+  inherit (icedosLib.bash)
+    prelude
+    genHelpFlags
     purpleString
     redString
     ;
@@ -30,9 +31,9 @@ in
           command = "build";
           help = "build provided package derivation";
           script = ''
-            ${colorBashHeader}
+            ${prelude}
 
-            if [[ ${helpFlags} ]]; then
+            if [[ ${genHelpFlags { }} ]]; then
               echo "Available arguments:"
               echo -e "> ${purpleString "--run|-r"}: provide binary name to launch after building"
               echo -e "> ${purpleString "--path|-p"}: provide nix derivation path to build"
@@ -65,14 +66,14 @@ in
           command = "run";
           help = "build a nixpkgs attribute and exec its main binary";
           script = ''
-            ${colorBashHeader}
+            ${prelude}
 
             export NIXPKGS_ALLOW_UNFREE=1
 
-            if [[ ${helpFlags} ]]; then
+            if [[ ${genHelpFlags { }} ]]; then
               echo "Available arguments:"
               echo -e "> ${purpleString "<package>"}: nixpkgs attribute name (e.g. firefox, git, nodejs)"
-              echo -e "> ${purpleString "-s|--select"}: show binary selector even when a main program is set"
+              echo -e "> ${purpleString "-s, --select"}: show binary selector even when a main program is set"
               echo -e "> ${purpleString "--insecure"}: allow insecure packages"
               echo -e "> ${purpleString "--"}: end of icedos flags; everything after is forwarded to the launched binary"
               exit 0
@@ -164,11 +165,11 @@ in
       command = "shell";
       help = "spawn a nix shell with optimized env";
       script = ''
-        ${colorBashHeader}
+        ${prelude}
 
         export NIXPKGS_ALLOW_UNFREE=1
 
-        if [[ ${helpFlags} ]]; then
+        if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
           echo "Available arguments:"
           echo -e "> ${purpleString "--insecure"}: allow insecure packages"
           exit 0

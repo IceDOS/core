@@ -32,182 +32,192 @@ let
 
 in
 rec {
-  # Bold + color (`1;3N`) for severity-style prefixes that end with `:` —
-  # `error:`, `warning:`, etc. matches nh's look. Dim variants (`0;3N`) for
-  # inline highlights that aren't level prefixes (status arrows, arg names in
-  # help text, file paths). Pick the *String helper based on whether the
-  # colored fragment is followed by a `:` in the surrounding sentence.
-  colorBashHeader = ''
-    NC='\033[0m'
-    BLUE='\033[1;34m'
-    GREEN='\033[1;32m'
-    PURPLE='\033[1;35m'
-    RED='\033[1;31m'
-    YELLOW='\033[1;33m'
-    DIM_BLUE='\033[0;34m'
-    DIM_GREEN='\033[0;32m'
-    DIM_PURPLE='\033[0;35m'
-    DIM_RED='\033[0;31m'
-    DIM_YELLOW='\033[0;33m'
-  '';
+  # Runtime bash helpers shared between Nix-embedded scripts (via the
+  # auto-prepended `prelude` from toolset.nix:41) and standalone .sh files
+  # (which `source` core/lib/prelude.sh directly). Both layers see the
+  # same color vars, log_* / die / is_help_flag functions.
+  bash = {
+    prelude = builtins.readFile ./prelude.sh;
 
-  helpFlags = ''"$1" == "" || "$1" == "--help" || "$1" == "-h" || "$1" == "help" || "$1" == "h"'';
+    genHelpFlags =
+      {
+        excludeNoArgs ? false,
+      }:
+      let
+        base = ''"$1" == "--help" || "$1" == "-h" || "$1" == "help" || "$1" == "h"'';
+      in
+      if excludeNoArgs then base else ''"$1" == "" || '' + base;
 
-  blueString = s: "\${BLUE}${s}\${NC}";
-  greenString = s: "\${GREEN}${s}\${NC}";
-  purpleString = s: "\${PURPLE}${s}\${NC}";
-  redString = s: "\${RED}${s}\${NC}";
-  yellowString = s: "\${YELLOW}${s}\${NC}";
+    blueString = s: "\${BLUE}${s}\${NC}";
+    greenString = s: "\${GREEN}${s}\${NC}";
+    purpleString = s: "\${PURPLE}${s}\${NC}";
+    redString = s: "\${RED}${s}\${NC}";
+    yellowString = s: "\${YELLOW}${s}\${NC}";
 
-  dimBlueString = s: "\${DIM_BLUE}${s}\${NC}";
-  dimGreenString = s: "\${DIM_GREEN}${s}\${NC}";
-  dimPurpleString = s: "\${DIM_PURPLE}${s}\${NC}";
-  dimRedString = s: "\${DIM_RED}${s}\${NC}";
-  dimYellowString = s: "\${DIM_YELLOW}${s}\${NC}";
+    dimBlueString = s: "\${DIM_BLUE}${s}\${NC}";
+    dimGreenString = s: "\${DIM_GREEN}${s}\${NC}";
+    dimPurpleString = s: "\${DIM_PURPLE}${s}\${NC}";
+    dimRedString = s: "\${DIM_RED}${s}\${NC}";
+    dimYellowString = s: "\${DIM_YELLOW}${s}\${NC}";
+  };
 
-  mkToolsetDispatcher =
-    { commands }:
+  # icedos toolset framework: the dispatcher generator (used to build
+  # `icedos` itself and every subcommand attrset that has children) and
+  # the per-shell completion generators. `walkBranches` is a private
+  # helper consumed only by the three completion generators.
+  toolset =
     let
-      sorted = sort (a: b: a.command < b.command) commands;
+      # Walks the command tree and yields one record per branch node (a
+      # node with at least one child), describing which children are
+      # valid completions at that point in the command line.
+      walkBranches =
+        commands:
+        let
+          go =
+            parentPath: cmds:
+            if cmds == [ ] then
+              [ ]
+            else
+              [
+                {
+                  path = parentPath;
+                  children = sort (a: b: a.name < b.name) (
+                    map (c: {
+                      name = c.command;
+                      help = c.help;
+                    }) cmds
+                  );
+                }
+              ]
+              ++ concatMap (c: go (parentPath ++ [ c.command ]) c.commands) cmds;
+        in
+        go [ ] commands;
     in
-    ''
-      ${colorBashHeader}
+    {
+      mkDispatcher =
+        { commands }:
+        let
+          sorted = sort (a: b: a.command < b.command) commands;
 
-      if [[ ${helpFlags} ]]; then
-        echo "Available commands:"
+          inherit (bash)
+            prelude
+            genHelpFlags
+            purpleString
+            redString
+            ;
+        in
+        ''
+          ${prelude}
 
-        ${concatMapStrings (c: ''
-          echo -e "> ${purpleString c.command}: ${c.help} "
-        '') sorted}
+          if [[ ${genHelpFlags { }} ]]; then
+            echo "Available commands:"
 
-        exit 0
-      fi
+            ${concatMapStrings (c: ''
+              echo -e "> ${purpleString c.command}: ${c.help} "
+            '') sorted}
 
-      case "$1" in
-        ${concatMapStrings (c: ''
-          ${c.command})
-            shift
-            exec ${c.bin} "$@"
-            ;;
-        '') commands}
-        *|-*|--*)
-          echo -e "${redString "Unknown arg"}: $1" >&2
-          exit 1
-          ;;
-      esac
-    '';
-
-  # Walks the toolset command tree and yields one record per branch node (a
-  # node with at least one child), describing which children are valid
-  # completions at that point in the command line. Used by the shell
-  # completion generators below.
-  toolsetBranches =
-    commands:
-    let
-      go =
-        parentPath: cmds:
-        if cmds == [ ] then
-          [ ]
-        else
-          [
-            {
-              path = parentPath;
-              children = sort (a: b: a.name < b.name) (
-                map (c: {
-                  name = c.command;
-                  help = c.help;
-                }) cmds
-              );
-            }
-          ]
-          ++ concatMap (c: go (parentPath ++ [ c.command ]) c.commands) cmds;
-    in
-    go [ ] commands;
-
-  mkBashCompletion =
-    { commands }:
-    let
-      branches = toolsetBranches commands;
-      childNames = b: concatStringsSep " " (map (c: c.name) b.children);
-      caseArm = b: ''
-        ${escapeShellArg (concatStringsSep " " b.path)})
-            words=${escapeShellArg (childNames b)}
-            ;;
-      '';
-    in
-    ''
-      _icedos() {
-          local cur="''${COMP_WORDS[COMP_CWORD]}"
-          local -a _icedos_args=("''${COMP_WORDS[@]:1:$((COMP_CWORD - 1))}")
-          local IFS=' '
-          local key="''${_icedos_args[*]}"
-          local words=""
-          case "$key" in
-      ${concatMapStrings (b: "      " + caseArm b) branches}      esac
-          COMPREPLY=( $(compgen -W "$words" -- "$cur") )
-      }
-      complete -F _icedos icedos
-    '';
-
-  mkZshCompletion =
-    { commands }:
-    let
-      branches = toolsetBranches commands;
-      # Escape colons (zsh _describe's name/help delimiter) with a backslash.
-      escColons = replaceStrings [ ":" ] [ "\\:" ];
-      entryStr = c: escapeShellArg "${c.name}:${escColons c.help}";
-      caseArm = b: ''
-          ${escapeShellArg (concatStringsSep " " b.path)})
-              entries=(
-        ${concatMapStrings (c: "          " + entryStr c + "\n") b.children}          )
-              ;;
-      '';
-    in
-    ''
-      #compdef icedos
-      _icedos() {
-          local -a path entries
-          local key
-          path=("''${(@)words[2,$((CURRENT - 1))]}")
-          key="''${(j: :)path}"
-          entries=()
-          case "$key" in
-      ${concatMapStrings (b: "      " + caseArm b) branches}      esac
-          if (( ''${#entries} > 0 )); then
-              _describe -t commands 'icedos command' entries
+            exit 0
           fi
-      }
-      _icedos "$@"
-    '';
 
-  mkFishCompletion =
-    { commands }:
-    let
-      branches = toolsetBranches commands;
-      line = c: "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
+          case "$1" in
+            ${concatMapStrings (c: ''
+              ${c.command})
+                shift
+                exec ${c.bin} "$@"
+                ;;
+            '') commands}
+            *|-*|--*)
+              echo -e "${redString "Unknown arg"}: $1" >&2
+              exit 1
+              ;;
+          esac
+        '';
 
-      caseArm = b: ''
-          case ${escapeShellArg (concatStringsSep " " b.path)}
-        ${concatMapStrings line b.children}'';
-    in
-    ''
-      function __icedos_complete_path
-          set -l tokens (commandline -opc)
-          set -l cur (commandline -ct)
-          set -e tokens[1]
-          if test -n "$cur"; and set -q tokens[1]
-              set -e tokens[-1]
+      mkBashCompletion =
+        { commands }:
+        let
+          branches = walkBranches commands;
+          childNames = b: concatStringsSep " " (map (c: c.name) b.children);
+          caseArm = b: ''
+            ${escapeShellArg (concatStringsSep " " b.path)})
+                words=${escapeShellArg (childNames b)}
+                ;;
+          '';
+        in
+        ''
+          _icedos() {
+              local cur="''${COMP_WORDS[COMP_CWORD]}"
+              local -a _icedos_args=("''${COMP_WORDS[@]:1:$((COMP_CWORD - 1))}")
+              local IFS=' '
+              local key="''${_icedos_args[*]}"
+              local words=""
+              case "$key" in
+          ${concatMapStrings (b: "      " + caseArm b) branches}      esac
+              COMPREPLY=( $(compgen -W "$words" -- "$cur") )
+          }
+          complete -F _icedos icedos
+        '';
+
+      mkZshCompletion =
+        { commands }:
+        let
+          branches = walkBranches commands;
+          # Escape colons (zsh _describe's name/help delimiter) with a backslash.
+          escColons = replaceStrings [ ":" ] [ "\\:" ];
+          entryStr = c: escapeShellArg "${c.name}:${escColons c.help}";
+          caseArm = b: ''
+              ${escapeShellArg (concatStringsSep " " b.path)})
+                  entries=(
+            ${concatMapStrings (c: "          " + entryStr c + "\n") b.children}          )
+                  ;;
+          '';
+        in
+        ''
+          #compdef icedos
+          _icedos() {
+              local -a path entries
+              local key
+              path=("''${(@)words[2,$((CURRENT - 1))]}")
+              key="''${(j: :)path}"
+              entries=()
+              case "$key" in
+          ${concatMapStrings (b: "      " + caseArm b) branches}      esac
+              if (( ''${#entries} > 0 )); then
+                  _describe -t commands 'icedos command' entries
+              fi
+          }
+          _icedos "$@"
+        '';
+
+      mkFishCompletion =
+        { commands }:
+        let
+          branches = walkBranches commands;
+          line = c: "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
+
+          caseArm = b: ''
+              case ${escapeShellArg (concatStringsSep " " b.path)}
+            ${concatMapStrings line b.children}'';
+        in
+        ''
+          function __icedos_complete_path
+              set -l tokens (commandline -opc)
+              set -l cur (commandline -ct)
+              set -e tokens[1]
+              if test -n "$cur"; and set -q tokens[1]
+                  set -e tokens[-1]
+              end
+              string join ' ' -- $tokens
           end
-          string join ' ' -- $tokens
-      end
 
-      function __icedos_complete
-          switch (__icedos_complete_path)
-      ${concatMapStrings (b: "        " + caseArm b) branches}    end
-      end
+          function __icedos_complete
+              switch (__icedos_complete_path)
+          ${concatMapStrings (b: "        " + caseArm b) branches}    end
+          end
 
-      complete -c icedos -f -a '(__icedos_complete)'
-    '';
+          complete -c icedos -f -a '(__icedos_complete)'
+        '';
+    };
 
   generateAccentColor =
     {
@@ -231,24 +241,40 @@ rec {
       }
       .${gnomeAccentColor};
 
-  getNormalUsers =
-    { users }:
-    mapAttrsToList (name: attrs: {
-      inherit name;
-      value = attrs;
-    }) (filterAttrs (n: v: v.isNormalUser) users);
+  users = {
+    getNormal =
+      { users }:
+      mapAttrsToList (name: attrs: {
+        inherit name;
+        value = attrs;
+      }) (filterAttrs (n: v: v.isNormalUser) users);
 
-  # Per-normal-user attrset for `users` submodule options. Lets modules avoid
-  # forcing the user to write `[icedos.<path>.users.<name>]` per system user
-  # just to materialise the option's submodule defaults.
-  genUserDefaults =
-    {
-      users,
-      value ? { },
-    }:
-    mapAttrs (_: _: value) (filterAttrs (_: v: v.isNormalUser) users);
+    # Per-normal-user attrset for `users` submodule options. Lets modules avoid
+    # forcing the user to write `[icedos.<path>.users.<name>]` per system user
+    # just to materialise the option's submodule defaults.
+    genDefaults =
+      {
+        users,
+        value ? { },
+      }:
+      mapAttrs (_: _: value) (filterAttrs (_: v: v.isNormalUser) users);
+  };
 
-  pkgMapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
+  pkgs = {
+    mapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
+
+    overlaysFromChannel = channel: packages: [
+      (
+        self: super:
+        listToAttrs (
+          map (package: {
+            name = package;
+            value = generateAttrPath super.${channel} package;
+          }) packages
+        )
+      )
+    ];
+  };
 
   injectIfExists =
     { file }:
@@ -297,16 +323,4 @@ rec {
         ) directoriesPaths
       )
     );
-
-  generatePackageOverlaysFromChannel = channel: packages: [
-    (
-      self: super:
-      listToAttrs (
-        map (package: {
-          name = package;
-          value = generateAttrPath super.${channel} package;
-        }) packages
-      )
-    )
-  ];
 }
