@@ -63,8 +63,9 @@ rec {
 
   # icedos toolset framework: the dispatcher generator (used to build
   # `icedos` itself and every subcommand attrset that has children) and
-  # the per-shell completion generators. `walkBranches` is a private
-  # helper consumed only by the three completion generators.
+  # the per-shell completion generators. `walkBranches` and
+  # `walkFileLeaves` are private helpers consumed only by the three
+  # completion generators.
   toolset =
     let
       # Walks the command tree and yields one record per branch node (a
@@ -90,6 +91,25 @@ rec {
                 }
               ]
               ++ concatMap (c: go (parentPath ++ [ c.command ]) c.commands) cmds;
+        in
+        go [ ] commands;
+
+      # Walks the command tree and yields one record per leaf node (a
+      # node with no children) that has opted into argument completion
+      # via `completion.files = true`.
+      walkFileLeaves =
+        commands:
+        let
+          go =
+            parentPath: cmds:
+            concatMap (
+              c:
+              let
+                myPath = parentPath ++ [ c.command ];
+                isFileLeaf = c.commands == [ ] && (c.completion.files or false);
+              in
+              (if isFileLeaf then [ { path = myPath; } ] else [ ]) ++ go myPath c.commands
+            ) cmds;
         in
         go [ ] commands;
     in
@@ -137,12 +157,31 @@ rec {
         { commands }:
         let
           branches = walkBranches commands;
+          fileLeaves = walkFileLeaves commands;
           childNames = b: concatStringsSep " " (map (c: c.name) b.children);
-          caseArm = b: ''
+          branchArm = b: ''
             ${escapeShellArg (concatStringsSep " " b.path)})
                 words=${escapeShellArg (childNames b)}
                 ;;
           '';
+          # Leaf paths match both the exact path (cursor at first arg) and
+          # `<path> *` (cursor at any later arg) so file completion fires
+          # for every positional argument the leaf accepts.
+          fileLeafArm =
+            l:
+            let
+              p = concatStringsSep " " l.path;
+            in
+            ''
+              ${escapeShellArg p} | ${escapeShellArg "${p} "}*)
+                  if declare -F _filedir >/dev/null 2>&1; then
+                      _filedir
+                  else
+                      COMPREPLY=( $(compgen -f -- "$cur") )
+                  fi
+                  return
+                  ;;
+            '';
         in
         ''
           _icedos() {
@@ -152,7 +191,9 @@ rec {
               local key="''${_icedos_args[*]}"
               local words=""
               case "$key" in
-          ${concatMapStrings (b: "      " + caseArm b) branches}      esac
+          ${concatMapStrings (l: "      " + fileLeafArm l) fileLeaves}${
+            concatMapStrings (b: "      " + branchArm b) branches
+          }      esac
               COMPREPLY=( $(compgen -W "$words" -- "$cur") )
           }
           complete -F _icedos icedos
@@ -162,15 +203,27 @@ rec {
         { commands }:
         let
           branches = walkBranches commands;
+          fileLeaves = walkFileLeaves commands;
           # Escape colons (zsh _describe's name/help delimiter) with a backslash.
           escColons = replaceStrings [ ":" ] [ "\\:" ];
           entryStr = c: escapeShellArg "${c.name}:${escColons c.help}";
-          caseArm = b: ''
+          branchArm = b: ''
               ${escapeShellArg (concatStringsSep " " b.path)})
                   entries=(
             ${concatMapStrings (c: "          " + entryStr c + "\n") b.children}          )
                   ;;
           '';
+          fileLeafArm =
+            l:
+            let
+              p = concatStringsSep " " l.path;
+            in
+            ''
+              ${escapeShellArg p} | ${escapeShellArg "${p} "}*)
+                  _files
+                  return
+                  ;;
+            '';
         in
         ''
           #compdef icedos
@@ -181,7 +234,9 @@ rec {
               key="''${(j: :)path}"
               entries=()
               case "$key" in
-          ${concatMapStrings (b: "      " + caseArm b) branches}      esac
+          ${concatMapStrings (l: "      " + fileLeafArm l) fileLeaves}${
+            concatMapStrings (b: "      " + branchArm b) branches
+          }      esac
               if (( ''${#entries} > 0 )); then
                   _describe -t commands 'icedos command' entries
               fi
@@ -193,11 +248,24 @@ rec {
         { commands }:
         let
           branches = walkBranches commands;
+          fileLeaves = walkFileLeaves commands;
           line = c: "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
 
           caseArm = b: ''
               case ${escapeShellArg (concatStringsSep " " b.path)}
             ${concatMapStrings line b.children}'';
+
+          # Each file-completing leaf gets its own `complete -F` line gated
+          # on the current argv prefix matching the leaf's path. `-F`
+          # forces file completion and overrides the global `-f` only when
+          # the predicate matches, so branch nodes still get subcommand
+          # names instead of files.
+          fileLeafComplete =
+            l:
+            let
+              p = concatStringsSep " " l.path;
+            in
+            "complete -c icedos -F -n ${escapeShellArg ''__icedos_path_match "${p}"''}\n";
         in
         ''
           function __icedos_complete_path
@@ -210,13 +278,19 @@ rec {
               string join ' ' -- $tokens
           end
 
+          function __icedos_path_match
+              set -l p (__icedos_complete_path)
+              test "$p" = "$argv[1]"; and return 0
+              string match -q -- "$argv[1] *" "$p"
+          end
+
           function __icedos_complete
               switch (__icedos_complete_path)
           ${concatMapStrings (b: "        " + caseArm b) branches}    end
           end
 
           complete -c icedos -f -a '(__icedos_complete)'
-        '';
+          ${concatMapStrings fileLeafComplete fileLeaves}'';
     };
 
   generateAccentColor =

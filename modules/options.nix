@@ -25,17 +25,33 @@ let
     options = {
       command = mkOption { type = types.str; };
       help = mkOption { type = types.str; };
+
       bin = mkOption {
         type = types.str;
         default = "";
       };
+
       script = mkOption {
         type = types.lines;
         default = "";
       };
+
       commands = mkOption {
         type = types.listOf toolsetCommandType;
         default = [ ];
+      };
+
+      completion = mkOption {
+        default = { };
+
+        type = types.submodule {
+          options = {
+            files = mkOption {
+              type = types.bool;
+              default = false;
+            };
+          };
+        };
       };
     };
   };
