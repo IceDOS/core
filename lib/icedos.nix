@@ -3,7 +3,6 @@
   icedosLib,
   inputs,
   lib,
-  self,
   ...
 }:
 
@@ -25,6 +24,7 @@ let
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STAGE
+    ICEDOS_STATE_DIR
     INPUTS_PREFIX
     filterByAttrs
     findFirst
@@ -46,7 +46,14 @@ let
         if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}"
       );
 
-    _readFlakeLock = readFile "${self}/flake.lock" |> builtins.fromJSON;
+    # Read the state flake.lock — the only lock that holds entries for the
+    # dynamically-generated repo inputs. Returns null on first build (lock
+    # absent) so callers can treat it as "no pin available".
+    _readFlakeLock =
+      let
+        lockPath = "${ICEDOS_STATE_DIR}/flake.lock";
+      in
+      if pathExists lockPath then readFile lockPath |> builtins.fromJSON else null;
 
     # Determine the revision suffix from flake.lock based on repo name
     # Returns either /{rev}, ?narHash={hash}, or empty string
@@ -72,15 +79,14 @@ let
         url,
         repoName,
       }:
-      if
-        (!(pathExists "${self}/flake.lock"))
-        || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake"))
-      then
+      let
+        lock = _readFlakeLock;
+      in
+      if (lock == null) || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake")) then
         ""
       else
         _getRevisionFromLock {
-          inherit repoName;
-          lock = _readFlakeLock;
+          inherit repoName lock;
         };
 
     # Split a flake URL of the form `scheme:owner/repo/<ref>` into
