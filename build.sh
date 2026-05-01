@@ -91,6 +91,14 @@ if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
 fi
 
+# Auto-update core when its input is a local path so local edits are picked up.
+if [[ -z "$update_core" && -z "$skip_update_core" && -f "$ICEDOS_CONFIG_ROOT/flake.lock" ]]; then
+  core_input_type="$(jq -r '.nodes.icedos.locked.type // empty' "$ICEDOS_CONFIG_ROOT/flake.lock" 2>/dev/null || true)"
+  if [[ "$core_input_type" == "path" ]]; then
+    update_core="1"
+  fi
+fi
+
 if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
   cd "$ICEDOS_CONFIG_ROOT"
   nix flake update
