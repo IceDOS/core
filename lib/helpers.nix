@@ -23,8 +23,10 @@ let
     fileContents
     filterAttrs
     flatten
+    hasAttr
     mapAttrs
     mapAttrsToList
+    optional
     sort
     ;
 
@@ -38,6 +40,17 @@ rec {
   # same color vars, log_* / die / is_help_flag functions.
   bash = {
     prelude = builtins.readFile ./prelude.sh;
+
+    # PATH export used by icedos systemd user services that shell out to
+    # binaries from the host (e.g. systemctl, loginctl) and the user's
+    # nix profile, in addition to whatever derivation the unit ships.
+    # Spliced into writeShellScript bodies via `${icedosLib.bash.exportSystemPath}`.
+    exportSystemPath = ''
+      base_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      nix_system_path="/run/current-system/sw/bin"
+      nix_user_path="''${HOME}/.nix-profile/bin"
+      export PATH="''${base_path}:''${nix_system_path}:''${nix_user_path}:$PATH"
+    '';
 
     genHelpFlags =
       {
@@ -350,6 +363,23 @@ rec {
     ];
   };
 
+  systemd = {
+    # Returns the *-session.target names for whichever icedos.desktop.*
+    # DEs are present on this host, derived from the full `config.icedos`
+    # attrset (the `cfg` modules already destructure to). Use for
+    # systemd.user.services' `Unit.After` (after prepending
+    # `graphical-session.target`) and `Install.WantedBy`. Adding a new DE
+    # means appending one line here, not editing every consumer.
+    desktopSessionTargets =
+      cfg:
+      let
+        present = name: hasAttr "desktop" cfg && hasAttr name cfg.desktop;
+      in
+      optional (present "cosmic") "cosmic-session.target"
+      ++ optional (present "gnome") "gnome-session.target"
+      ++ optional (present "hyprland") "hyprland-session.target";
+  };
+
   injectIfExists =
     { file }:
     if (pathExists file) then
@@ -369,7 +399,6 @@ rec {
     }:
     let
       inherit (builtins) readDir;
-      inherit (lib) optional;
 
       getContentsByType = fileType: filterAttrs (name: type: type == fileType) contents;
 

@@ -3,7 +3,8 @@
 let
   inherit (lib) mkOption types;
 in
-{
+rec {
+  mkAttrsOption = args: mkOption (args // { type = types.attrs; });
   mkBoolOption = args: mkOption (args // { type = types.bool; });
   mkLinesOption = args: mkOption (args // { type = types.lines; });
   mkNumberOption = args: mkOption (args // { type = types.number; });
@@ -45,4 +46,6 @@ in
         );
       }
     );
+
+  mkUsersOption = options: mkSubmoduleAttrsOption { default = { }; } options;
 }
