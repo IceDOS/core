@@ -74,19 +74,32 @@ in
               echo "Available arguments:"
               echo -e "> ${purpleString "<package>"}: nixpkgs attribute name (e.g. firefox, git, nodejs)"
               echo -e "> ${purpleString "-s, --select"}: show binary selector even when a main program is set"
+              echo -e "> ${purpleString "-d, --detach"}: detach the launched binary from the terminal"
               echo -e "> ${purpleString "--insecure"}: allow insecure packages"
               echo -e "> ${purpleString "--"}: end of icedos flags; everything after is forwarded to the launched binary"
+              echo -e "any positional arguments after ${purpleString "<package>"} are also forwarded to the launched binary"
               exit 0
             fi
 
             SELECT=0
+            DETACH=0
             PACKAGE=""
             declare -a BIN_ARGS=()
 
             while [[ $# -gt 0 ]]; do
+              if [ -n "$PACKAGE" ]; then
+                BIN_ARGS+=("$1")
+                shift
+                continue
+              fi
+
               case "$1" in
                 -s|--select)
                   SELECT=1
+                  shift
+                  ;;
+                -d|--detach)
+                  DETACH=1
                   shift
                   ;;
                 --insecure)
@@ -99,11 +112,7 @@ in
                   break
                   ;;
                 *)
-                  if [ -z "$PACKAGE" ]; then
-                    PACKAGE="$1"
-                  else
-                    BIN_ARGS+=("$1")
-                  fi
+                  PACKAGE="$1"
                   shift
                   ;;
               esac
@@ -111,13 +120,21 @@ in
 
             [ -z "$PACKAGE" ] && echo -e "${redString "error"}: package name is required" && exit 1
 
+            run_bin() {
+              if [ "$DETACH" -eq 1 ]; then
+                setsid -f "$@" </dev/null >/dev/null 2>&1
+                exit 0
+              fi
+              exec "$@"
+            }
+
             if [ "$SELECT" -ne 1 ]; then
               EXE=$(nix eval --raw --impure --expr \
                 "(let p = (import <nixpkgs> {}); in p.lib.getExe p.$PACKAGE)" \
                 2>/dev/null) || EXE=""
 
               if [ -n "$EXE" ] && [ -x "$EXE" ]; then
-                exec "$EXE" "''${BIN_ARGS[@]}"
+                run_bin "$EXE" "''${BIN_ARGS[@]}"
               fi
             fi
 
@@ -140,14 +157,14 @@ in
             fi
 
             if [ ''${#BINS[@]} -eq 1 ]; then
-              exec "$BIN_DIR/''${BINS[0]}" "''${BIN_ARGS[@]}"
+              run_bin "$BIN_DIR/''${BINS[0]}" "''${BIN_ARGS[@]}"
             fi
 
             echo "Binaries in $PACKAGE:"
             PS3="Select binary: "
             select bin in "''${BINS[@]}"; do
               if [ -n "$bin" ]; then
-                exec "$BIN_DIR/$bin" "''${BIN_ARGS[@]}"
+                run_bin "$BIN_DIR/$bin" "''${BIN_ARGS[@]}"
               fi
             done
           '';
