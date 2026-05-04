@@ -347,6 +347,42 @@ rec {
       mapAttrs (_: _: value) (filterAttrs (_: v: v.isNormalUser) users);
   };
 
+  desktop = {
+    # Build a GNOME `org.gnome.desktop.wm.preferences/button-layout` string
+    # from per-button visibility flags. Fed to GNOME directly and to Zed's
+    # `title_bar.button_layout` (which parses the same format via
+    # `WindowButtonLayout::parse` in `crates/gpui/src/platform.rs`).
+    # Empty button list yields `"appmenu:"`, hiding all three.
+    mkButtonLayoutString =
+      {
+        minimizeButton,
+        maximizeButton,
+        ...
+      }:
+      let
+        # Close is always present (no opt-out): semantically required, and
+        # several compositors (COSMIC) ignore hide-close anyway.
+        buttons = concatStringsSep "," (
+          optional minimizeButton "minimize" ++ optional maximizeButton "maximize" ++ [ "close" ]
+        );
+      in
+      "appmenu:${buttons}";
+
+    # Returns the active accent color as a 6-char hex string (no `#`),
+    # used by per-WM modules to colour focused-window borders /
+    # active-hint indicators. Prefers the Stylix-resolved colour (so it
+    # tracks the base16 palette), falls back to the icedos-level
+    # `desktop.accentColor`.
+    accentHex =
+      config:
+      let
+        stylixCfg = config.icedos.desktop.stylix or { enable = false; };
+        stylixOn = stylixCfg.enable or false;
+        stylixSlot = stylixCfg.accentBase16Slot or "base0E";
+      in
+      if stylixOn then config.lib.stylix.colors.${stylixSlot} else config.icedos.desktop.accentColor;
+  };
+
   pkgs = {
     mapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
 
