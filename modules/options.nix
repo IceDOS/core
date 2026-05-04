@@ -14,6 +14,7 @@ let
 
   inherit (icedosLib)
     mkBoolOption
+    mkLinesListOption
     mkNumberOption
     mkStrListOption
     mkStrOption
@@ -66,9 +67,18 @@ in
         interval = mkStrOption { default = "Mon *-*-* 00:00:00"; };
       };
 
-      applications.toolset.commands = mkOption {
-        type = types.listOf toolsetCommandType;
-        default = [ ];
+      applications.toolset = {
+        commands = mkOption {
+          type = types.listOf toolsetCommandType;
+          default = [ ];
+        };
+
+        rebuild.hooks = {
+          preRebuild = mkLinesListOption { default = [ ]; };
+          postRebuild = mkLinesListOption { default = [ ]; };
+          preUpdate = mkLinesListOption { default = [ ]; };
+          postUpdate = mkLinesListOption { default = [ ]; };
+        };
       };
 
       system = {

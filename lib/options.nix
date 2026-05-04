@@ -7,6 +7,7 @@ rec {
   mkAttrsOption = args: mkOption (args // { type = types.attrs; });
   mkBoolOption = args: mkOption (args // { type = types.bool; });
   mkLinesOption = args: mkOption (args // { type = types.lines; });
+  mkLinesListOption = args: mkOption (args // { type = with types; listOf lines; });
   mkNumberOption = args: mkOption (args // { type = types.number; });
   mkNumberListOption = args: mkOption (args // { type = with types; listOf number; });
   mkStrListOption = args: mkOption (args // { type = with types; listOf str; });

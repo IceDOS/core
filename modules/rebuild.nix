@@ -1,14 +1,30 @@
 {
   config,
   icedosLib,
+  lib,
   pkgs,
   ...
 }:
 
 let
-  inherit (pkgs) flatpak;
-  inherit (icedosLib.bash) dimGreenString redString;
-  flatpakUpdate = if (config.services.flatpak.enable) then "${flatpak}/bin/flatpak update" else "";
+  inherit (icedosLib.bash) dimGreenString prelude redString;
+  hooks = config.icedos.applications.toolset.rebuild.hooks;
+
+  # Compile each hook entry into its own pkgs.writeShellScript so it runs
+  # in a fresh shell process. Isolates env/traps/`set -e`/`exit` from
+  # other hooks and from the rebuild script itself. Prelude is injected
+  # so hooks can use color vars (GREEN, NC, ...) and log helpers
+  # (log_info, log_step, log_ok, log_warn, log_fail, die).
+  runHooks =
+    name: scripts:
+    lib.concatStringsSep "\n" (
+      lib.imap0 (
+        i: s: "${pkgs.writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}"}"
+      ) scripts
+    );
+
+  hasPreUpdate = hooks.preUpdate != [ ];
+  hasPostUpdate = hooks.postUpdate != [ ];
 in
 {
   icedos.applications.toolset.commands = [
@@ -56,13 +72,31 @@ in
           exit 1
         fi
 
-        for arg in "$@"; do
-          if [ "$arg" = "--update" ]; then
-            ${flatpakUpdate}
-            break
-          fi
-        done
-
+        ${lib.optionalString (hasPreUpdate || hasPostUpdate) ''
+          # --update-hooks: run pre+post update hooks and exit. Skips
+          # preRebuild/postRebuild, build.sh, cache, reboot check. For
+          # refreshing non-nix things (flatpak, millennium themes, ...)
+          # without a full system rebuild. ICEDOS_HOOKS_ONLY tells hooks
+          # that no HM activation will follow, so they should fully
+          # complete their work standalone.
+          for arg in "$@"; do
+            if [ "$arg" = "--update-hooks" ]; then
+              export ICEDOS_HOOKS_ONLY=1
+              ${runHooks "preUpdate" hooks.preUpdate}
+              ${runHooks "postUpdate" hooks.postUpdate}
+              exit 0
+            fi
+          done
+        ''}
+        ${runHooks "preRebuild" hooks.preRebuild}
+        ${lib.optionalString hasPreUpdate ''
+          for arg in "$@"; do
+            if [ "$arg" = "--update" ]; then
+              ${runHooks "preUpdate" hooks.preUpdate}
+              break
+            fi
+          done
+        ''}
         bash ./build.sh "$@"
         BUILD_STATUS=$?
 
@@ -70,6 +104,15 @@ in
           echo -e "${redString "error"}: build failed with exit code $BUILD_STATUS"
           exit "$BUILD_STATUS"
         fi
+
+        ${lib.optionalString hasPostUpdate ''
+          for arg in "$@"; do
+            if [ "$arg" = "--update" ]; then
+              ${runHooks "postUpdate" hooks.postUpdate}
+              break
+            fi
+          done
+        ''}
 
         cache "../config.toml"
         cache "../flake.lock" ".config"
@@ -81,6 +124,8 @@ in
           printf -v JOINED '%s, ' "''${CACHED_NAMES[@]}"
           echo -e "${dimGreenString ">"} Caching ''${JOINED%, }"
         fi
+
+        ${runHooks "postRebuild" hooks.postRebuild}
 
         # Skip reboot check on --boot / --build (no activation happened).
         ACTION="switch"
