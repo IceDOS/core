@@ -81,6 +81,38 @@ in
           printf -v JOINED '%s, ' "''${CACHED_NAMES[@]}"
           echo -e "${dimGreenString ">"} Caching ''${JOINED%, }"
         fi
+
+        # Skip reboot check on --boot / --build (no activation happened).
+        ACTION="switch"
+        for arg in "$@"; do
+          case "$arg" in
+            --boot)  ACTION="boot"  ;;
+            --build) ACTION="build" ;;
+          esac
+        done
+
+        if [ "$ACTION" = "switch" ] \
+           && [ -d /run/booted-system ] \
+           && [ -d /run/current-system ]; then
+          REBOOT_REASONS=()
+          for component in kernel initrd systemd; do
+            booted=$(readlink -f "/run/booted-system/$component" 2>/dev/null || true)
+            current=$(readlink -f "/run/current-system/$component" 2>/dev/null || true)
+            if [ -n "$booted" ] && [ -n "$current" ] && [ "$booted" != "$current" ]; then
+              REBOOT_REASONS+=("$component")
+            fi
+          done
+
+          if [ ''${#REBOOT_REASONS[@]} -gt 0 ]; then
+            printf -v REASONS_JOINED '%s, ' "''${REBOOT_REASONS[@]}"
+            echo
+            echo -e "${redString "reboot recommended"}: ''${REASONS_JOINED%, } changed"
+            read -r -p "Reboot now? [y/N] " ANSWER
+            case "$ANSWER" in
+              [yY]|[yY][eE][sS]) sudo systemctl reboot -i ;;
+            esac
+          fi
+        fi
       '';
     }
   ];
