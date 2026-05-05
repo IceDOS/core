@@ -53,12 +53,34 @@ let
 
       echo -e "\n''$buildPathsCount build path''$([ $buildPathsCount != 1 ] && echo s) deleted, ''${formattedTotal} MiB freed"
     ''}/bin/${command}";
+
+  hooks = config.icedos.applications.nh.gc.hooks;
+
+  # Each hook entry → its own pkgs.writeShellScript so it runs in a
+  # fresh shell process (isolated env/traps/`set -e`/`exit`). Prelude
+  # prepended so hooks have color vars + log helpers, matching the
+  # rebuild-hooks ergonomics. hookPaths returns a list (usable as
+  # ExecStartPre/Post); runHooks joins paths with newlines (usable
+  # inside the toolset bash script).
+  hookPaths =
+    name: scripts:
+    lib.imap0 (
+      i: s: pkgs.writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}"
+    ) scripts;
+
+  runHooks = name: scripts: lib.concatStringsSep "\n" (map toString (hookPaths name scripts));
 in
 {
   icedos.applications.toolset.commands = [
     {
       command = "gc";
-      script = ''"${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}'';
+
+      script = ''
+        ${runHooks "preGc" hooks.preGc}
+        "${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}
+        ${runHooks "postGc" hooks.postGc}
+      '';
+
       help = "clean nix plus home manager, store and profiles";
     }
   ];
@@ -73,5 +95,8 @@ in
     };
   };
 
-  systemd.services.nh-clean.serviceConfig.ExecStartPost = mkIf cfg.automatic cleanExtra;
+  systemd.services.nh-clean.serviceConfig = mkIf cfg.automatic {
+    ExecStartPre = [ cleanExtra ] ++ map toString (hookPaths "preGc" hooks.preGc);
+    ExecStartPost = map toString (hookPaths "postGc" hooks.postGc);
+  };
 }

@@ -65,6 +65,11 @@ in
         days = mkNumberOption { default = 0; };
         generations = mkNumberOption { default = 10; };
         interval = mkStrOption { default = "Mon *-*-* 00:00:00"; };
+
+        hooks = {
+          preGc = mkLinesListOption { default = [ ]; };
+          postGc = mkLinesListOption { default = [ ]; };
+        };
       };
 
       applications.toolset = {
