@@ -8,51 +8,35 @@
 let
   inherit (lib)
     fileContents
-    mkOption
     types
     ;
 
   inherit (icedosLib)
     mkBoolOption
     mkLinesListOption
+    mkLinesOption
+    mkListOption
     mkNumberOption
     mkStrListOption
     mkStrOption
     mkSubmoduleAttrsOption
     mkSubmoduleListOption
+    mkSubmoduleOption
     ;
 
   toolsetCommandType = types.submodule {
     options = {
-      command = mkOption { type = types.str; };
-      help = mkOption { type = types.str; };
+      command = mkStrOption { };
+      help = mkStrOption { };
 
-      bin = mkOption {
-        type = types.str;
-        default = "";
-      };
+      bin = mkStrOption { default = ""; };
 
-      script = mkOption {
-        type = types.lines;
-        default = "";
-      };
+      script = mkLinesOption { default = ""; };
 
-      commands = mkOption {
-        type = types.listOf toolsetCommandType;
-        default = [ ];
-      };
+      commands = mkListOption { default = [ ]; } toolsetCommandType;
 
-      completion = mkOption {
-        default = { };
-
-        type = types.submodule {
-          options = {
-            files = mkOption {
-              type = types.bool;
-              default = false;
-            };
-          };
-        };
+      completion = mkSubmoduleOption { default = { }; } {
+        files = mkBoolOption { default = false; };
       };
     };
   };
@@ -73,10 +57,7 @@ in
       };
 
       applications.toolset = {
-        commands = mkOption {
-          type = types.listOf toolsetCommandType;
-          default = [ ];
-        };
+        commands = mkListOption { default = [ ]; } toolsetCommandType;
 
         rebuild.hooks = {
           preRebuild = mkLinesListOption { default = [ ]; };

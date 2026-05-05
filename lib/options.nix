@@ -49,4 +49,29 @@ rec {
     );
 
   mkUsersOption = options: mkSubmoduleAttrsOption { default = { }; } options;
+  mkListOption = args: subType: mkOption (args // { type = types.listOf subType; });
+
+  mkSubmoduleOption =
+    args: options:
+    mkOption (
+      args
+      // {
+        type = types.submodule {
+          options = options;
+        };
+      }
+    );
+
+  mkEnumOption = args: values: mkOption (args // { type = types.enum values; });
+
+  mkIntBetweenOption =
+    args: low: high:
+    mkOption (args // { type = types.ints.between low high; });
+
+  mkEitherOption =
+    args: typeA: typeB:
+    mkOption (args // { type = types.either typeA typeB; });
+
+  mkNonEmptyStrOption = args: mkOption (args // { type = types.nonEmptyStr; });
+  mkUntypedOption = args: mkOption args;
 }

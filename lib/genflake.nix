@@ -162,13 +162,12 @@ in
             modules = [
               # Read configuration location
               (
-                { lib, ... }:
+                { icedosLib, ... }:
                 let
-                  inherit (lib) mkOption types;
+                  inherit (icedosLib) mkStrOption;
                 in
                 {
-                  options.icedos.configurationLocation = mkOption {
-                    type = types.str;
+                  options.icedos.configurationLocation = mkStrOption {
                     default = "${ICEDOS_STATE_DIR}";
                   };
                 }
