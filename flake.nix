@@ -1,15 +1,10 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    json2nix = {
-      url = "github:cloudandheat/json2nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
     {
-      json2nix,
       nixpkgs,
       self,
       ...
@@ -67,7 +62,6 @@
                   nixfmt
                   rsync
                   toml2json
-                  (json2nix.packages.${system}.default)
                 ]
               }:$PATH"
 

@@ -14,6 +14,7 @@ let
     evalModules
     fileContents
     filter
+    generators
     imap0
     listToAttrs
     optional
@@ -159,7 +160,10 @@ in
 {
   inherit evaluatedConfig;
 
-  flakeInputsJson = flakeInputs |> toJSON |> writeText "inputs.json";
+  flakeInputsNix = generators.toPretty {
+    multiline = true;
+    allowPrettyValues = true;
+  } flakeInputs;
 
   flakeFinal = ''
     {
