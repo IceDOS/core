@@ -139,6 +139,22 @@ rec {
           maxLen = foldl' max 0 (map (c: stringLength c.command) sorted);
           pad = s: s + concatStrings (genList (_: " ") (maxLen - stringLength s));
 
+          renderTree =
+            depth: cmds:
+            let
+              sortedAtDepth = sort (a: b: a.command < b.command) cmds;
+              maxLenAtDepth = foldl' max 0 (map (c: stringLength c.command) sortedAtDepth);
+              padAtDepth = s: s + concatStrings (genList (_: " ") (maxLenAtDepth - stringLength s));
+              indent = concatStrings (genList (_: "  ") depth);
+            in
+            concatMapStrings (
+              c:
+              ''
+                echo -e "${indent}> ${purpleString (padAtDepth c.command)}    ${c.help}"
+              ''
+              + (if c.commands != [ ] then renderTree (depth + 1) c.commands else "")
+            ) sortedAtDepth;
+
           inherit (bash)
             prelude
             genHelpFlags
@@ -148,6 +164,14 @@ rec {
         in
         ''
           ${prelude}
+
+          if [[ "$1" == "--tree" ]]; then
+            echo "Available commands:"
+
+            ${renderTree 0 sorted}
+
+            exit 0
+          fi
 
           if [[ ${genHelpFlags { }} ]]; then
             echo "Available commands:"
