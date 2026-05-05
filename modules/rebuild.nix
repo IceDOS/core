@@ -140,12 +140,11 @@ in
            && [ -d /run/booted-system ] \
            && [ -d /run/current-system ]; then
           REBOOT_REASONS=()
-          for component in kernel initrd systemd; do
+          for component in kernel initrd; do
             booted=$(readlink -f "/run/booted-system/$component" 2>/dev/null || true)
             current=$(readlink -f "/run/current-system/$component" 2>/dev/null || true)
-            if [ -n "$booted" ] && [ -n "$current" ] && [ "$booted" != "$current" ]; then
-              REBOOT_REASONS+=("$component")
-            fi
+            [ -n "$booted" ] && [ -n "$current" ] || continue
+            cmp -s "$booted" "$current" || REBOOT_REASONS+=("$component")
           done
 
           if [ ''${#REBOOT_REASONS[@]} -gt 0 ]; then
