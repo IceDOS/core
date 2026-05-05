@@ -15,17 +15,22 @@ let
 
   inherit (icedosLib) generateAttrPath;
 
+  inherit (builtins) foldl' stringLength;
+
   inherit (lib)
     concatMap
     concatMapStrings
+    concatStrings
     concatStringsSep
     escapeShellArg
     fileContents
     filterAttrs
     flatten
+    genList
     hasAttr
     mapAttrs
     mapAttrsToList
+    max
     optional
     sort
     ;
@@ -131,6 +136,8 @@ rec {
         { commands }:
         let
           sorted = sort (a: b: a.command < b.command) commands;
+          maxLen = foldl' max 0 (map (c: stringLength c.command) sorted);
+          pad = s: s + concatStrings (genList (_: " ") (maxLen - stringLength s));
 
           inherit (bash)
             prelude
@@ -146,7 +153,7 @@ rec {
             echo "Available commands:"
 
             ${concatMapStrings (c: ''
-              echo -e "> ${purpleString c.command}: ${c.help} "
+              echo -e "> ${purpleString (pad c.command)}    ${c.help}"
             '') sorted}
 
             exit 0
