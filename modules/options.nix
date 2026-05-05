@@ -58,6 +58,7 @@ in
 
       applications.toolset = {
         commands = mkListOption { default = [ ]; } toolsetCommandType;
+        desktopEntries = mkBoolOption { default = false; };
 
         rebuild.hooks = {
           preRebuild = mkLinesListOption { default = [ ]; };
