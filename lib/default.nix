@@ -8,7 +8,6 @@ let
     foldl'
     head
     length
-    throw
     ;
 
   findDuplicate = list1: list2: filter (item: elem item list2) list1;
@@ -42,7 +41,8 @@ loadLibs [
   ./constants.nix
   ./common.nix
   ./logger.nix
-  ./options.nix
+  ./options/validate.nix
+  ./options/helpers.nix
   ./helpers.nix
   ./icedos.nix
 ]

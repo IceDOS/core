@@ -8,7 +8,6 @@ let
     head
     length
     listToAttrs
-    map
     stringLength
     substring
     ;
@@ -19,16 +18,19 @@ let
     splitString
     unique
     ;
-
 in
 {
-  abortIf =
-    let
-      inherit (builtins) throw;
-    in
-    condition: message: if condition then throw message else true;
-
+  abortIf = condition: message: if condition then throw message else true;
   filterByAttrs = path: listOfAttrSets: filter (attrSet: hasAttrByPath path attrSet) listOfAttrSets;
+
+  findFirst =
+    cb: list:
+    let
+      found = filter cb list;
+    in
+    if (length found) > 0 then head found else null;
+
+  flatMap = cb: list: flatten (map cb list);
 
   listToAttrsetOfLists =
     attrsList:
@@ -45,15 +47,5 @@ in
     );
 
   stringStartsWith = text: original: text == (substring 0 (stringLength text) original);
-
-  flatMap = cb: list: flatten (map cb list);
-
-  findFirst =
-    cb: list:
-    let
-      found = filter cb list;
-    in
-    if (length found) > 0 then head found else null;
-
   generateAttrPath = base: string: foldl' (acc: cur: acc.${cur}) base (splitString "." string);
 }

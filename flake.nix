@@ -44,19 +44,7 @@
           system = icedos.system.arch or "x86_64-linux";
           pkgs = nixpkgs.legacyPackages.${system};
 
-          inherit (pkgs)
-            git
-            jq
-            jsonfmt
-            lib
-            nh
-            nix
-            nixfmt
-            rsync
-            toml2json
-            writeShellScript
-            ;
-
+          inherit (pkgs) lib writeShellScript;
           inherit (lib) makeBinPath;
 
           icedosBuild = toString (
@@ -64,6 +52,7 @@
               set -e
 
               export PATH="${
+                with pkgs;
                 makeBinPath [
                   git
                   jq
@@ -75,6 +64,7 @@
                   toml2json
                 ]
               }:$PATH"
+
               export ICEDOS_ROOT="${self}"
               export ICEDOS_CONFIG_ROOT="$PWD"
               export ICEDOS_STATE_DIR="$PWD/${_stateDir}"
