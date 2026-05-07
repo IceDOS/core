@@ -442,6 +442,24 @@ rec {
         )
       )
     ];
+
+    overlaysFromInput = input: packages: [
+      (
+        self: super:
+        let
+          inputPkgs = import input {
+            inherit (super.stdenv) system;
+            config = super.config;
+          };
+        in
+        listToAttrs (
+          map (package: {
+            name = package;
+            value = generateAttrPath inputPkgs package;
+          }) packages
+        )
+      )
+    ];
   };
 
   systemd = {
