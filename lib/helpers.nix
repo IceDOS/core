@@ -8,6 +8,7 @@
 let
   inherit (builtins)
     attrNames
+    isAttrs
     listToAttrs
     pathExists
     replaceStrings
@@ -434,28 +435,18 @@ rec {
     overlaysFromChannel = channel: packages: [
       (
         self: super:
-        listToAttrs (
-          map (package: {
-            name = package;
-            value = generateAttrPath super.${channel} package;
-          }) packages
-        )
-      )
-    ];
-
-    overlaysFromInput = input: packages: [
-      (
-        self: super:
         let
-          inputPkgs = import input {
+          inputPkgs = import channel {
             inherit (super.stdenv) system;
             config = super.config;
           };
+
+          channelPkgs = if (isAttrs channel) then inputPkgs else super.${channel};
         in
         listToAttrs (
           map (package: {
             name = package;
-            value = generateAttrPath inputPkgs package;
+            value = generateAttrPath channelPkgs package;
           }) packages
         )
       )
