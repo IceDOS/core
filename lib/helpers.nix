@@ -139,21 +139,35 @@ rec {
           maxLen = foldl' max 0 (map (c: stringLength c.command) sorted);
           pad = s: s + concatStrings (genList (_: " ") (maxLen - stringLength s));
 
+          # Aligns help text to a single column across the whole tree by
+          # padding each command to `globalCmdWidth - (depth * 2)`, so the
+          # 2-char-per-level indent eats exactly the padding shrinkage.
+          # Without this, each subtree padded to its own siblings' max,
+          # making deep rows' help text drift left of shallow rows'.
           renderTree =
-            depth: cmds:
             let
-              sortedAtDepth = sort (a: b: a.command < b.command) cmds;
-              maxLenAtDepth = foldl' max 0 (map (c: stringLength c.command) sortedAtDepth);
-              padAtDepth = s: s + concatStrings (genList (_: " ") (maxLenAtDepth - stringLength s));
-              indent = concatStrings (genList (_: "  ") depth);
+              walk =
+                depth: cmds:
+                concatMap (c: [ (depth * 2 + stringLength c.command) ] ++ walk (depth + 1) c.commands) cmds;
+              globalCmdWidth = foldl' max 0 (walk 0 sorted);
+
+              go =
+                depth: cmds:
+                let
+                  sortedAtDepth = sort (a: b: a.command < b.command) cmds;
+                  padTarget = globalCmdWidth - (depth * 2);
+                  padAtDepth = s: s + concatStrings (genList (_: " ") (padTarget - stringLength s));
+                  indent = concatStrings (genList (_: "  ") depth);
+                in
+                concatMapStrings (
+                  c:
+                  ''
+                    echo -e "${indent}> ${purpleString (padAtDepth c.command)}    ${c.help}"
+                  ''
+                  + (if c.commands != [ ] then go (depth + 1) c.commands else "")
+                ) sortedAtDepth;
             in
-            concatMapStrings (
-              c:
-              ''
-                echo -e "${indent}> ${purpleString (padAtDepth c.command)}    ${c.help}"
-              ''
-              + (if c.commands != [ ] then renderTree (depth + 1) c.commands else "")
-            ) sortedAtDepth;
+            go;
 
           inherit (bash)
             prelude
