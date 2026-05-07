@@ -133,7 +133,7 @@ fi
 [ "$update_nix" == "1" ] && (
   set -e
   cd "$ICEDOS_STATE_DIR"
-  nix flake update
+  nix flake update nixpkgs
 )
 
 rsync -a "$ICEDOS_CONFIG_ROOT" "$ICEDOS_BUILD_DIR" \
