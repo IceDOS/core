@@ -8,8 +8,10 @@
 let
   inherit (builtins)
     attrNames
+    fromJSON
     listToAttrs
     pathExists
+    readFile
     replaceStrings
     ;
 
@@ -28,6 +30,7 @@ let
     flatten
     genList
     hasAttr
+    hasAttrByPath
     mapAttrs
     mapAttrsToList
     max
@@ -35,7 +38,12 @@ let
     sort
     ;
 
-  inherit (icedosLib) stringStartsWith;
+  inherit (icedosLib)
+    ICEDOS_STAGE
+    ICEDOS_STATE_DIR
+    INPUTS_PREFIX
+    stringStartsWith
+    ;
 
 in
 rec {
@@ -390,6 +398,23 @@ rec {
         value ? { },
       }:
       mapAttrs (_: _: value) (filterAttrs (_: v: v.isNormalUser) users);
+
+    mkGroupInjector = group: users: mapAttrs (_: _: { extraGroups = [ group ]; }) users;
+  };
+
+  color = {
+    hexToRgbInts =
+      hex:
+      let
+        inherit (lib) fromHexString removePrefix;
+        inherit (builtins) substring;
+        h = removePrefix "#" hex;
+      in
+      [
+        (fromHexString (substring 0 2 h))
+        (fromHexString (substring 2 2 h))
+        (fromHexString (substring 4 2 h))
+      ];
   };
 
   desktop = {
@@ -536,4 +561,85 @@ rec {
         ) directoriesPaths
       )
     );
+
+  # ─── flake / input helpers ────────────────────────────────────────────────
+  # Consumed by lib/genflake.nix and lib/icedos.nix.
+
+  # Build a flake-input name from arbitrary identifying parts. Joins with
+  # `-`, prefixes with `INPUTS_PREFIX`, and replaces flake-URL-unsafe
+  # characters (`:`, `/`, `.`, `?`, `=`) with `_` so the result is a valid
+  # flake registry name. Used for module submodule inputs (parts: [ url ] or
+  # [ url subMod ]) and for url-mode overlay inputs (parts: [ "overlay" url ]).
+  mkInputName =
+    { parts }:
+    replaceStrings [ ":" "/" "." "?" "=" ] [ "_" "_" "_" "_" "_" ] (
+      concatStringsSep "-" ([ INPUTS_PREFIX ] ++ parts)
+    );
+
+  inputIsOverride = { input }: (hasAttr "override" input) && input.override;
+  inputHasPatches = { input }: (hasAttr "patches" input) && builtins.length input.patches > 0;
+
+  # Read the state flake.lock — the only lock that holds entries for the
+  # dynamically-generated repo inputs. Returns null on first build (lock
+  # absent) so callers can treat it as "no pin available".
+  _readFlakeLock =
+    let
+      lockPath = "${ICEDOS_STATE_DIR}/flake.lock";
+    in
+    if pathExists lockPath then fromJSON (readFile lockPath) else null;
+
+  # Determine the revision suffix from flake.lock based on repo name.
+  # Returns either /{rev}, ?narHash={hash}, or empty string.
+  _getRevisionFromLock =
+    {
+      repoName,
+      lock,
+    }:
+    let
+      hasRev = hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock;
+      hasNarHash = hasAttrByPath [ "nodes" repoName "locked" "narHash" ] lock;
+    in
+    if (builtins.getEnv "ICEDOS_UPDATE" == "1") || (!hasRev && !hasNarHash) then
+      ""
+    else if hasRev then
+      "/${lock.nodes.${repoName}.locked.rev}"
+    else
+      "?narHash=${lock.nodes.${repoName}.locked.narHash}";
+
+  # Get the flake revision string (with / or ? prefix if available).
+  _resolveFlakeRevision =
+    {
+      url,
+      repoName,
+    }:
+    let
+      lock = _readFlakeLock;
+    in
+    if (lock == null) || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake")) then
+      ""
+    else
+      _getRevisionFromLock { inherit repoName lock; };
+
+  # Split a flake URL of the form `scheme:owner/repo/<ref>` into
+  # { baseUrl = "scheme:owner/repo"; ref = "<ref>"; }. Only applies to schemes
+  # that encode the ref as the third path segment (github, gitlab, sourcehut).
+  # For any other URL shape returns the URL unchanged and ref = null.
+  _parseFlakeUrl =
+    url:
+    let
+      match = builtins.match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)/([^?]+)(.*)" url;
+    in
+    if match == null then
+      {
+        baseUrl = url;
+        ref = null;
+      }
+    else
+      {
+        baseUrl = "${builtins.elemAt match 0}:${builtins.elemAt match 1}/${builtins.elemAt match 2}${builtins.elemAt match 4}";
+        ref = builtins.elemAt match 3;
+      };
+
+  # Generate a unique key for a module (url/name combination).
+  _getModuleKey = url: name: "${url}/${name}";
 }

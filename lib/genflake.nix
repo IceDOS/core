@@ -4,7 +4,7 @@ let
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
-  inherit (pkgs) lib;
+  inherit (pkgs) lib writeText;
 
   inherit (lib)
     all
@@ -14,6 +14,7 @@ let
     evalModules
     fileContents
     filter
+    generators
     imap0
     listToAttrs
     optional
@@ -157,7 +158,12 @@ let
       }).config;
 in
 {
-  inherit flakeInputs evaluatedConfig;
+  inherit evaluatedConfig;
+
+  flakeInputsNix = generators.toPretty {
+    multiline = true;
+    allowPrettyValues = true;
+  } flakeInputs;
 
   flakeFinal = ''
     {
