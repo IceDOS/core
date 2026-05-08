@@ -14,18 +14,27 @@ let
     dimRedString
     ;
 
-  inherit (lib) mkIf;
+  inherit (lib)
+    concatStringsSep
+    imap0
+    mkIf
+    ;
 
-  cfg = config.icedos.applications.nh.gc;
-  days = "${toString (cfg.days)}d";
-  generations = toString (cfg.generations);
+  inherit (pkgs) writeShellScript writeShellScriptBin;
+
+  inherit (config.icedos.applications.nh) gc;
+  inherit (gc) automatic hooks interval;
+  inherit (hooks) postGc preGc;
+
+  days = "${toString gc.days}d";
+  generations = toString gc.generations;
 
   cleanExtra =
     let
       bc = "${pkgs.bc}/bin/bc";
       command = "nh-clean-extra";
     in
-    "${pkgs.writeShellScriptBin command ''
+    "${writeShellScriptBin command ''
       ${prelude}
 
       echo -e "\n${dimBlueString "/tmp/nix-shell-*/icedos-build"}"
@@ -54,8 +63,6 @@ let
       echo -e "\n''$buildPathsCount build path''$([ $buildPathsCount != 1 ] && echo s) deleted, ''${formattedTotal} MiB freed"
     ''}/bin/${command}";
 
-  hooks = config.icedos.applications.nh.gc.hooks;
-
   # Each hook entry → its own pkgs.writeShellScript so it runs in a
   # fresh shell process (isolated env/traps/`set -e`/`exit`). Prelude
   # prepended so hooks have color vars + log helpers, matching the
@@ -64,11 +71,9 @@ let
   # inside the toolset bash script).
   hookPaths =
     name: scripts:
-    lib.imap0 (
-      i: s: pkgs.writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}"
-    ) scripts;
+    imap0 (i: s: writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}") scripts;
 
-  runHooks = name: scripts: lib.concatStringsSep "\n" (map toString (hookPaths name scripts));
+  runHooks = name: scripts: concatStringsSep "\n" (map toString (hookPaths name scripts));
 in
 {
   icedos.applications.toolset.commands = [
@@ -76,9 +81,9 @@ in
       command = "gc";
 
       script = ''
-        ${runHooks "preGc" hooks.preGc}
+        ${runHooks "preGc" preGc}
         "${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}
-        ${runHooks "postGc" hooks.postGc}
+        ${runHooks "postGc" postGc}
       '';
 
       help = "clean nix plus home manager, store and profiles";
@@ -89,14 +94,14 @@ in
     enable = true;
 
     clean = {
-      enable = cfg.automatic;
-      extraArgs = "-k ${toString (cfg.generations)} -K ${days}";
-      dates = cfg.interval;
+      enable = automatic;
+      extraArgs = "-k ${generations} -K ${days}";
+      dates = interval;
     };
   };
 
-  systemd.services.nh-clean.serviceConfig = mkIf cfg.automatic {
-    ExecStartPre = [ cleanExtra ] ++ map toString (hookPaths "preGc" hooks.preGc);
-    ExecStartPost = map toString (hookPaths "postGc" hooks.postGc);
+  systemd.services.nh-clean.serviceConfig = mkIf automatic {
+    ExecStartPre = [ cleanExtra ] ++ map toString (hookPaths "preGc" preGc);
+    ExecStartPost = map toString (hookPaths "postGc" postGc);
   };
 }

@@ -456,8 +456,9 @@ let
 
             # Load and filter modules from the repository
             newModules = _filterNewModules {
+              inherit existingDeps;
+
               modules = flatMap _loadModulesFromRepo newRepo;
-              existingDeps = existingDeps;
               requestedNames = newDep.modules or [ ];
             };
 

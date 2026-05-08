@@ -8,7 +8,23 @@
 
 let
   inherit (icedosLib.bash) dimGreenString prelude redString;
-  hooks = config.icedos.applications.toolset.rebuild.hooks;
+
+  inherit (lib)
+    concatStringsSep
+    imap0
+    optionalString
+    ;
+
+  inherit (config) icedos;
+  inherit (icedos) configurationLocation;
+  inherit (icedos.applications.toolset.rebuild) hooks;
+
+  inherit (hooks)
+    postRebuild
+    postUpdate
+    preRebuild
+    preUpdate
+    ;
 
   # Compile each hook entry into its own pkgs.writeShellScript so it runs
   # in a fresh shell process. Isolates env/traps/`set -e`/`exit` from
@@ -17,14 +33,14 @@ let
   # (log_info, log_step, log_ok, log_warn, log_fail, die).
   runHooks =
     name: scripts:
-    lib.concatStringsSep "\n" (
-      lib.imap0 (
+    concatStringsSep "\n" (
+      imap0 (
         i: s: "${pkgs.writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}"}"
       ) scripts
     );
 
-  hasPreUpdate = hooks.preUpdate != [ ];
-  hasPostUpdate = hooks.postUpdate != [ ];
+  hasPreUpdate = preUpdate != [ ];
+  hasPostUpdate = postUpdate != [ ];
 in
 {
   icedos.applications.toolset.commands = [
@@ -36,7 +52,7 @@ in
         CACHE_DIR=".cache"
         CACHED_NAMES=()
 
-        cd "${config.icedos.configurationLocation}"
+        cd "${configurationLocation}"
 
         LATEST_CACHE_FOLDER=$(ls -dt "$CACHE_DIR"/*/ 2>/dev/null | head -1)
 
@@ -67,12 +83,12 @@ in
           fi
         }
 
-        if [ ! -d "${config.icedos.configurationLocation}" ]; then
+        if [ ! -d "${configurationLocation}" ]; then
           echo -e "${redString "error"}: configuration path is invalid, execute 'nix run .' inside the configuration directory to update the path."
           exit 1
         fi
 
-        ${lib.optionalString (hasPreUpdate || hasPostUpdate) ''
+        ${optionalString (hasPreUpdate || hasPostUpdate) ''
           # --update-hooks: run pre+post update hooks and exit. Skips
           # preRebuild/postRebuild, build.sh, cache, reboot check. For
           # refreshing non-nix things (flatpak, millennium themes, ...)
@@ -82,17 +98,17 @@ in
           for arg in "$@"; do
             if [ "$arg" = "--update-hooks" ]; then
               export ICEDOS_HOOKS_ONLY=1
-              ${runHooks "preUpdate" hooks.preUpdate}
-              ${runHooks "postUpdate" hooks.postUpdate}
+              ${runHooks "preUpdate" preUpdate}
+              ${runHooks "postUpdate" postUpdate}
               exit 0
             fi
           done
         ''}
-        ${runHooks "preRebuild" hooks.preRebuild}
-        ${lib.optionalString hasPreUpdate ''
+        ${runHooks "preRebuild" preRebuild}
+        ${optionalString hasPreUpdate ''
           for arg in "$@"; do
             if [ "$arg" = "--update" ]; then
-              ${runHooks "preUpdate" hooks.preUpdate}
+              ${runHooks "preUpdate" preUpdate}
               break
             fi
           done
@@ -105,10 +121,10 @@ in
           exit "$BUILD_STATUS"
         fi
 
-        ${lib.optionalString hasPostUpdate ''
+        ${optionalString hasPostUpdate ''
           for arg in "$@"; do
             if [ "$arg" = "--update" ]; then
-              ${runHooks "postUpdate" hooks.postUpdate}
+              ${runHooks "postUpdate" postUpdate}
               break
             fi
           done
@@ -125,7 +141,7 @@ in
           echo -e "${dimGreenString ">"} Caching ''${JOINED%, }"
         fi
 
-        ${runHooks "postRebuild" hooks.postRebuild}
+        ${runHooks "postRebuild" postRebuild}
 
         # Skip reboot check on --boot / --build (no activation happened).
         ACTION="switch"

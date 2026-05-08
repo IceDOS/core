@@ -8,18 +8,18 @@
 
 let
   inherit (lib) attrNames mapAttrs optional;
-  cfg = config.icedos;
+  inherit (config.icedos) system users;
 in
 {
   nix.settings.trusted-users = [
     "root"
   ]
-  ++ (attrNames cfg.users);
+  ++ (attrNames users);
 
   users.users = mapAttrs (
     user: _:
     let
-      userAttrs = cfg.users.${user};
+      userAttrs = users.${user};
       homeDir = userAttrs.home;
     in
     {
@@ -29,12 +29,12 @@ in
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
       password = userAttrs.defaultPassword;
-      packages = icedosLib.pkgs.mapper pkgs cfg.users.${user}.extraPackages;
+      packages = icedosLib.pkgs.mapper pkgs users.${user}.extraPackages;
     }
-  ) cfg.users;
+  ) users;
 
   home-manager.users = mapAttrs (_: _: {
-    home.stateVersion = cfg.system.version;
+    home.stateVersion = system.version;
     systemd.user.startServices = "sd-switch"; # Auto-restart user services whose unit files changed
-  }) cfg.users;
+  }) users;
 }

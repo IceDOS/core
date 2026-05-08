@@ -446,11 +446,12 @@ rec {
     accentHex =
       config:
       let
-        stylixCfg = config.icedos.desktop.stylix or { enable = false; };
+        inherit (config.icedos) desktop;
+        stylixCfg = desktop.stylix or { enable = false; };
         stylixOn = stylixCfg.enable or false;
         stylixSlot = stylixCfg.accentBase16Slot or "base0E";
       in
-      if stylixOn then config.lib.stylix.colors.${stylixSlot} else config.icedos.desktop.accentColor;
+      if stylixOn then config.lib.stylix.colors.${stylixSlot} else desktop.accentColor;
   };
 
   pkgs = {

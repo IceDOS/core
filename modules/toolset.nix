@@ -10,6 +10,7 @@ let
   inherit (config.icedos.applications.toolset) commands desktopEntries;
 
   inherit (icedosLib.bash) prelude;
+
   inherit (icedosLib.toolset)
     mkBashCompletion
     mkDispatcher

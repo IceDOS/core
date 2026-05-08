@@ -127,7 +127,7 @@ rec {
       // {
         type = types.attrsOf (
           types.submodule {
-            options = options;
+            inherit options;
           }
         );
       }
@@ -140,7 +140,7 @@ rec {
       // {
         type = types.listOf (
           types.submodule {
-            options = options;
+            inherit options;
           }
         );
       }
@@ -152,7 +152,7 @@ rec {
       args
       // {
         type = types.submodule {
-          options = options;
+          inherit options;
         };
       }
     );
