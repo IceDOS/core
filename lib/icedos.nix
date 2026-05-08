@@ -15,6 +15,7 @@ let
     ;
 
   inherit (lib)
+    concatStringsSep
     elem
     filter
     flatten
@@ -35,15 +36,15 @@ let
   finalIcedosLib = icedosLib // rec {
     inputIsOverride = { input }: (hasAttr "override" input) && input.override;
 
-    # Generate a sanitized full submodule name from URL and submodule name
-    # Replaces special characters with underscores for avoiding flake registry warnings and errors
-    getFullSubmoduleName =
-      {
-        url,
-        subMod ? null,
-      }:
+    # Build a flake-input name from arbitrary identifying parts. Joins with
+    # `-`, prefixes with `INPUTS_PREFIX`, and replaces flake-URL-unsafe
+    # characters (`:`, `/`, `.`, `?`, `=`) with `_` so the result is a valid
+    # flake registry name. Used for module submodule inputs (parts: [ url ] or
+    # [ url subMod ]) and for url-mode overlay inputs (parts: [ "overlay" url ]).
+    mkInputName =
+      { parts }:
       replaceStrings [ ":" "/" "." "?" "=" ] [ "_" "_" "_" "_" "_" ] (
-        if subMod == null then "${INPUTS_PREFIX}-${url}" else "${INPUTS_PREFIX}-${url}-${subMod}"
+        concatStringsSep "-" ([ INPUTS_PREFIX ] ++ parts)
       );
 
     # Read the state flake.lock — the only lock that holds entries for the
@@ -129,8 +130,7 @@ let
         parsed = _parseFlakeUrl _url;
         inherit (parsed) baseUrl;
         inlineRef = parsed.ref;
-
-        repoName = getFullSubmoduleName { url = baseUrl; };
+        repoName = mkInputName { parts = [ baseUrl ]; };
 
         # Resolve the flake revision from lock file
         lockRev = _resolveFlakeRevision {
@@ -187,7 +187,8 @@ let
               "";
         in
         {
-          name = getFullSubmoduleName { inherit url; };
+          name = mkInputName { parts = [ url ]; };
+
           value = {
             url = "${url}${flakeRev}";
           };
@@ -218,9 +219,11 @@ let
                 if (hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput) then
                   "icedos-config"
                 else
-                  getFullSubmoduleName {
-                    inherit (_repoInfo) url;
-                    subMod = meta.name;
+                  mkInputName {
+                    parts = [
+                      _repoInfo.url
+                      meta.name
+                    ];
                   };
             in
             {
@@ -249,7 +252,7 @@ let
           if isSkipModuleAsInput then
             "icedos-config"
           else
-            baseInputs.${getFullSubmoduleName { url = repoInfo.url; }};
+            baseInputs.${mkInputName { parts = [ repoInfo.url ]; }};
       }
       // (
         let
