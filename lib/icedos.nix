@@ -10,109 +10,30 @@
 let
   inherit (builtins)
     hasAttr
-    length
     pathExists
-    readFile
-    replaceStrings
     ;
 
   inherit (lib)
-    concatStringsSep
     elem
     filter
     flatten
-    hasAttrByPath
     ;
 
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STAGE
-    ICEDOS_STATE_DIR
-    INPUTS_PREFIX
+    _getModuleKey
+    _parseFlakeUrl
+    _resolveFlakeRevision
     filterByAttrs
     findFirst
     flatMap
-    stringStartsWith
+    inputHasPatches
+    inputIsOverride
+    mkInputName
     ;
 
   finalIcedosLib = icedosLib // rec {
-    inputIsOverride = { input }: (hasAttr "override" input) && input.override;
-    inputHasPatches = { input }: (hasAttr "patches" input) && length input.patches > 0;
-
-    # Build a flake-input name from arbitrary identifying parts. Joins with
-    # `-`, prefixes with `INPUTS_PREFIX`, and replaces flake-URL-unsafe
-    # characters (`:`, `/`, `.`, `?`, `=`) with `_` so the result is a valid
-    # flake registry name. Used for module submodule inputs (parts: [ url ] or
-    # [ url subMod ]) and for url-mode overlay inputs (parts: [ "overlay" url ]).
-    mkInputName =
-      { parts }:
-      replaceStrings [ ":" "/" "." "?" "=" ] [ "_" "_" "_" "_" "_" ] (
-        concatStringsSep "-" ([ INPUTS_PREFIX ] ++ parts)
-      );
-
-    # Read the state flake.lock — the only lock that holds entries for the
-    # dynamically-generated repo inputs. Returns null on first build (lock
-    # absent) so callers can treat it as "no pin available".
-    _readFlakeLock =
-      let
-        lockPath = "${ICEDOS_STATE_DIR}/flake.lock";
-      in
-      if pathExists lockPath then readFile lockPath |> builtins.fromJSON else null;
-
-    # Determine the revision suffix from flake.lock based on repo name
-    # Returns either /{rev}, ?narHash={hash}, or empty string
-    _getRevisionFromLock =
-      {
-        repoName,
-        lock,
-      }:
-      let
-        hasRev = hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock;
-        hasNarHash = hasAttrByPath [ "nodes" repoName "locked" "narHash" ] lock;
-      in
-      if (builtins.getEnv "ICEDOS_UPDATE" == "1") || (!hasRev && !hasNarHash) then
-        ""
-      else if hasRev then
-        "/${lock.nodes.${repoName}.locked.rev}"
-      else
-        "?narHash=${lock.nodes.${repoName}.locked.narHash}";
-
-    # Get the flake revision string (with / or ? prefix if available)
-    _resolveFlakeRevision =
-      {
-        url,
-        repoName,
-      }:
-      let
-        lock = _readFlakeLock;
-      in
-      if (lock == null) || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake")) then
-        ""
-      else
-        _getRevisionFromLock {
-          inherit repoName lock;
-        };
-
-    # Split a flake URL of the form `scheme:owner/repo/<ref>` into
-    # { baseUrl = "scheme:owner/repo"; ref = "<ref>"; }. Only applies to schemes
-    # that encode the ref as the third path segment (github, gitlab, sourcehut).
-    # For any other URL shape returns the URL unchanged and ref = null.
-    _parseFlakeUrl =
-      url:
-      let
-        match = builtins.match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)/([^?]+)(.*)" url;
-      in
-      if match == null then
-        {
-          baseUrl = url;
-          ref = null;
-        }
-      else
-        {
-          baseUrl = "${builtins.elemAt match 0}:${builtins.elemAt match 1}/${builtins.elemAt match 2}${builtins.elemAt match 4}";
-          ref = builtins.elemAt match 3;
-        };
-
     # Fetch a modules repository, resolving the URL and loading its icedos modules
     # Handles overrides, flake resolution, and module file loading
     fetchModulesRepository =
@@ -232,12 +153,6 @@ let
                     ];
                   };
 
-              patchedInputSource = applyPatches {
-                name = "${i}-patched";
-                patches = inputs.${i}.patches;
-                src = getFlake inputs.${i}.url |> toString;
-              };
-
               normalInput = rec {
                 _originalName = if hasPatches then "${i}_source" else i;
                 name = if isOverride then _originalName else "${moduleIdentifier}-${_originalName}";
@@ -245,6 +160,32 @@ let
                   "override"
                   "patches"
                 ];
+              };
+
+              # Resolve the upstream URL against the state lock so the patched
+              # derivation's `src` matches the rev pinned in flake.lock under
+              # `normalInput.name`. Mirrors fetchModulesRepository's contract.
+              _patchSrcParsed = _parseFlakeUrl inputs.${i}.url;
+
+              _patchSrcLockRev = _resolveFlakeRevision {
+                url = _patchSrcParsed.baseUrl;
+                repoName = normalInput.name;
+              };
+
+              _patchSrcRev =
+                if _patchSrcLockRev != "" then
+                  _patchSrcLockRev
+                else if _patchSrcParsed.ref != null then
+                  "/${_patchSrcParsed.ref}"
+                else
+                  "";
+
+              _patchSrcUrl = "${_patchSrcParsed.baseUrl}${_patchSrcRev}";
+
+              patchedInputSource = applyPatches {
+                name = "${moduleIdentifier}-${i}-patched";
+                patches = inputs.${i}.patches;
+                src = getFlake _patchSrcUrl |> toString;
               };
 
               patchedInput = rec {
@@ -372,9 +313,6 @@ let
           options
           ;
       };
-
-    # Generate a unique key for a module (url/name combination)
-    _getModuleKey = url: name: "${url}/${name}";
 
     # Build a set of override URL mappings from dependencies that define overrides
     _buildOverridesMap =
