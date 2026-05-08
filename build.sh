@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --update)
       update_core="1"
-      update_nix="1"
+      update_nixpkgs="1"
       update_repos="1"
       shift
       ;;
@@ -42,8 +42,8 @@ while [[ $# -gt 0 ]]; do
       update_core="1"
       shift
       ;;
-    --update-nix)
-      update_nix="1"
+    --update-nixpkgs)
+      update_nixpkgs="1"
       shift
       ;;
     --update-repos)
@@ -130,7 +130,7 @@ if [ "$export_full_config" == "1" ]; then
   exit 0
 fi
 
-[ "$update_nix" == "1" ] && (
+[ "$update_nixpkgs" == "1" ] && (
   set -e
   cd "$ICEDOS_STATE_DIR"
   nix flake update nixpkgs

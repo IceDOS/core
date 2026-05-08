@@ -76,7 +76,7 @@ These control what gets updated before the build:
 | `--update` | Enables all update paths: core, repositories, nix. | Full update workflow. |
 | `--update-core` | Runs `nix flake update` in the config root, then re-runs the command once. | Updates **IceDOS** core libraries/modules. |
 | `--update-hooks` | Runs only the registered `preUpdate`/`postUpdate` hooks and exits. No nix build, no activation. Sets `ICEDOS_HOOKS_ONLY=1` so hooks know HM activation will not follow. | Refresh non-nix runtime resources (e.g. `flatpak update`, millennium themes/plugins) without a system rebuild. |
-| `--update-nix` | Runs `nix flake update` in the state directory. | Updates nix related modules. |
+| `--update-nixpkgs` | Runs `nix flake update nixpkgs` in the state directory. | Updates nixpkgs channel. |
 | `--update-repos` | Enables refresh behavior for **IceDOS** repositories input generation (`--refresh` + `ICEDOS_UPDATE=1`). | Updates **IceDOS** repositories and their modules. |
 
 ### Behavior flags
