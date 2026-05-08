@@ -431,13 +431,42 @@ rec {
   pkgs = {
     mapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
 
+    # Build an overlay that lifts named packages from a channel source into
+    # the active pkgs set. The source can be:
+    #   - a channel-name string (e.g. `"unstable"`) — looked up on `super`,
+    #     which assumes the channel is already wired via
+    #     `nixpkgs.config.packageOverrides.<name>` (icedos's
+    #     `[[icedos.system.channels]]` does this automatically);
+    #   - a flake-input attrset (e.g. `inputs.nixpkgs-stable`) detected by
+    #     the presence of `outPath` — instantiated against the host's
+    #     `system` with only the user-facing config keys (`allowUnfree`,
+    #     `permittedInsecurePackages`) forwarded. The full host
+    #     `nixpkgs.config` is NOT propagated: post-overlay it carries
+    #     internal nulls (e.g. `replaceStdenv`) that crash a fresh
+    #     instantiation. Source overlays are also intentionally NOT
+    #     forwarded.
+    # Returns a single-item overlay list ready to drop into
+    # `nixpkgs.overlays`.
     overlaysFromChannel = channel: packages: [
       (
         self: super:
+        let
+          channelPkgs =
+            if channel ? outPath then
+              import channel {
+                inherit (super.stdenv.hostPlatform) system;
+                config = {
+                  allowUnfree = super.config.allowUnfree or false;
+                  permittedInsecurePackages = super.config.permittedInsecurePackages or [ ];
+                };
+              }
+            else
+              super.${channel};
+        in
         listToAttrs (
           map (package: {
             name = package;
-            value = generateAttrPath super.${channel} package;
+            value = generateAttrPath channelPkgs package;
           }) packages
         )
       )

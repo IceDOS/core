@@ -7,11 +7,14 @@ let
   inherit (pkgs) lib;
 
   inherit (lib)
+    all
     boolToString
     concatMapStrings
     concatStringsSep
     evalModules
     fileContents
+    filter
+    imap0
     listToAttrs
     optional
     pathExists
@@ -29,11 +32,62 @@ let
     ICEDOS_FLAKE_INPUTS
     ICEDOS_STATE_DIR
     injectIfExists
+    mkInputName
     modulesFromConfig
+    validate
     ;
 
   channels = icedos.system.channels or [ ];
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
+
+  # `[[icedos.system.overlays.fromChannel]]` entries. Each must set either
+  # `channel` (existing `[[icedos.system.channels]]` name) or `url` (flake
+  # URL — registered as `icedos-overlay-<sanitized-url>`); `channel` wins
+  # when both are set. Validation aborts here with rich path messages so
+  # users see the offending entry, not a deep nix trace.
+  overlayChannelsRaw = icedos.system.overlays.fromChannel or [ ];
+
+  # Read raw TOML — missing fields default to "" / [] so validation messages
+  # can pinpoint the offending entry rather than trip over a hard attr-miss.
+  overlayEntry = e: {
+    channel = e.channel or "";
+    packages = e.packages or [ ];
+    url = e.url or "";
+  };
+
+  overlayCheck =
+    idx: e:
+    validate.abort {
+      when = e.url == "" && e.channel == "";
+      path = "icedos.system.overlays.fromChannel[${toString idx}]";
+      msg = "must set either 'channel' (existing [[icedos.system.channels]] name) or 'url' (flake URL)";
+    }
+    && validate.abort {
+      when = e.packages == [ ];
+      path = "icedos.system.overlays.fromChannel[${toString idx}]";
+      msg = "'packages' must be non-empty (an overlay with no packages is a no-op)";
+    };
+
+  # Force every check; failures already threw. `if-then-raw` keeps the second
+  # branch unreachable but ties the validation result to the produced list.
+  overlayChannels =
+    let
+      normalised = map overlayEntry overlayChannelsRaw;
+    in
+    if all (x: x) (imap0 overlayCheck normalised) then normalised else normalised;
+
+  isOverlayUrlMode = e: e.channel == "" && e.url != "";
+
+  overlayInputs = map (e: {
+    name = mkInputName {
+      parts = [
+        "overlay"
+        e.url
+      ];
+    };
+
+    value = { inherit (e) url; };
+  }) (filter isOverlayUrlMode overlayChannels);
 
   nixpkgsInput = {
     name = "nixpkgs";
@@ -63,6 +117,7 @@ let
       inherit (c) name;
       value = { inherit (c) url; };
     }) channels)
+    ++ overlayInputs
     ++ [
       {
         name = "icedos-config";
@@ -213,6 +268,39 @@ in
                   }
                 )
               '') channels}
+
+              ${concatMapStrings (
+                e:
+                let
+                  target =
+                    if e.channel != "" then
+                      ''"${e.channel}"''
+                    else
+                      ''inputs."${
+                        mkInputName {
+                          parts = [
+                            "overlay"
+                            e.url
+                          ];
+                        }
+                      }"'';
+
+                  pkgList = concatMapStrings (p: ''"${p}" '') e.packages;
+                in
+                ''
+                  (
+                    { lib, ... }: {
+                      # `lib.mkBefore` keeps these overlays at the head of
+                      # `nixpkgs.overlays` so they swap the package source
+                      # *before* downstream patch overlays (e.g. cosmic
+                      # patches) run via `prev.<pkg>.overrideAttrs`. Without
+                      # it the swap clobbers patches that already landed on
+                      # the base derivation.
+                      nixpkgs.overlays = lib.mkBefore (icedosLib.pkgs.overlaysFromChannel ${target} [ ${pkgList} ]);
+                    }
+                  )
+                ''
+              ) overlayChannels}
 
               { icedos.system.isFirstBuild = ${boolToString isFirstBuild}; }
 

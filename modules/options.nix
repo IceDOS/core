@@ -80,6 +80,20 @@ in
         nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
         isFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
+
+        # Pull selected packages from another channel/flake into the active pkgs
+        # set as an overlay. Each entry must set either `channel` (an existing
+        # `[[icedos.system.channels]]` name) or `url` (a flake URL — registered
+        # automatically as `icedos-overlay-<sanitized-url>`); `channel` wins
+        # when both are set. `packages` must be non-empty.
+        overlays = {
+          fromChannel = mkSubmoduleListOption { default = [ ]; } {
+            channel = mkStrOption { default = ""; };
+            packages = mkStrListOption { default = [ ]; };
+            url = mkStrOption { default = ""; };
+          };
+        };
+
         version = mkStrOption { }; # Set according to docs at https://search.nixos.org/options?show=system.stateVersion
       };
 
