@@ -35,6 +35,7 @@ let
     mapAttrsToList
     max
     optional
+    optionalString
     sort
     ;
 
@@ -506,6 +507,64 @@ rec {
         )
       )
     ];
+  };
+
+  # Shell-snippet builders for `installPhase` / `postFixup` bodies in
+  # icedos `package.nix` files. Centralizes conventions (the `/@out@`
+  # marker for `makeDesktopItem`, the AppImage extract dance) so a fix
+  # in one place propagates to every packaged AppImage. Reached by
+  # `package.nix` files only via explicit pass-through in the module's
+  # `icedos.nix`: `final.callPackage ./package.nix { inherit
+  # (icedosLib.packaging) extractAppImage installDesktopEntry; };`.
+  packaging = {
+    # Stages an AppImage in $TMPDIR, extracts it, and merges the
+    # contents into $out. `extractedDir` is whatever the AppImage
+    # extracts to ("AppDir" — citron/eden style; "squashfs-root" — me3
+    # style). `moveSubdir` lets callers merge a nested dir like "usr"
+    # into $out instead of the whole tree. `steamRun` (optional pkg)
+    # prefixes the extract invocation for AppImages that need a glibc
+    # envelope. `preMove` is raw shell that runs after extract and
+    # before the mv (e.g. `rm AppDir/lib`).
+    extractAppImage =
+      {
+        src,
+        extractedDir ? "AppDir",
+        moveSubdir ? null,
+        steamRun ? null,
+        preMove ? "",
+      }:
+      ''
+        mkdir -p $out
+        cp ${src} $TMPDIR/image.AppImage
+        chmod +x $TMPDIR/image.AppImage
+        ${
+          optionalString (steamRun != null) "${steamRun}/bin/steam-run "
+        }$TMPDIR/image.AppImage --appimage-extract
+        ${preMove}
+        mv ${extractedDir}/${optionalString (moveSubdir != null) "${moveSubdir}/"}* $out
+      '';
+
+    # Standard desktop-entry install + @out@ substitution + optional
+    # icon symlink. Works in installPhase or postFixup. `desktopItem`
+    # is a `makeDesktopItem` result whose `exec`/`icon` use the
+    # `${replaceMarker}` placeholder (default `/@out@`) so the file can
+    # be substituted in-place to the real $out at install time.
+    installDesktopEntry =
+      {
+        desktopItem,
+        desktopFile,
+        icon ? null,
+        replaceMarker ? "/@out@",
+      }:
+      ''
+        install -Dm644 ${desktopItem}/share/applications/${desktopFile} \
+          $out/share/applications/${desktopFile}
+        substituteInPlace $out/share/applications/${desktopFile} \
+          --replace-fail "${replaceMarker}" "$out"
+      ''
+      + optionalString (icon != null) ''
+        ln -s $out/${icon} $out/share/applications/${icon}
+      '';
   };
 
   systemd = {
