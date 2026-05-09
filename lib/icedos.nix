@@ -160,16 +160,12 @@ let
               isOverride = inputIsOverride { input = inputs.${i}; };
               hasPatches = inputHasPatches { input = inputs.${i}; };
 
-              moduleIdentifier =
-                if (hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput) then
-                  "icedos-config"
-                else
-                  mkInputName {
-                    parts = [
-                      _repoInfo.url
-                      meta.name
-                    ];
-                  };
+              moduleIdentifier = mkInputName {
+                parts = [
+                  _repoInfo.url
+                  meta.name
+                ];
+              };
 
               normalInput = rec {
                 _originalName = if hasPatches then "${i}_source" else i;
@@ -515,15 +511,26 @@ let
       {
         filePath,
         narHash,
+        extraModulesPath,
       }:
-      (import filePath { icedosLib = finalIcedosLib; })
+      let
+        inherit (builtins) unsafeDiscardStringContext;
+        inherit (lib) removePrefix;
+
+        imported = import filePath { icedosLib = finalIcedosLib; };
+        relPath = removePrefix "${extraModulesPath}/" filePath;
+        fallbackName = unsafeDiscardStringContext (dirOf relPath);
+      in
+      imported
       // {
         _repoInfo = {
           inherit narHash;
-          url = "path:${filePath}";
+          url = "config";
           skipModuleAsInput = true;
         };
-        meta.name = filePath;
+        meta = (imported.meta or { }) // {
+          name = imported.meta.name or fallbackName;
+        };
       };
 
     # Load all extra modules from the config's extra-modules directory
@@ -539,14 +546,21 @@ let
       if !(pathExists extraModulesPath) then
         [ ]
       else
-        map (filePath: _importExtraModule { inherit filePath narHash; }) (
-          flatten (
-            icedosLib.scanModules {
-              path = extraModulesPath;
-              filename = "icedos.nix";
+        map
+          (
+            filePath:
+            _importExtraModule {
+              inherit filePath narHash extraModulesPath;
             }
           )
-        );
+          (
+            flatten (
+              icedosLib.scanModules {
+                path = extraModulesPath;
+                filename = "icedos.nix";
+              }
+            )
+          );
 
     # Get the configuration flake (either from inputs or local filesystem)
     _getConfigFlake =
