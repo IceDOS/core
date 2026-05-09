@@ -47,14 +47,25 @@ let
         inherit (lib) optionalAttrs;
 
         # Apply override URL if available
-        _url = if (hasAttr url overrides) then overrides.${url} else url;
+        _fetchUrl = if (hasAttr url overrides) then overrides.${url} else url;
 
-        # Split any inline ref (SHA/branch/tag) out of the URL so naming and
-        # flake-URL construction don't duplicate it.
-        parsed = _parseFlakeUrl _url;
-        inherit (parsed) baseUrl;
-        inlineRef = parsed.ref;
-        repoName = mkInputName { parts = [ baseUrl ]; };
+        # Naming: parse the ORIGINAL `url` so input names (and the
+        # moduleIdentifier prefix derived from `_repoInfo.url`) are
+        # stable across overrideUrl toggles. Without this, flipping
+        # an override to e.g. `path:/local` renames every transitive
+        # `icedos-<repo>-<input>` entry in flake.lock, forcing a full
+        # re-fetch even though the upstreams haven't changed.
+        nameParsed = _parseFlakeUrl url;
+        repoName = mkInputName { parts = [ nameParsed.baseUrl ]; };
+
+        # Fetching: parse the OVERRIDE-APPLIED url. flakeUrl + getFlake
+        # see the override; lock resolution is keyed against repoName
+        # (still original-derived) so toggling override only affects
+        # the pin for THIS repo's own input — transitive inputs keep
+        # their lock entries unchanged.
+        fetchParsed = _parseFlakeUrl _fetchUrl;
+        inherit (fetchParsed) baseUrl;
+        inlineRef = fetchParsed.ref;
 
         # Resolve the flake revision from lock file
         lockRev = _resolveFlakeRevision {
@@ -83,7 +94,8 @@ let
         modules = flake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
-        url = baseUrl;
+        url = nameParsed.baseUrl;
+        fetchUrl = baseUrl;
         inherit (flake) narHash;
         files = flatten modules;
       }
@@ -102,6 +114,12 @@ let
         { _repoInfo, ... }:
         let
           inherit (_repoInfo) url;
+          # Original `url` drives the input NAME (stable across overrideUrl
+          # toggles); `fetchUrl` (override-applied) drives the input VALUE
+          # so the generated flake actually fetches from the override.
+          # `or url` keeps backward compatibility with any _repoInfo not
+          # produced by fetchModulesRepository (e.g. extra-modules).
+          fetchUrl = _repoInfo.fetchUrl or url;
           flakeRev =
             if (hasAttr "rev" _repoInfo) then
               "/${_repoInfo.rev}"
@@ -114,7 +132,7 @@ let
           name = mkInputName { parts = [ url ]; };
 
           value = {
-            url = "${url}${flakeRev}";
+            url = "${fetchUrl}${flakeRev}";
           };
         }
       ) (filter shouldIncludeAsInput modules);

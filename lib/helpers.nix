@@ -617,6 +617,12 @@ rec {
       "?narHash=${lock.nodes.${repoName}.locked.narHash}";
 
   # Get the flake revision string (with / or ? prefix if available).
+  # If the lockfile entry's `original` describes a different URL than
+  # the one we're querying for (i.e. an overrideUrl was just toggled
+  # in config.toml), return "" so the input gets re-resolved from
+  # scratch instead of trying to apply a stale rev/narHash to a new
+  # source. Transitive inputs are unaffected — their `original` urls
+  # don't change when overrideUrl toggles, so the match still holds.
   _resolveFlakeRevision =
     {
       url,
@@ -624,8 +630,27 @@ rec {
     }:
     let
       lock = _readFlakeLock;
+
+      lockedOriginalMatches =
+        let
+          orig = lock.nodes.${repoName}.original or null;
+          type = orig.type or "";
+        in
+        orig != null
+        && (
+          if type == "github" || type == "gitlab" || type == "sourcehut" then
+            url == "${type}:${orig.owner}/${orig.repo}"
+          else if type == "path" then
+            url == "path:${orig.path}"
+          else if type == "git" then
+            url == orig.url || url == "git+${orig.url}"
+          else
+            false
+        );
     in
     if (lock == null) || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake")) then
+      ""
+    else if !lockedOriginalMatches then
       ""
     else
       _getRevisionFromLock { inherit repoName lock; };
