@@ -94,7 +94,7 @@ fi
 if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
   cd "$ICEDOS_CONFIG_ROOT"
   nix flake update
-  exec env skip_update_core=1 nix run . -- "${previous_arguments[@]}"
+  exec env skip_update_core=1 nix run path:. -- "${previous_arguments[@]}"
   exit 0
 fi
 
@@ -154,7 +154,7 @@ cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
 if (( ${#nixBuildArgs[@]} != 0 )); then
-  sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
+  sudo --preserve-env=NIX_CONFIG nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
   exit 0
 fi
 
