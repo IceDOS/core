@@ -7,7 +7,7 @@
 }:
 
 let
-  inherit (config.icedos.applications.toolset) commands desktopEntries;
+  inherit (config.icedos.applications.toolset) commands desktopEntries sessionCommands;
 
   inherit (icedosLib.bash) prelude;
 
@@ -116,7 +116,7 @@ in
   icedos.applications.toolset.commands = [
     {
       command = "session";
-      help = "session lifecycle: reboot, logout, poweroff, suspend";
+      help = "session lifecycle commands";
 
       commands = [
         {
@@ -153,7 +153,8 @@ in
           script = "systemctl suspend -i || sudo systemctl suspend -i";
           help = "suspend ignoring inhibitors and users";
         }
-      ];
+      ]
+      ++ sessionCommands;
     }
   ];
 

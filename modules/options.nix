@@ -59,6 +59,7 @@ in
       applications.toolset = {
         commands = mkListOption { default = [ ]; } toolsetCommandType;
         desktopEntries = mkBoolOption { default = false; };
+        sessionCommands = mkListOption { default = [ ]; } toolsetCommandType;
 
         rebuild.hooks = {
           preRebuild = mkLinesListOption { default = [ ]; };
