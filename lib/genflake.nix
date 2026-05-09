@@ -4,7 +4,7 @@ let
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
-  inherit (pkgs) lib writeText;
+  inherit (pkgs) lib;
 
   inherit (lib)
     all
@@ -144,18 +144,19 @@ let
 
   nixosModulesText = modulesFromConfig.nixosModulesText;
 
-  evaluatedConfig =
-    toJSON
-      (evalModules {
-        modules = [
-          { config = { inherit icedos; }; }
-          (import ../modules/options.nix {
-            inherit icedosLib lib;
-            inputs.icedos-config = ICEDOS_CONFIG_ROOT;
-          })
-        ]
-        ++ modulesFromConfig.options;
-      }).config;
+  evaluated =
+    (evalModules {
+      modules = [
+        { config = { inherit icedos; }; }
+        (import ../modules/options.nix {
+          inherit icedosLib lib;
+          inputs.icedos-config = ICEDOS_CONFIG_ROOT;
+        })
+      ]
+      ++ modulesFromConfig.options;
+    }).config;
+
+  evaluatedConfig = toJSON evaluated;
 in
 {
   inherit evaluatedConfig;
@@ -183,12 +184,11 @@ in
 
           pkgs = import nixpkgs {
             inherit system;
-            config = {
-              allowUnfree = true;
-
-              permittedInsecurePackages = [
-                ${concatMapStrings (pkg: ''"${pkg}"'') (icedos.applications.insecurePackages or [ ])}
-              ];
+            config = ${
+              generators.toPretty {
+                multiline = true;
+                allowPrettyValues = true;
+              } (icedosLib.pkgs.mkConfig evaluated.icedos)
             };
           };
 
@@ -295,14 +295,14 @@ in
                 in
                 ''
                   (
-                    { lib, ... }: {
+                    { config, lib, ... }: {
                       # `lib.mkBefore` keeps these overlays at the head of
                       # `nixpkgs.overlays` so they swap the package source
                       # *before* downstream patch overlays (e.g. cosmic
                       # patches) run via `prev.<pkg>.overrideAttrs`. Without
                       # it the swap clobbers patches that already landed on
                       # the base derivation.
-                      nixpkgs.overlays = lib.mkBefore (icedosLib.pkgs.overlaysFromChannel ${target} [ ${pkgList} ]);
+                      nixpkgs.overlays = lib.mkBefore (icedosLib.pkgs.overlaysFromChannel config.icedos ${target} [ ${pkgList} ]);
                     }
                   )
                 ''

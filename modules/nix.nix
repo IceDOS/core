@@ -218,5 +218,5 @@ in
     };
   };
 
-  nixpkgs.config.allowUnfree = true;
+  nixpkgs.config = icedosLib.pkgs.mkConfig config.icedos;
 }

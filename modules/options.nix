@@ -69,6 +69,7 @@ in
       };
 
       system = {
+        allowUnfree = mkBoolOption { default = true; };
         arch = mkStrOption { default = "x86_64-linux"; };
 
         channels = mkSubmoduleListOption { default = [ ]; } {
@@ -77,9 +78,10 @@ in
         }; # e.g. https://github.com/NixOS/nixpkgs/branches/active
 
         forceFirstBuild = mkBoolOption { default = false; };
-        nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
-        isFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
+        isFirstBuild = mkBoolOption { default = false; };
+        nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
+        permittedInsecurePackages = mkStrListOption { default = [ ]; };
 
         # Pull selected packages from another channel/flake into the active pkgs
         # set as an overlay. Each entry must set either `channel` (an existing

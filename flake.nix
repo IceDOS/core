@@ -37,7 +37,7 @@
               (throw "The value of `configRoot` is invalid. Please set `configRoot = self;`.");
 
           _stateDir =
-            if (isString stateDir) then (stateDir) else (throw "The value of `stateDir` should be a string.");
+            if (isString stateDir) then stateDir else (throw "The value of `stateDir` should be a string.");
 
           inherit (fromTOML (readFile "${_configRoot}/config.toml")) icedos;
 

@@ -454,8 +454,21 @@ rec {
       if stylixOn then config.lib.stylix.colors.${stylixSlot} else desktop.accentColor;
   };
 
-  pkgs = {
+  pkgs = rec {
     mapper = pkgs: pkgList: map (pkgName: generateAttrPath pkgs pkgName) pkgList;
+
+    # Single source of truth for the nixpkgs `config` attrset. Every
+    # consumer (genflake codegen, runtime `nixpkgs.config`,
+    # `overlaysFromChannel`) routes through this so the keys we forward
+    # never drift. Hardware-driven keys (`cudaSupport`, `rocmSupport`)
+    # come from per-key writes in hardware modules and merge in via
+    # Nix's attrset-option merging — they intentionally don't live here.
+    mkConfig = icedos: {
+      inherit (icedos.system)
+        allowUnfree
+        permittedInsecurePackages
+        ;
+    };
 
     # Build an overlay that lifts named packages from a channel source into
     # the active pkgs set. The source can be:
@@ -465,15 +478,14 @@ rec {
     #     `[[icedos.system.channels]]` does this automatically);
     #   - a flake-input attrset (e.g. `inputs.nixpkgs-stable`) detected by
     #     the presence of `outPath` — instantiated against the host's
-    #     `system` with only the user-facing config keys (`allowUnfree`,
-    #     `permittedInsecurePackages`) forwarded. The full host
+    #     `system` with `mkConfig icedos` forwarded. The full host
     #     `nixpkgs.config` is NOT propagated: post-overlay it carries
     #     internal nulls (e.g. `replaceStdenv`) that crash a fresh
     #     instantiation. Source overlays are also intentionally NOT
     #     forwarded.
     # Returns a single-item overlay list ready to drop into
     # `nixpkgs.overlays`.
-    overlaysFromChannel = channel: packages: [
+    overlaysFromChannel = icedos: channel: packages: [
       (
         self: super:
         let
@@ -481,10 +493,7 @@ rec {
             if channel ? outPath then
               import channel {
                 inherit (super.stdenv.hostPlatform) system;
-                config = {
-                  allowUnfree = super.config.allowUnfree or false;
-                  permittedInsecurePackages = super.config.permittedInsecurePackages or [ ];
-                };
+                config = mkConfig icedos;
               }
             else
               super.${channel};
