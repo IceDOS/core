@@ -74,7 +74,7 @@
               echo "#!/usr/bin/env bash" >>"$ICEDOS_STATE_DIR/build.sh"
               echo "set -e" >>"$ICEDOS_STATE_DIR/build.sh"
               echo "cd \"$PWD\"" >>"$ICEDOS_STATE_DIR/build.sh"
-              echo "nix run . -- \"\$@\"" >>"$ICEDOS_STATE_DIR/build.sh"
+              echo "nix run path:. -- \"\$@\"" >>"$ICEDOS_STATE_DIR/build.sh"
 
               bash "${self}/build.sh" "$@"
             ''
