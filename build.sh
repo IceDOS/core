@@ -32,6 +32,11 @@ while [[ $# -gt 0 ]]; do
       action="build-vm"
       shift
       ;;
+    --run-vm)
+      action="build-vm"
+      run_vm=1
+      shift
+      ;;
     --export-full-config)
       export_full_config=1
       shift
@@ -82,10 +87,14 @@ done
 
 export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
-mkdir -p "$ICEDOS_DIR"
+if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
+  cd "$ICEDOS_CONFIG_ROOT"
+  nix flake update --refresh
+  exec env skip_update_core=1 nix run path:. -- "${previous_arguments[@]}"
+  exit 0
+fi
 
-export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
-mkdir -p "$ICEDOS_BUILD_DIR"
+mkdir -p "$ICEDOS_DIR"
 
 # Save current directory into a file
 [ -f "$CONFIG" ] && rm -f "$CONFIG" || sudo rm -rf "$CONFIG"
@@ -95,31 +104,26 @@ if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
 fi
 
-if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
-  cd "$ICEDOS_CONFIG_ROOT"
-  nix flake update
-  exec env skip_update_core=1 nix run path:. -- "${previous_arguments[@]}"
-  exit 0
-fi
+export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
+mkdir -p "$ICEDOS_BUILD_DIR"
 
-# Generate flake inputs
-export ICEDOS_FLAKE_INPUTS="$(ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --raw --file "$ICEDOS_ROOT/lib/genflake.nix" flakeInputsNix | nixfmt | sed "1,1d" | sed "\$d")"
-if [[ "${ICEDOS_FLAKE_INPUTS}" == "" ]]; then
-  exit 1
-fi
+# Generate flake
+ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
+nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 
-echo "{ inputs = { $ICEDOS_FLAKE_INPUTS }; outputs = { ... }: { }; }" >"$ICEDOS_STATE_DIR/$FLAKE"
 (
   set -e
   cd "$ICEDOS_STATE_DIR"
-  nix flake prefetch-inputs
+
+  if [ ! -f flake.lock ] || [ -n "$update_core$update_nixpkgs$update_repos" ]; then
+    nix flake prefetch-inputs
+  fi
+
   nix flake update icedos-config 2>/dev/null || true
   nix flake update icedos-state 2>/dev/null || true
-)
 
-# Generate flake
-ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
-nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
+  [ "$update_core" == "1" ] && nix flake update icedos-core --refresh 2>/dev/null || true
+)
 
 if [ "$export_full_config" == "1" ]; then
   (
@@ -140,27 +144,22 @@ fi
   nix flake update nixpkgs
 )
 
-rsync -a "$ICEDOS_CONFIG_ROOT" "$ICEDOS_BUILD_DIR" \
---exclude='.editorconfig' \
---exclude='.git' \
---exclude='.gitignore' \
---exclude='.state/.cache' \
---exclude='.taplo.toml' \
---exclude='LICENSE' \
---exclude='README.md' \
---exclude='flake.lock' \
---exclude='flake.nix'
-
-cp "$ICEDOS_STATE_DIR"/* "$ICEDOS_BUILD_DIR"
-
-echo "Building from path $ICEDOS_BUILD_DIR"
+rsync -a "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
+echo "building from path $ICEDOS_BUILD_DIR..."
 cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
 if [[ (( ${#nixBuildArgs[@]} != 0 )) || "$action" == "build-vm" ]]; then
   [ "$action" == "switch" ] && sudo="sudo --preserve-env=NIX_CONFIG"
 
-  $sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
+  CURRENT_HOSTNAME="$(cat /etc/hostname)"
+
+  $sudo nixos-rebuild $action --flake .#"$CURRENT_HOSTNAME" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
+
+  if [ "$run_vm" == "1" ]; then
+    exec result/bin/run-"$CURRENT_HOSTNAME"-vm
+  fi
+
   exit 0
 fi
 
