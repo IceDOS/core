@@ -30,7 +30,6 @@ let
 
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
-    ICEDOS_FLAKE_INPUTS
     ICEDOS_STATE_DIR
     injectIfExists
     mkInputName
@@ -157,20 +156,18 @@ let
     }).config;
 
   evaluatedConfig = toJSON evaluated;
-in
-{
-  inherit evaluatedConfig;
 
   flakeInputsNix = generators.toPretty {
     multiline = true;
     allowPrettyValues = true;
   } flakeInputs;
+in
+{
+  inherit evaluatedConfig flakeInputsNix;
 
   flakeFinal = ''
     {
-      inputs = {
-        ${ICEDOS_FLAKE_INPUTS}
-      };
+      inputs = ${flakeInputsNix};
 
       outputs =
         {

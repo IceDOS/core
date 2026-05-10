@@ -360,27 +360,106 @@ rec {
           ${concatMapStrings fileLeafComplete fileLeaves}'';
     };
 
-  generateAccentColor =
+  # Authoritative libadwaita named-accent → hex map. Mirrors GNOME 47+
+  # `org/gnome/desktop/interface.accent-color` enum and libadwaita's
+  # `_palette.scss`. Bare hex (no `#`) so callers can pick the form.
+  libadwaitaAccentHex = {
+    blue = "3584e4";
+    green = "3a944a";
+    orange = "ed5b00";
+    pink = "d56199";
+    purple = "9141ac";
+    red = "e62d42";
+    slate = "6f8396";
+    teal = "2190a4";
+    yellow = "c88800";
+  };
+
+  # Single source of truth for `icedos.desktop.accentColor` resolution.
+  # Accepts a libadwaita name, a base16 slot (`base08`..`base0F`, only
+  # meaningful when stylix is on), or a hex (`RRGGBB` / `#RRGGBB`).
+  # Empty → "purple". Returns:
+  #   { hex; hexNoHash; name; slot; warning; gnomeOn; stylixOn; }
+  # `warning` is non-null when GNOME is on but the input is not a libadwaita
+  # named accent — `org/gnome/desktop/interface.accent-color` is a string
+  # enum, so a slot/hex input causes the GNOME shell to render a fallback
+  # name while libadwaita apps render the user's hex.
+  generateAccent =
+    config:
+    let
+      inherit (lib)
+        elem
+        hasAttr
+        removePrefix
+        toLower
+        ;
+
+      desktopCfg = config.icedos.desktop;
+      raw = desktopCfg.accentColor;
+
+      gnomeOn = hasAttr "gnome" desktopCfg;
+      stylixOn = config.stylix.enable or false;
+
+      namedAccents = attrNames libadwaitaAccentHex;
+
+      # base16 slot inverse — only used when input is a slot and we still
+      # need a libadwaita name (e.g. for the GNOME dconf write under stylix).
+      # Mirrors the bundled `adwaita` handler in
+      # desktop/modules/stylix/lib.nix.
+      defaultSlotToName = {
+        base08 = "red";
+        base09 = "orange";
+        base0A = "yellow";
+        base0B = "green";
+        base0C = "teal";
+        base0D = "blue";
+        base0E = "purple";
+        base0F = "slate";
+      };
+
+      isHex = s: builtins.match "#?[0-9a-fA-F]{6}" s != null;
+      isName = s: elem (toLower s) namedAccents;
+      isSlot = s: builtins.match "base0[89A-Fa-f]" s != null;
+
+      input = if raw == "" then "purple" else raw;
+
+      name =
+        if isName input then
+          toLower input
+        else if isSlot input then
+          defaultSlotToName.${input} or "blue"
+        else
+          "blue";
+
+      hexNoHash =
+        if isHex input then
+          removePrefix "#" input
+        else if isSlot input && stylixOn then
+          config.lib.stylix.colors.${input}
+        else
+          libadwaitaAccentHex.${name};
+
+      hex = "#${hexNoHash}";
+
+      slot = if isSlot input then input else null;
+
+      warning =
+        if gnomeOn && !(isName input) then
+          "icedos.desktop.accentColor: GNOME is enabled but `${input}` is not a libadwaita named accent. The GNOME shell will use `${name}`; libadwaita apps and other consumers will use `${hex}`. Set accentColor to one of ${concatStringsSep ", " namedAccents} to keep them in sync."
+        else
+          null;
+    in
     {
-      accentColor,
-      gnomeAccentColor,
-      hasGnome,
-    }:
-    if (!hasGnome) then
-      "#${accentColor}"
-    else
-      {
-        blue = "#3584e4";
-        green = "#3a944a";
-        orange = "#ed5b00";
-        pink = "#d56199";
-        purple = "#9141ac";
-        red = "#e62d42";
-        slate = "#6f8396";
-        teal = "#2190a4";
-        yellow = "#c88800";
-      }
-      .${gnomeAccentColor};
+      inherit
+        hex
+        hexNoHash
+        name
+        slot
+        warning
+        gnomeOn
+        stylixOn
+        ;
+    };
 
   users = {
     getNormal =
@@ -441,18 +520,9 @@ rec {
 
     # Returns the active accent color as a 6-char hex string (no `#`),
     # used by per-WM modules to colour focused-window borders /
-    # active-hint indicators. Prefers the Stylix-resolved colour (so it
-    # tracks the base16 palette), falls back to the icedos-level
-    # `desktop.accentColor`.
-    accentHex =
-      config:
-      let
-        inherit (config.icedos) desktop;
-        stylixCfg = desktop.stylix or { enable = false; };
-        stylixOn = stylixCfg.enable or false;
-        stylixSlot = stylixCfg.accentBase16Slot or "base0E";
-      in
-      if stylixOn then config.lib.stylix.colors.${stylixSlot} else desktop.accentColor;
+    # active-hint indicators. Wraps `generateAccent` so all consumers
+    # share the same name/slot/hex resolution rules.
+    accentHex = config: (generateAccent config).hexNoHash;
   };
 
   pkgs = rec {
