@@ -28,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       action="build"
       shift
       ;;
+    --build-vm)
+      action="build-vm"
+      shift
+      ;;
     --export-full-config)
       export_full_config=1
       shift
@@ -153,8 +157,10 @@ echo "Building from path $ICEDOS_BUILD_DIR"
 cd $ICEDOS_BUILD_DIR
 
 # Build the system configuration
-if (( ${#nixBuildArgs[@]} != 0 )); then
-  sudo --preserve-env=NIX_CONFIG nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
+if [[ (( ${#nixBuildArgs[@]} != 0 )) || "$action" == "build-vm" ]]; then
+  [ "$action" == "switch" ] && sudo="sudo --preserve-env=NIX_CONFIG"
+
+  $sudo nixos-rebuild $action --flake .#"$(cat /etc/hostname)" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
   exit 0
 fi
 

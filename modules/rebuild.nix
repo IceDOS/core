@@ -7,7 +7,12 @@
 }:
 
 let
-  inherit (icedosLib.bash) dimGreenString prelude redString;
+  inherit (icedosLib.bash)
+    dimGreenString
+    prelude
+    purpleString
+    redString
+    ;
 
   inherit (lib)
     concatStringsSep
@@ -143,16 +148,16 @@ in
 
         ${runHooks "postRebuild" postRebuild}
 
-        # Skip reboot check on --boot / --build (no activation happened).
-        ACTION="switch"
+        # Skip reboot check when not switching (no activation happened).
+        SWITCH=1
         for arg in "$@"; do
           case "$arg" in
-            --boot)  ACTION="boot"  ;;
-            --build) ACTION="build" ;;
+            --boot|--build|--build-vm|--run-vm) SWITCH=""
+            break
           esac
         done
 
-        if [ "$ACTION" = "switch" ] \
+        if [ "$SWITCH" != "" ] \
            && [ -d /run/booted-system ] \
            && [ -d /run/current-system ]; then
           REBOOT_REASONS=()
@@ -165,9 +170,9 @@ in
 
           if [ ''${#REBOOT_REASONS[@]} -gt 0 ]; then
             printf -v REASONS_JOINED '%s, ' "''${REBOOT_REASONS[@]}"
-            echo
-            echo -e "${redString "reboot recommended"}: ''${REASONS_JOINED%, } changed"
-            read -r -p "Reboot now? [y/N] " ANSWER
+            echo -e "${purpleString "warning"}: reboot recommended for ''${REASONS_JOINED%, } changes to apply"
+            printf -v PROMPT '%b' "${dimGreenString ">"} Reboot now? [y/N] "
+            read -r -p "$PROMPT" ANSWER
             case "$ANSWER" in
               [yY]|[yY][eE][sS]) sudo systemctl reboot -i ;;
             esac
