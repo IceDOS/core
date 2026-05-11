@@ -13,6 +13,7 @@ let
 
   inherit (icedosLib)
     mkBoolOption
+    mkEitherOption
     mkLinesListOption
     mkLinesOption
     mkListOption
@@ -72,6 +73,25 @@ in
       system = {
         allowUnfree = mkBoolOption { default = true; };
         arch = mkStrOption { default = "x86_64-linux"; };
+
+        buildVm = {
+          memory = mkNumberOption { default = 1024; };
+          cores = mkNumberOption { default = 1; };
+          diskSize = with types; mkEitherOption { default = "auto"; } str number;
+
+          sharedDirectories = mkSubmoduleListOption { default = [ ]; } {
+            source = mkStrOption { };
+            target = mkStrOption { };
+          };
+
+          ssh = {
+            enable = mkBoolOption { default = false; };
+            hostPort = mkNumberOption { default = 2222; };
+            vmPort = mkNumberOption { default = 22; };
+          };
+
+          resolution = mkStrOption { default = "1920x1080"; };
+        };
 
         channels = mkSubmoduleListOption { default = [ ]; } {
           name = mkStrOption { };
