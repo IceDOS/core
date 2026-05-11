@@ -61,20 +61,17 @@ let
       when = e.url == "" && e.channel == "";
       path = "icedos.system.overlays.fromChannel[${toString idx}]";
       msg = "must set either 'channel' (existing [[icedos.system.channels]] name) or 'url' (flake URL)";
-    }
-    && validate.abort {
-      when = e.packages == [ ];
-      path = "icedos.system.overlays.fromChannel[${toString idx}]";
-      msg = "'packages' must be non-empty (an overlay with no packages is a no-op)";
     };
 
   # Force every check; failures already threw. `if-then-raw` keeps the second
   # branch unreachable but ties the validation result to the produced list.
+  # Entries with empty `packages` are silently dropped (no-op overlay).
   overlayChannels =
     let
       normalised = map overlayEntry overlayChannelsRaw;
+      nonEmpty = filter (e: e.packages != [ ]) normalised;
     in
-    if all (x: x) (imap0 overlayCheck normalised) then normalised else normalised;
+    if all (x: x) (imap0 overlayCheck normalised) then nonEmpty else nonEmpty;
 
   isOverlayUrlMode = e: e.channel == "" && e.url != "";
 
