@@ -31,6 +31,7 @@ let
     genList
     hasAttr
     hasAttrByPath
+    hasSuffix
     mapAttrs
     mapAttrsToList
     max
@@ -48,6 +49,23 @@ let
 
 in
 rec {
+  # Lists module entry points under `path`: subdir paths whose dir contains
+  # a `default.nix`, plus flat `.nix` files (excluding `default.nix`
+  # itself). Preserves the input type — Nix-path stays path, string stays
+  # string — so the result drops straight into `imports`.
+  getModules =
+    path:
+    let
+      entries = builtins.readDir path;
+      isDir = _: v: v == "directory";
+      isNixFile = n: v: v == "regular" && hasSuffix ".nix" n && n != "default.nix";
+      dirs = attrNames (filterAttrs isDir entries);
+      files = attrNames (filterAttrs isNixFile entries);
+      dirHasDefault = dir: pathExists (path + "/${dir}/default.nix");
+    in
+    map (dir: path + "/${dir}") (builtins.filter dirHasDefault dirs)
+    ++ map (file: path + "/${file}") files;
+
   # Runtime bash helpers shared between Nix-embedded scripts (via the
   # auto-prepended `prelude` from toolset.nix:41) and standalone .sh files
   # (which `source` core/lib/prelude.sh directly). Both layers see the

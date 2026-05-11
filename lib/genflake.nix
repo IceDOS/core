@@ -190,7 +190,7 @@ in
           };
 
           inherit (pkgs) lib;
-          inherit (lib) fileContents filterAttrs;
+          inherit (lib) fileContents;
 
           inherit (builtins) pathExists;
           inherit ((fromTOML (fileContents "''${inputs.icedos-config}/config.toml"))) icedos;
@@ -201,16 +201,7 @@ in
             self = toString inputs.icedos-core;
           };
 
-          inherit (icedosLib) modulesFromConfig;
-
-          getModules =
-            path:
-            let
-              inherit (lib) attrNames;
-              dirs = attrNames (filterAttrs (n: v: v == "directory") (builtins.readDir path));
-              hasDefaultNix = dir: pathExists "''${path}/''${dir}/default.nix";
-            in
-            map (dir: "/''${path}/''${dir}") (builtins.filter hasDefaultNix dirs);
+          inherit (icedosLib) getModules modulesFromConfig;
         in {
           nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
@@ -243,19 +234,12 @@ in
               }
 
               {
-                imports = [
-                  "''${inputs.icedos-core}/modules/nh.nix"
-                  "''${inputs.icedos-core}/modules/nix.nix"
-                  "''${inputs.icedos-core}/modules/rebuild.nix"
-                  "''${inputs.icedos-core}/modules/state.nix"
-                  "''${inputs.icedos-core}/modules/toolset.nix"
-                  "''${inputs.icedos-core}/modules/users.nix"
-                ];
+                imports = getModules "''${inputs.icedos-core}/modules";
               }
 
-              # Internal modules and config
+              # Extra modules and stateVersion
               {
-                imports = [ "''${inputs.icedos-core}/modules/options.nix" ] ++ (if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else []);
+                imports = if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else [];
                 config.system.stateVersion = "${icedos.system.version}";
               }
 
