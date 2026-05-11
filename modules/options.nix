@@ -82,6 +82,7 @@ in
         generations = mkNumberOption { default = 10; };
         isFirstBuild = mkBoolOption { default = false; };
         nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
+        packages = mkStrListOption { default = [ ]; };
         permittedInsecurePackages = mkStrListOption { default = [ ]; };
 
         # Pull selected packages from another channel/flake into the active pkgs
@@ -111,10 +112,10 @@ in
         defaultPassword = mkStrOption { default = "1"; };
         description = mkStrOption { default = ""; };
         extraGroups = mkStrListOption { default = [ ]; };
-        extraPackages = mkStrListOption { default = [ ]; };
         home = mkStrOption { default = ""; };
         isNormalUser = mkBoolOption { default = true; };
         isSystemUser = mkBoolOption { default = false; };
+        packages = mkStrListOption { default = [ ]; };
         sudo = mkBoolOption { default = true; };
       };
     };

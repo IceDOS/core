@@ -3,10 +3,12 @@
   icedosLib,
   inputs,
   lib,
+  pkgs,
   ...
 }:
 
 let
+  inherit (config.icedos.system) packages;
   inherit (lib) mapAttrs mapAttrsToList;
 
   inherit (icedosLib.bash)
@@ -15,8 +17,12 @@ let
     purpleString
     redString
     ;
+
+  inherit (icedosLib.pkgs) mapper;
 in
 {
+  environment.systemPackages = mapper pkgs packages;
+
   icedos.applications.toolset.commands = [
     {
       command = "pkgs";

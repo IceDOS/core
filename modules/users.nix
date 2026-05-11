@@ -44,7 +44,7 @@ in
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
       password = userAttrs.defaultPassword;
-      packages = icedosLib.pkgs.mapper pkgs users.${user}.extraPackages;
+      packages = icedosLib.pkgs.mapper pkgs users.${user}.packages;
     }
   ) users;
 
