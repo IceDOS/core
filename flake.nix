@@ -16,12 +16,7 @@
           stateDir ? ".state",
         }:
         let
-          inherit (builtins)
-            isString
-            pathExists
-            readFile
-            ;
-
+          inherit (builtins) isString pathExists;
           isFlake = value: (value._type or null) == "flake";
 
           _configRoot =
@@ -39,7 +34,7 @@
           _stateDir =
             if (isString stateDir) then stateDir else (throw "The value of `stateDir` should be a string.");
 
-          inherit (fromTOML (readFile "${_configRoot}/config.toml")) icedos;
+          inherit (import ./lib/load-user-config.nix _configRoot) icedos;
 
           system = icedos.system.arch or "x86_64-linux";
           pkgs = nixpkgs.legacyPackages.${system};

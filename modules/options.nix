@@ -6,10 +6,7 @@
 }:
 
 let
-  inherit (lib)
-    fileContents
-    types
-    ;
+  inherit (lib) types;
 
   inherit (icedosLib)
     mkBoolOption
@@ -141,5 +138,5 @@ in
     };
   };
 
-  config = fromTOML (fileContents "${inputs.icedos-config}/config.toml");
+  config = import ../lib/load-user-config.nix "${inputs.icedos-config}";
 }

@@ -1,6 +1,6 @@
 let
-  inherit (builtins) readFile toJSON;
-  inherit (fromTOML (readFile "${ICEDOS_CONFIG_ROOT}/config.toml")) icedos;
+  inherit (builtins) toJSON;
+  inherit (import ./load-user-config.nix ICEDOS_CONFIG_ROOT) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
@@ -190,7 +190,7 @@ in
           inherit (lib) fileContents;
 
           inherit (builtins) pathExists;
-          inherit ((fromTOML (fileContents "''${inputs.icedos-config}/config.toml"))) icedos;
+          inherit (import "''${inputs.icedos-core}/lib/load-user-config.nix" "''${inputs.icedos-config}") icedos;
 
           icedosLib = import "''${inputs.icedos-core}/lib" {
             inherit lib pkgs inputs;
