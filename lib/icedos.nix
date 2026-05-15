@@ -31,6 +31,7 @@ let
     inputHasPatches
     inputIsOverride
     mkInputName
+    stringStartsWith
     ;
 
   finalIcedosLib = icedosLib // rec {
@@ -123,7 +124,7 @@ let
           flakeRev =
             if (hasAttr "rev" _repoInfo) then
               "/${_repoInfo.rev}"
-            else if (hasAttr "narHash" _repoInfo) then
+            else if (hasAttr "narHash" _repoInfo) && !(stringStartsWith "path:" fetchUrl) then
               "?narHash=${_repoInfo.narHash}"
             else
               "";

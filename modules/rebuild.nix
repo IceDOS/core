@@ -96,7 +96,7 @@ in
         ${optionalString (hasPreUpdate || hasPostUpdate) ''
           # --update-hooks: run pre+post update hooks and exit. Skips
           # preRebuild/postRebuild, build.sh, cache, reboot check. For
-          # refreshing non-nix things (flatpak, millennium themes, ...)
+          # refreshing non-nix things (flatpak, ...)
           # without a full system rebuild. ICEDOS_HOOKS_ONLY tells hooks
           # that no HM activation will follow, so they should fully
           # complete their work standalone.
