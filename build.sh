@@ -87,6 +87,23 @@ done
 
 export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
+# Refresh every `type: "path"` input in config/flake.lock so a local-
+# core override (inputs.icedos.url = "path:...") lands on every plain
+# rebuild without requiring --update-core. github / git inputs stay
+# pinned. Skipped when --update-core is set since the block below
+# does a full --refresh on all inputs anyway.
+if [ "$update_core" != "1" ] \
+   && [ -n "$ICEDOS_CONFIG_ROOT" ] \
+   && [ -f "$ICEDOS_CONFIG_ROOT/flake.lock" ]; then
+  (
+    set -e
+    cd "$ICEDOS_CONFIG_ROOT"
+    for input in $(jq -r '.nodes | to_entries[] | select(.value.locked.type == "path") | .key' flake.lock 2>/dev/null); do
+      nix flake update "$input" 2>/dev/null || true
+    done
+  )
+fi
+
 if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
   cd "$ICEDOS_CONFIG_ROOT"
   nix flake update --refresh
@@ -119,8 +136,14 @@ nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
     nix flake prefetch-inputs
   fi
 
-  nix flake update icedos-config 2>/dev/null || true
-  nix flake update icedos-state 2>/dev/null || true
+  # Refresh every `type: "path"` input on each build so local sibling-
+  # repo edits (e.g. overrideUrl = "path:..." in config.toml) land
+  # without requiring --update-repos. github / git inputs stay pinned
+  # to their lock entries so we don't pay a network roundtrip per
+  # rebuild.
+  for input in $(jq -r '.nodes | to_entries[] | select(.value.locked.type == "path") | .key' flake.lock 2>/dev/null); do
+    nix flake update "$input" 2>/dev/null || true
+  done
 
   [ "$update_core" == "1" ] && nix flake update icedos-core --refresh 2>/dev/null || true
 )
