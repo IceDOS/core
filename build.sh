@@ -42,9 +42,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --update)
+      update_all="1"
       update_core="1"
       update_nixpkgs="1"
       update_repos="1"
+      update_repos_inputs="1"
       shift
       ;;
     --update-core)
@@ -57,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --update-repos)
       update_repos="1"
+      shift
+      ;;
+    --update-repos-inputs)
+      update_repos_inputs="1"
       shift
       ;;
     --ask)
@@ -132,7 +138,7 @@ nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
   set -e
   cd "$ICEDOS_STATE_DIR"
 
-  if [ ! -f flake.lock ] || [ -n "$update_core$update_nixpkgs$update_repos" ]; then
+  if [ ! -f flake.lock ] || [ -n "$update_core$update_nixpkgs$update_repos$update_repos_inputs" ]; then
     nix flake prefetch-inputs
   fi
 
@@ -148,6 +154,28 @@ nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
   [ "$update_core" == "1" ] && nix flake update icedos-core --refresh 2>/dev/null || true
 )
 
+if [ "$update_all" == "1" ]; then
+  (
+    set -e
+    cd "$ICEDOS_STATE_DIR"
+    nix flake update --refresh
+  )
+elif [ "$update_repos_inputs" == "1" ]; then
+  (
+    set -e
+    cd "$ICEDOS_STATE_DIR"
+    for input in $(jq -r '
+      .nodes.root.inputs
+      | to_entries[]
+      | select(.value | type == "string")
+      | .key
+      | select(startswith("icedos-"))
+    ' flake.lock 2>/dev/null); do
+      nix flake update "$input" --refresh 2>/dev/null || true
+    done
+  )
+fi
+
 if [ "$export_full_config" == "1" ]; then
   (
     cd "$ICEDOS_STATE_DIR"
@@ -161,7 +189,7 @@ if [ "$export_full_config" == "1" ]; then
   exit 0
 fi
 
-[ "$update_nixpkgs" == "1" ] && (
+[ "$update_nixpkgs" == "1" ] && [ "$update_all" != "1" ] && (
   set -e
   cd "$ICEDOS_STATE_DIR"
   nix flake update nixpkgs

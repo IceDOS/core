@@ -50,12 +50,9 @@ Default behavior (no action flag) is equivalent to `switch`.
 
 | Command | Description |
 | --- | --- |
-| `icedos` | View all available tools in the **IceDOS** suite. |
+| `icedos` | List top-level commands in the **IceDOS** suite. |
+| `icedos --tree` | Recursively list every command and subcommand in the suite. |
 | `icedos rebuild` | Apply configuration changes to the system. |
-| `icedos update` | Update all flake inputs (system update). Alias for `icedos rebuild --update`. |
-
-> **ℹ️ NOTE**
-> `icedos update` is an alias for `icedos rebuild --update`. All flags documented below work with both commands (e.g. `icedos update --boot`, `icedos update --logs`).
 
 ### Action flags
 
@@ -65,6 +62,8 @@ These choose the rebuild action mode:
 | --- | --- | --- |
 | `--boot` | Uses `boot` action. New generation is prepared for next reboot. | Safer rollout when you don't want to activate immediately. |
 | `--build` | Uses `build` action. Builds but does not activate. | CI checks or validation before switching. |
+| `--build-vm` | Uses `build-vm` action. Builds a bootable QEMU VM image (`result/bin/run-<hostname>-vm`). | Sanity-check the config in a VM without touching the host. |
+| `--run-vm` | Same as `--build-vm`, then `exec`s the generated VM script. | Quick interactive VM test. |
 | `none` | Uses `switch` action. Builds and activates now. | Day-to-day system changes. |
 
 ### Update flags
@@ -73,11 +72,12 @@ These control what gets updated before the build:
 
 | Flag | Effect | Typical use |
 | --- | --- | --- |
-| `--update` | Enables all update paths: core, repositories, nix. | Full update workflow. |
-| `--update-core` | Runs `nix flake update` in the config root, then re-runs the command once. | Updates **IceDOS** core libraries/modules. |
+| `--update` | Enables every update path: core, nixpkgs, module repos, and module-declared transitive inputs. Runs a single `nix flake update --refresh` on the state lock for a blanket bump. | Full update workflow. |
+| `--update-core` | Runs `nix flake update --refresh` in the config root, then re-runs the command once. | Update **IceDOS** core libraries/modules. |
 | `--update-hooks` | Runs only the registered `preUpdate`/`postUpdate` hooks and exits. No nix build, no activation. Sets `ICEDOS_HOOKS_ONLY=1` so hooks know HM activation will not follow. | Refresh non-nix runtime resources (e.g. `flatpak update`, millennium themes/plugins) without a system rebuild. |
-| `--update-nixpkgs` | Runs `nix flake update nixpkgs` in the state directory. | Updates nixpkgs channel. |
-| `--update-repos` | Enables refresh behavior for **IceDOS** repositories input generation (`--refresh` + `ICEDOS_UPDATE=1`). | Updates **IceDOS** repositories and their modules. |
+| `--update-nixpkgs` | Runs `nix flake update nixpkgs` in the state directory. | Update nixpkgs channel only. |
+| `--update-repos` | Refreshes the direct **IceDOS** module-repo URLs during flake generation (`--refresh` + `ICEDOS_UPDATE=1`). Does **not** re-lock inputs declared inside module flakes — use `--update-repos-inputs` (or `--update`) for that. | Pull new revs of `icedos/hardware`, `icedos/apps`, etc. |
+| `--update-repos-inputs` | Re-locks every `icedos-*` transitive input in the state lock (e.g. `icedos-github_icedos_hardware-cachyos-kernel-nix-cachyos-kernel`). Inputs declared inside module `icedos.nix` files are copied verbatim into the generated state flake and never carry a rev pin, so this is the only path that bumps them. | Bump all module inputs without bumping nixpkgs/home-manager. |
 
 ### Behavior flags
 
@@ -116,7 +116,11 @@ icedos rebuild --build
 icedos rebuild --boot --logs
 
 # Full update + apply
-icedos update
+icedos rebuild --update
+
+# Update module-declared inputs (e.g. nix-cachyos-kernel) without
+# touching nixpkgs or home-manager
+icedos rebuild --update-repos-inputs
 
 # Refresh non-nix runtime resources only (no nix build)
 icedos rebuild --update-hooks
