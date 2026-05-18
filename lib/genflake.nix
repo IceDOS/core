@@ -11,14 +11,17 @@ let
     boolToString
     concatMapStrings
     concatStringsSep
+    elem
     evalModules
     fileContents
     filter
     generators
+    hasPrefix
     imap0
     listToAttrs
     optional
     pathExists
+    removePrefix
     ;
 
   icedosLib = import ../lib {
@@ -36,6 +39,25 @@ let
     modulesFromConfig
     validate
     ;
+
+  configRootKeep = [
+    "flake.nix"
+    "flake.lock"
+    "config.toml"
+    ".private.toml"
+  ];
+
+  filteredConfigRoot = builtins.path {
+    name = "icedos-config";
+    path = /. + ICEDOS_CONFIG_ROOT;
+
+    filter =
+      path: _:
+      let
+        relativePath = removePrefix "${ICEDOS_CONFIG_ROOT}/" path;
+      in
+      (elem relativePath configRootKeep) || (relativePath == "extra-modules") || (hasPrefix "extra-modules/" relativePath);
+  };
 
   channels = icedos.system.channels or [ ];
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
@@ -119,7 +141,7 @@ let
       {
         name = "icedos-config";
         value = {
-          url = "path:${ICEDOS_CONFIG_ROOT}";
+          url = "path:${filteredConfigRoot}";
         };
       }
       {

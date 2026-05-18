@@ -195,7 +195,7 @@ fi
   nix flake update nixpkgs
 )
 
-rsync -a "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
+rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
 echo "building from path $ICEDOS_BUILD_DIR..."
 cd $ICEDOS_BUILD_DIR
 
