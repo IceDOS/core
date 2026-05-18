@@ -56,7 +56,9 @@ let
       let
         relativePath = removePrefix "${ICEDOS_CONFIG_ROOT}/" path;
       in
-      (elem relativePath configRootKeep) || (relativePath == "extra-modules") || (hasPrefix "extra-modules/" relativePath);
+      (elem relativePath configRootKeep)
+      || (relativePath == "extra-modules")
+      || (hasPrefix "extra-modules/" relativePath);
   };
 
   channels = icedos.system.channels or [ ];
@@ -209,8 +211,6 @@ in
           };
 
           inherit (pkgs) lib;
-          inherit (lib) fileContents;
-
           inherit (builtins) pathExists;
           inherit (import "''${inputs.icedos-core}/lib/load-user-config.nix" "''${inputs.icedos-config}") icedos;
 

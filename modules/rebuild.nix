@@ -174,7 +174,7 @@ in
             printf -v PROMPT '%b' "${dimGreenString ">"} Reboot now? [y/N] "
             read -r -p "$PROMPT" ANSWER
             case "$ANSWER" in
-              [yY]|[yY][eE][sS]) sudo systemctl reboot -i ;;
+              [yY]|[yY][eE][sS]) systemctl reboot -i || sudo systemctl reboot -i ;;
             esac
           fi
         fi
