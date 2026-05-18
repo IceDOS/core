@@ -241,12 +241,6 @@ in
                 }
               )
 
-              # Symlink configuration state on "/run/current-system/source"
-              {
-                # Source: https://github.com/NixOS/nixpkgs/blob/5e4fbfb6b3de1aa2872b76d49fafc942626e2add/nixos/modules/system/activation/top-level.nix#L191
-                system.systemBuilderCommands = "ln -s ''${self} $out/source";
-              }
-
               # Remove nixos manual package
               {
                 documentation.nixos.enable = false;
