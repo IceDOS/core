@@ -73,6 +73,11 @@ while [[ $# -gt 0 ]]; do
       nhBuildArgs+=("$2")
       shift 2
       ;;
+    --target)
+      nhBuildArgs+=("--target-host")
+      nhBuildArgs+=("$2")
+      shift 2
+      ;;
     --build-args)
       shift
       globalBuildArgs=("$@")
@@ -198,7 +203,7 @@ rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
 echo "building from path $ICEDOS_BUILD_DIR..."
 cd $ICEDOS_BUILD_DIR
 
-nh os $action --no-update-lock-file . "${nhBuildArgs[@]}" -- $trace "${globalBuildArgs[@]}"
+nh os $action --no-update-lock-file . "${nhBuildArgs[@]}" --hostname "$(cat /etc/hostname)" -- $trace "${globalBuildArgs[@]}"
 
 if [[ "$action" == "build-vm" ]]; then
   echo "VM configuration stored in $PWD/result"
