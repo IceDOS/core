@@ -11,7 +11,6 @@ cd "$(dirname "$(readlink -f "$0")")"
 action="switch"
 globalBuildArgs=()
 nhBuildArgs=()
-nixBuildArgs=()
 
 set -e
 set -o pipefail
@@ -70,8 +69,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --builder)
-      nixBuildArgs+=("--build-host")
-      nixBuildArgs+=("$2")
+      nhBuildArgs+=("--build-host")
+      nhBuildArgs+=("$2")
       shift 2
       ;;
     --build-args)
@@ -199,19 +198,12 @@ rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
 echo "building from path $ICEDOS_BUILD_DIR..."
 cd $ICEDOS_BUILD_DIR
 
-# Build the system configuration
-if [[ (( ${#nixBuildArgs[@]} != 0 )) || "$action" == "build-vm" ]]; then
-  [ "$action" == "switch" ] && sudo="sudo --preserve-env=NIX_CONFIG"
+nh os $action --no-update-lock-file . "${nhBuildArgs[@]}" -- $trace "${globalBuildArgs[@]}"
 
-  CURRENT_HOSTNAME="$(cat /etc/hostname)"
-
-  $sudo nixos-rebuild $action --flake .#"$CURRENT_HOSTNAME" --no-update-lock-file $trace "${nixBuildArgs[@]}" "${globalBuildArgs[@]}"
-
-  if [ "$run_vm" == "1" ]; then
-    exec result/bin/run-"$CURRENT_HOSTNAME"-vm
-  fi
-
-  exit 0
+if [[ "$action" == "build-vm" ]]; then
+  echo "VM configuration stored in $PWD/result"
 fi
 
-nh os $action --no-update-lock-file . "${nhBuildArgs[@]}" -- $trace "${globalBuildArgs[@]}"
+if [ "$run_vm" == "1" ]; then
+  exec "result/bin/run-$(cat /etc/hostname)-vm"
+fi
