@@ -48,6 +48,9 @@ in
     }
   ) users;
 
+  # Rename pre-existing plain files to `<path>.hm-bak` instead of aborting activation.
+  home-manager.backupFileExtension = "hm-bak";
+
   home-manager.users = mapAttrs (_: _: {
     home.stateVersion = system.version;
     systemd.user.startServices = "sd-switch"; # Auto-restart user services whose unit files changed
