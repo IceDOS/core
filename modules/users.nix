@@ -51,10 +51,25 @@ in
   # Rename pre-existing plain files to `<path>.hm-bak` instead of aborting activation.
   home-manager.backupFileExtension = "hm-bak";
 
-  home-manager.users = mapAttrs (_: _: {
-    home.stateVersion = system.version;
-    systemd.user.startServices = "sd-switch"; # Auto-restart user services whose unit files changed
-  }) users;
+  home-manager.users = mapAttrs (
+    _: _:
+    { lib, ... }:
+    {
+      home.stateVersion = system.version;
+      systemd.user.startServices = "sd-switch"; # Auto-restart user services whose unit files changed
+
+      # `backupFileExtension = "hm-bak"` (above) makes HM rename conflicting
+      # plain files to `<path>.hm-bak`. With a fixed extension, a second
+      # rebuild that produces a *new* conflict on the same path aborts at
+      # the rename step with "file exists" because the prior `.hm-bak` is
+      # still there. Sweep stale backups *before* the writeBoundary phase
+      # (where HM performs the rename) so each activation finds an empty
+      # backup namespace.
+      home.activation.cleanHmBackups = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+        run ${pkgs.findutils}/bin/find "$HOME" -maxdepth 8 -name '*.hm-bak' -type f -delete || true
+      '';
+    }
+  ) users;
 
   # Pre-create per-user dirs that home-manager-<user>.service expects on first
   # boot. nix-daemon creates `/nix/var/nix/profiles/per-user/<user>` lazily on
