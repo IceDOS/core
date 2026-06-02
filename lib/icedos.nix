@@ -22,6 +22,7 @@ let
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STAGE
+    abortIf
     _getModuleKey
     _parseFlakeUrl
     _resolveFlakeRevision
@@ -35,6 +36,16 @@ let
     ;
 
   finalIcedosLib = icedosLib // rec {
+    # Map of repository baseUrl -> its config.toml `fetchOptionalDependencies`
+    # flag, so a repo's setting applies to all of its modules, including ones
+    # pulled in transitively as dependencies.
+    repoFetchOptional = builtins.listToAttrs (
+      map (r: {
+        name = (_parseFlakeUrl r.url).baseUrl;
+        value = r.fetchOptionalDependencies or false;
+      }) config.repositories
+    );
+
     # Fetch a modules repository, resolving the URL and loading its icedos modules
     # Handles overrides, flake resolution, and module file loading
     fetchModulesRepository =
@@ -408,8 +419,12 @@ let
       }:
       let
         inherit (mod) meta;
-        baseDeps = meta.dependencies or [ ];
-        optionalDeps = if fetchOptionalDependencies then (meta.optionalDependencies or [ ]) else [ ];
+
+        # Tag each dep group so it can later be labelled required vs optional
+        tag = isOptional: map (d: d // { _optional = isOptional; });
+        baseDeps = tag false (meta.dependencies or [ ]);
+        optionalDeps =
+          if fetchOptionalDependencies then tag true (meta.optionalDependencies or [ ]) else [ ];
       in
       baseDeps ++ optionalDeps;
 
@@ -419,17 +434,22 @@ let
         deps,
         sourceUrl,
         allKnownKeys,
+        requestedBy,
       }:
       map (
         {
           url ? sourceUrl,
           modules ? [ ],
+          _optional ? false,
         }:
         let
           realUrl = if (url == "self") then sourceUrl else url;
         in
         {
           url = realUrl;
+          _requestedBy = requestedBy // {
+            optional = _optional;
+          };
           modules = filter (mod: !elem (_getModuleKey realUrl mod) allKnownKeys) modules;
         }
       ) deps;
@@ -457,54 +477,93 @@ let
           inherit newDeps loadOverrides existingOverrides;
         };
 
-        # Process each dependency and accumulate results
-        result = foldl' (
-          acc: newDep:
-          let
-            # Determine which modules are not yet loaded
-            missingModules = filter (mod: !_isModuleLoaded existingDeps newDep.url mod) (newDep.modules or [ ]);
+        # Process each dependency and accumulate modules + missing-reference diagnostics
+        result =
+          foldl'
+            (
+              acc: newDep:
+              let
+                # Determine which modules are not yet loaded
+                missingModules = filter (mod: !_isModuleLoaded existingDeps newDep.url mod) (newDep.modules or [ ]);
 
-            # Fetch repository if new modules are needed or default isn't loaded
-            newRepo = optional (
-              ((length missingModules) > 0) || !_isModuleLoaded existingDeps newDep.url "default"
-            ) (fetchModulesRepository (newDep // { inherit overrides; }));
+                # Fetch repository if new modules are needed or default isn't loaded
+                newRepo = optional (
+                  ((length missingModules) > 0) || !_isModuleLoaded existingDeps newDep.url "default"
+                ) (fetchModulesRepository (newDep // { inherit overrides; }));
 
-            # Load and filter modules from the repository
-            newModules = _filterNewModules {
-              inherit existingDeps;
+                # All modules present in the fetched repository (includes synthesized "default")
+                repoModules = flatMap _loadModulesFromRepo newRepo;
+                availableNames = map (mod: mod.meta.name) repoModules;
 
-              modules = flatMap _loadModulesFromRepo newRepo;
-              requestedNames = newDep.modules or [ ];
-            };
+                # Requested-but-not-loaded names that don't exist in the repo are missing references.
+                # `origin` is structured so the error can be grouped into views downstream.
+                missingHere = map (name: {
+                  inherit name;
+                  url = newDep.url;
+                  override = overrides.${newDep.url} or null;
+                  origin = newDep._requestedBy or { kind = "config"; };
+                }) (filter (name: !elem name availableNames) missingModules);
 
-            # Build set of all known module keys (existing + new)
-            newModulesKeys = map (mod: _getModuleKey mod._repoInfo.url mod.meta.name) newModules;
-            allKnownKeys = unique (existingDeps ++ newModulesKeys);
+                # Filter loaded modules to only the requested, not-yet-loaded ones
+                newModules = _filterNewModules {
+                  inherit existingDeps;
 
-            # Extract and resolve nested dependencies from new modules
-            innerDeps = flatMap (
-              mod:
-              _resolveDependencyEntries {
-                deps = _getModuleDependencies {
-                  inherit mod;
-                  fetchOptionalDependencies = newDep.fetchOptionalDependencies or false;
+                  modules = repoModules;
+                  requestedNames = newDep.modules or [ ];
                 };
-                sourceUrl = newDep.url;
-                inherit allKnownKeys;
-              }
-            ) newModules;
 
-            # Recursively resolve inner dependencies if any
-            resolvedInnerDeps = optional ((length innerDeps) > 0) (resolveExternalDependencyRecursively {
-              newDeps = innerDeps;
-              existingDeps = allKnownKeys;
-              existingOverrides = overrides;
-            });
-          in
-          flatten (acc ++ newModules ++ resolvedInnerDeps)
-        ) [ ] newDeps;
+                # Build set of all known module keys (existing + new)
+                newModulesKeys = map (mod: _getModuleKey mod._repoInfo.url mod.meta.name) newModules;
+                allKnownKeys = unique (existingDeps ++ newModulesKeys);
+
+                # Extract and resolve nested dependencies from new modules
+                innerDeps = flatMap (
+                  mod:
+                  _resolveDependencyEntries {
+                    deps = _getModuleDependencies {
+                      inherit mod;
+                      fetchOptionalDependencies = repoFetchOptional.${mod._repoInfo.url} or false;
+                    };
+                    sourceUrl = newDep.url;
+                    requestedBy = {
+                      kind = "module";
+                      module = mod.meta.name;
+                      repo = mod._repoInfo.url;
+                      repoOverride = overrides.${mod._repoInfo.url} or null;
+                    };
+                    inherit allKnownKeys;
+                  }
+                ) newModules;
+
+                # Recursively resolve inner dependencies if any
+                resolved =
+                  if (length innerDeps) > 0 then
+                    resolveExternalDependencyRecursively {
+                      newDeps = innerDeps;
+                      existingDeps = allKnownKeys;
+                      existingOverrides = overrides;
+                    }
+                  else
+                    {
+                      modules = [ ];
+                      missing = [ ];
+                    };
+              in
+              {
+                modules = acc.modules ++ newModules ++ resolved.modules;
+                missing = acc.missing ++ missingHere ++ resolved.missing;
+              }
+            )
+            {
+              modules = [ ];
+              missing = [ ];
+            }
+            newDeps;
       in
-      result;
+      {
+        modules = flatten result.modules;
+        missing = result.missing;
+      };
 
     # Import an extra module file and attach repository info
     # Extra modules are stored locally in the config directory
@@ -580,17 +639,87 @@ let
         inherit (builtins)
           attrValues
           listToAttrs
+          seq
           ;
 
-        inherit (lib) flatten;
+        inherit (lib)
+          concatStringsSep
+          flatten
+          optional
+          unique
+          ;
+
+        # Format every missing reference into one error, split into views by
+        # origin so each is actionable on its own:
+        #   - config.toml view: names from a repository's `modules` list —
+        #     the user fixes/removes them.
+        #   - module-dependency view: names a module declares as a (optional)
+        #     dependency — reported upstream.
+        mkMissingModulesError =
+          missing:
+          let
+            # Note the active overrideUrl so the user sees which path was
+            # actually searched (config.toml `overrideUrl`, for local testing).
+            overrideNote = override: if override != null then " (override: ${override})" else "";
+
+            configMissing = filter (m: m.origin.kind == "config") missing;
+            moduleMissing = filter (m: m.origin.kind == "module") missing;
+
+            # config.toml view, one "<repo> -> module "<name>"" line per missing name
+            configView =
+              let
+                configLine = m: "  ${m.url}${overrideNote m.override} -> module \"${m.name}\"";
+              in
+              concatStringsSep "\n" (
+                [
+                  "config.toml — remove or fix these in your repository `modules` lists:"
+                  ""
+                ]
+                ++ map configLine configMissing
+              );
+
+            # module-dependency view, one line per missing dependency:
+            #   "<repo> -> module "<declaring>" -> [optional ]dependency "<name>""
+            # The declaring repo's override is shown; a dependency resolving to a
+            # different repo also notes that repo (and its override).
+            moduleView =
+              let
+                depKind = origin: if origin.optional then "optional dependency" else "dependency";
+                moduleLine =
+                  m:
+                  let
+                    inherit (m) origin;
+                  in
+                  "  ${origin.repo}${overrideNote origin.repoOverride} -> module \"${origin.module}\" -> ${depKind origin} \"${m.name}\""
+                  + (if m.url != origin.repo then " (expected in ${m.url}${overrideNote m.override})" else "");
+              in
+              concatStringsSep "\n" (
+                [
+                  "module dependencies — declared by a module, report upstream:"
+                  ""
+                ]
+                ++ map moduleLine moduleMissing
+              );
+
+            views = optional (configMissing != [ ]) configView ++ optional (moduleMissing != [ ]) moduleView;
+          in
+          ''
+            referenced icedos modules do not exist
+
+            ${concatStringsSep "\n\n" views}'';
 
         # Resolve external dependencies from config repositories
-        externalModules = (
-          resolveExternalDependencyRecursively {
-            newDeps = config.repositories;
-            loadOverrides = true;
-          }
-        );
+        externalResult = resolveExternalDependencyRecursively {
+          newDeps = config.repositories;
+          loadOverrides = true;
+        };
+
+        # Fail fast, listing every missing reference at once
+        missingModules = unique externalResult.missing;
+
+        externalModules = seq (abortIf (missingModules != [ ]) (
+          mkMissingModulesError missingModules
+        )) externalResult.modules;
 
         # Deduplicate modules by (url, name) pair
         deduped = attrValues (
