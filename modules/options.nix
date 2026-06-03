@@ -123,6 +123,21 @@ in
         overrideUrl = mkStrOption { default = ""; };
         fetchOptionalDependencies = mkBoolOption { default = false; };
         modules = mkStrListOption { default = [ ]; };
+        # Patch files applied to the whole repo source on top of its pinned rev.
+        # Paths are config-root-relative (they must live inside the config repo
+        # so they reach the store). The repo analog of a module input's
+        # `patches` (see `_getModuleInputs`).
+        patches = mkStrListOption { default = [ ]; };
+
+        # Consumer-declared input patches: patch a specific module's specific
+        # flake input from config, without forking the module (the consumer
+        # analog of a module author's `inputs.<input>.patches`). `patches` are
+        # config-root-relative files; they apply after any author patches.
+        inputPatches = mkSubmoduleListOption { default = [ ]; } {
+          module = mkStrOption { };
+          input = mkStrOption { };
+          patches = mkStrListOption { default = [ ]; };
+        };
       };
 
       users = mkSubmoduleAttrsOption { } {
