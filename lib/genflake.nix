@@ -8,6 +8,7 @@ let
 
   inherit (lib)
     all
+    any
     boolToString
     concatMapStrings
     concatStringsSep
@@ -15,6 +16,7 @@ let
     evalModules
     fileContents
     filter
+    flatten
     generators
     hasPrefix
     imap0
@@ -47,6 +49,17 @@ let
     ".private.toml"
   ];
 
+  # Patch files declared by `[[icedos.repositories]]` `patches`. They must
+  # survive into the filtered config flake so the build stage can read them
+  # from `inputs.icedos-config`: build-stage eval is pure and cannot reach the
+  # host config root the way the impure genflake eval can.
+  repoPatchKeep = flatten (
+    map (r: (r.patches or [ ]) ++ map (ip: ip.patches or [ ]) (r.inputPatches or [ ])) (
+      icedos.repositories or [ ]
+    )
+  );
+  keepPatch = rel: any (pp: pp == rel || hasPrefix "${rel}/" pp) repoPatchKeep;
+
   filteredConfigRoot = builtins.path {
     name = "icedos-config";
     path = /. + ICEDOS_CONFIG_ROOT;
@@ -58,7 +71,8 @@ let
       in
       (elem relativePath configRootKeep)
       || (relativePath == "extra-modules")
-      || (hasPrefix "extra-modules/" relativePath);
+      || (hasPrefix "extra-modules/" relativePath)
+      || (keepPatch relativePath);
   };
 
   channels = icedos.system.channels or [ ];
