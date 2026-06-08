@@ -669,7 +669,8 @@ rec {
       in
       optional (present "cosmic") "cosmic-session.target"
       ++ optional (present "gnome") "gnome-session.target"
-      ++ optional (present "hyprland") "hyprland-session.target";
+      ++ optional (present "hyprland") "hyprland-session.target"
+      ++ optional (present "kde") "plasma-workspace-wayland.target";
   };
 
   injectIfExists =
