@@ -78,6 +78,13 @@ while [[ $# -gt 0 ]]; do
       nhBuildArgs+=("$2")
       shift 2
       ;;
+    --nh-args)
+      shift
+      while [[ $# -gt 0 && "$1" != "--build-args" ]]; do
+        nhBuildArgs+=("$1")
+        shift
+      done
+      ;;
     --build-args)
       shift
       globalBuildArgs=("$@")

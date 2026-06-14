@@ -87,11 +87,14 @@ These control what gets updated before the build:
 | `--ask` | Adds `-a` to the `nh os` flow (interactive confirmation). | Manual confirmation before applying in the `nh` path. |
 | `--builder <host>` | Uses `sudo nixos-rebuild ... --build-host <host>` instead of `nh`. | Remote/distributed build host workflow. |
 | `--logs` | Enables `ICEDOS_LOGGING=1` and passes `--show-trace` to evaluation/build commands. | Debugging eval/build failures with full traces. |
+| `--nh-args ...` | Forwards arguments to the `nh os` command itself (before the `--` separator). Consumes args up to `--build-args` or end of line. | Passing extra `nh` flags not covered by dedicated flags (e.g. `--no-nom`). |
 | `--build-args ...` | Forwards all remaining arguments to the final rebuild command. Must be last. | Passing extra `nixos-rebuild`/`nh` args (e.g. `-j`, `--keep-going`). |
 
 ### Important warnings
 
 - **`--build-args` consumes the rest of the command line** — anything after it is forwarded as raw rebuild args and is not parsed as flags. Always put it last.
+
+- **`--nh-args` consumes args until `--build-args` or end of line** — everything after it is forwarded to `nh os` and is not parsed as IceDOS flags, so place it after all other IceDOS flags. To pass both nh args and rebuild args, combine as `--nh-args ... --build-args ...`.
 
 - **`--builder` switches the execution path** — with `--builder`, the script uses `sudo nixos-rebuild` directly; without it, it uses `nh`.
 
@@ -130,6 +133,12 @@ icedos rebuild --builder example@192.168.1.2
 
 # Pass-through rebuild arguments
 icedos rebuild --logs --build-args -j 8
+
+# Pass extra args to nh os itself (before the -- separator)
+icedos rebuild --nh-args --no-nom
+
+# Combine nh args and rebuild args
+icedos rebuild --nh-args --no-nom --build-args -j 8
 ```
 
 ## 🤝 Contributing
