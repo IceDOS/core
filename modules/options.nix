@@ -121,6 +121,7 @@ in
       repositories = mkSubmoduleListOption { default = [ ]; } {
         url = mkStrOption { };
         overrideUrl = mkStrOption { default = ""; };
+        fetchDependencies = mkBoolOption { default = true; };
         fetchOptionalDependencies = mkBoolOption { default = false; };
         modules = mkStrListOption { default = [ ]; };
       };

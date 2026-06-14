@@ -46,6 +46,16 @@ let
       }) config.repositories
     );
 
+    # Map of repository baseUrl -> its config.toml `fetchDependencies` flag.
+    # When false, that repo's modules pull NO declared dependencies at all
+    # (required or optional); the listed modules themselves still load.
+    repoFetchDeps = builtins.listToAttrs (
+      map (r: {
+        name = (_parseFlakeUrl r.url).baseUrl;
+        value = r.fetchDependencies or true;
+      }) config.repositories
+    );
+
     # Fetch a modules repository, resolving the URL and loading its icedos modules
     # Handles overrides, flake resolution, and module file loading
     fetchModulesRepository =
@@ -415,18 +425,22 @@ let
     _getModuleDependencies =
       {
         mod,
+        fetchDependencies,
         fetchOptionalDependencies,
       }:
-      let
-        inherit (mod) meta;
+      if !fetchDependencies then
+        [ ]
+      else
+        let
+          inherit (mod) meta;
 
-        # Tag each dep group so it can later be labelled required vs optional
-        tag = isOptional: map (d: d // { _optional = isOptional; });
-        baseDeps = tag false (meta.dependencies or [ ]);
-        optionalDeps =
-          if fetchOptionalDependencies then tag true (meta.optionalDependencies or [ ]) else [ ];
-      in
-      baseDeps ++ optionalDeps;
+          # Tag each dep group so it can later be labelled required vs optional
+          tag = isOptional: map (d: d // { _optional = isOptional; });
+          baseDeps = tag false (meta.dependencies or [ ]);
+          optionalDeps =
+            if fetchOptionalDependencies then tag true (meta.optionalDependencies or [ ]) else [ ];
+        in
+        baseDeps ++ optionalDeps;
 
     # Convert dependency metadata to resolved dependency entries (filtering already-loaded modules)
     _resolveDependencyEntries =
@@ -522,8 +536,10 @@ let
                   _resolveDependencyEntries {
                     deps = _getModuleDependencies {
                       inherit mod;
+                      fetchDependencies = repoFetchDeps.${mod._repoInfo.url} or true;
                       fetchOptionalDependencies = repoFetchOptional.${mod._repoInfo.url} or false;
                     };
+
                     sourceUrl = newDep.url;
                     requestedBy = {
                       kind = "module";
