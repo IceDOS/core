@@ -1,5 +1,10 @@
 {
   inputs = {
+    cache-server = {
+      flake = false;
+      url = "github:icedos/cache-server";
+    };
+
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 

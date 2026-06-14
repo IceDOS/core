@@ -6,7 +6,7 @@
 }:
 
 let
-  inherit (lib) types;
+  inherit (lib) readFile types;
 
   inherit (icedosLib)
     mkBoolOption
@@ -88,6 +88,12 @@ in
           };
 
           resolution = mkStrOption { default = "1920x1080"; };
+        };
+
+        cache = {
+          enable = mkBoolOption { default = true; };
+          key = mkStrOption { default = readFile "${inputs.icedos-core.inputs.cache-server}/nix-public.pem"; };
+          url = mkStrOption { default = "https://icedos.mirrors.knp.one"; };
         };
 
         channels = mkSubmoduleListOption { default = [ ]; } {
