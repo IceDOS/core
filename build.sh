@@ -40,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       export_full_config=1
       shift
       ;;
+    --genflake-only)
+      genflake_only=1
+      shift
+      ;;
     --update)
       update_all="1"
       update_core="1"
@@ -185,6 +189,13 @@ elif [ "$update_repos_inputs" == "1" ]; then
       nix flake update "$input" --refresh 2>/dev/null || true
     done
   )
+fi
+
+# Stop after the flake (and its lock) have been generated, without
+# building anything. Lets callers evaluate the generated flake (e.g. to
+# query per-package output paths) without realising the system closure.
+if [ "$genflake_only" == "1" ]; then
+  exit 0
 fi
 
 if [ "$export_full_config" == "1" ]; then
