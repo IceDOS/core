@@ -156,6 +156,13 @@ in
       ]
       ++ sessionCommands;
     }
+    {
+      command = "nixf";
+      script = ''find "''${1:-.}" -type f -name "*.nix" -exec "${pkgs.nixfmt}/bin/nixfmt" {} \;'';
+      help = "format all nix files of current or provided directory";
+
+      completion.files = true;
+    }
   ];
 
   home-manager.sharedModules = optional desktopEntries {
