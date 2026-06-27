@@ -150,5 +150,5 @@ in
     };
   };
 
-  config = import ../lib/load-user-config.nix "${inputs.icedos-config}";
+  config.icedos = (import ../lib/load-user-config.nix "${inputs.icedos-config}").icedos;
 }

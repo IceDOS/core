@@ -212,7 +212,8 @@ in
 
           inherit (pkgs) lib;
           inherit (builtins) pathExists;
-          inherit (import "''${inputs.icedos-core}/lib/load-user-config.nix" "''${inputs.icedos-config}") icedos;
+          userConfig = import "''${inputs.icedos-core}/lib/load-user-config.nix" "''${inputs.icedos-config}";
+          inherit (userConfig) icedos;
 
           icedosLib = import "''${inputs.icedos-core}/lib" {
             inherit lib pkgs inputs;
@@ -254,6 +255,16 @@ in
               {
                 imports = if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else [];
                 config.system.stateVersion = "${icedos.system.version}";
+              }
+
+              # Raw NixOS config passthrough: every top-level table in
+              # config.toml / .private.toml *except* [icedos.*] is applied verbatim
+              # as NixOS config. nixpkgs' module system types & validates each option —
+              # IceDOS declares no schema. (home-manager is reachable the usual way,
+              # under [home-manager.users.<name>.*].)
+              {
+                _file = "config.toml / .private.toml (raw NixOS passthrough)";
+                config = builtins.removeAttrs userConfig [ "icedos" ];
               }
 
               home-manager.nixosModules.home-manager
