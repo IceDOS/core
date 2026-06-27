@@ -29,7 +29,6 @@ let
     filterByAttrs
     findFirst
     flatMap
-    inputHasPatches
     inputIsOverride
     mkInputName
     stringStartsWith
@@ -56,12 +55,70 @@ let
       }) config.repositories
     );
 
+    # Apply patches to a flake source and return a realised, context-free store
+    # path usable as a locked `path:` flake input. Realising (readDir/IFD) makes
+    # the path exist when genflake renders the input; discarding context lets the
+    # `nix eval --raw` genflake output accept it (it forbids store-path context).
+    # Shared by whole-repo patches (fetchModulesRepository) and input patches
+    # (_getModuleInputs) so the three pure-eval gotchas are handled in one place.
+    _mkPatchedSource =
+      {
+        name,
+        src,
+        patches,
+      }:
+      let
+        inherit (builtins) readDir seq unsafeDiscardStringContext;
+        patched = pkgs.applyPatches { inherit name src patches; };
+      in
+      seq (readDir patched) (unsafeDiscardStringContext (toString patched));
+
+    # Resolve config-root-relative patch strings (from config.toml) to store
+    # paths the applyPatches builder can read in its sandbox. Stage-aware:
+    #   - genflake: impure `--file` eval with `inputs` empty → copy from the host
+    #     config root via builtins.path.
+    #   - build: pure flake eval where host paths are unreadable and
+    #     ICEDOS_CONFIG_ROOT is masked → read from the config flake input
+    #     (genflake keeps these files in `filteredConfigRoot`).
+    # Used for whole-repo patches and consumer-declared input patches; author
+    # input patches are Nix path literals and bypass this (already store paths).
+    # Closes over the top-level `inputs`, so callers that shadow `inputs` (e.g.
+    # _getModuleInputs, where `inputs` is a module's input set) still resolve
+    # icedos-config correctly.
+    _resolveConfigPatches =
+      patches:
+      map (
+        p:
+        if (ICEDOS_STAGE == "genflake") then
+          builtins.path { path = /. + "${ICEDOS_CONFIG_ROOT}/${p}"; }
+        else
+          inputs.icedos-config + "/${p}"
+      ) patches;
+
+    # Consumer-declared input patches from config.toml, as a flat
+    # "<repo url>|<module>|<input>" -> [patch strings] lookup. Lets a user patch a
+    # module's flake input without forking the module — the consumer-facing analog
+    # of a module author's `inputs.<x>.patches`. Separator `|` never appears in a
+    # flake url / module name / input name.
+    _consumerInputPatches = builtins.listToAttrs (
+      flatten (
+        map (
+          repo:
+          map (ip: {
+            name = "${repo.url}|${ip.module}|${ip.input}";
+            value = ip.patches;
+          }) (repo.inputPatches or [ ])
+        ) config.repositories
+      )
+    );
+
     # Fetch a modules repository, resolving the URL and loading its icedos modules
     # Handles overrides, flake resolution, and module file loading
     fetchModulesRepository =
       {
         url,
         overrides,
+        patches ? [ ],
         ...
       }:
       let
@@ -109,19 +166,52 @@ let
         # Build complete flake URL with revision
         flakeUrl = "${baseUrl}${flakeRev}";
 
-        # Load the flake (either fresh or from inputs)
-        flake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
+        # Resolve the repo flake: fresh at genflake, from the locked input at
+        # build. For a patched repo the build-stage input already resolves to the
+        # patched tree (see `fetchUrl` below), so `baseFlake` is the patched flake
+        # there — fine, since the patch machinery is only forced at genflake.
+        baseFlake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
 
-        # Extract icedos modules from the flake
-        modules = flake.icedosModules { icedosLib = finalIcedosLib; };
+        # Optional whole-repo patches — the repo analog of `_getModuleInputs`'
+        # input patching. The patched tree is emitted as the repo's own `path:`
+        # flake input (see `fetchUrl`): nix locks that input (narHash in
+        # flake.lock), so the build stage consumes it as a normal locked input
+        # rather than via `getFlake`, which pure eval rejects for an unlocked
+        # path. The diff stays on the locked rev since it is applied to the
+        # upstream `baseFlake` resolved at genflake.
+        hasPatches = patches != [ ];
+
+        # Realised, context-free patched tree (see `_mkPatchedSource`); patch
+        # files are config-root-relative strings resolved via the shared helper.
+        # Emitted below as the repo's own locked `path:` input.
+        patchedPath = _mkPatchedSource {
+          name = "${repoName}-patched";
+          src = baseFlake.outPath;
+          patches = _resolveConfigPatches patches;
+        };
+
+        # icedos modules come from: upstream when unpatched; the freshly patched
+        # tree at genflake (impure getFlake ok); the locked patched input at build.
+        moduleFlake =
+          if !hasPatches then
+            baseFlake
+          else if (ICEDOS_STAGE == "genflake") then
+            getFlake "path:${patchedPath}"
+          else
+            inputs.${repoName};
+
+        # Extract icedos modules from the (possibly patched) flake
+        modules = moduleFlake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
         url = nameParsed.baseUrl;
-        fetchUrl = baseUrl;
-        inherit (flake) narHash;
+        # Patched repos are emitted as a locked `path:` input pointing at the
+        # realised patched tree; unpatched repos keep their upstream url.
+        fetchUrl = if hasPatches then "path:${patchedPath}" else baseUrl;
+        inherit (moduleFlake) narHash;
         files = flatten modules;
       }
-      // (optionalAttrs (hasAttr "rev" flake) { inherit (flake) rev; });
+      // (optionalAttrs (!hasPatches && hasAttr "rev" baseFlake) { inherit (baseFlake) rev; });
 
     # Convert external modules into flake input declarations
     # Filters out modules marked to skip as inputs
@@ -165,7 +255,6 @@ let
       modules:
       let
         inherit (builtins) attrNames filter getFlake;
-        inherit (pkgs) applyPatches;
         modulesWithInputs = filter (hasAttr "inputs") modules;
       in
       flatten (
@@ -180,7 +269,17 @@ let
             i:
             let
               isOverride = inputIsOverride { input = inputs.${i}; };
-              hasPatches = inputHasPatches { input = inputs.${i}; };
+
+              # Author patches (Nix path literals in the module, already store
+              # paths) + consumer patches (config.toml strings declared via
+              # `[[icedos.repositories.inputPatches]]`, resolved here). Both feed
+              # one patched input; author patches apply first.
+              _authorPatches = inputs.${i}.patches or [ ];
+              _consumerPatches = _resolveConfigPatches (
+                _consumerInputPatches."${_repoInfo.url}|${meta.name}|${i}" or [ ]
+              );
+              patches = _authorPatches ++ _consumerPatches;
+              hasPatches = patches != [ ];
 
               moduleIdentifier = mkInputName {
                 parts = [
@@ -218,10 +317,10 @@ let
 
               _patchSrcUrl = "${_patchSrcParsed.baseUrl}${_patchSrcRev}";
 
-              patchedInputSource = applyPatches {
+              patchedInputSource = _mkPatchedSource {
                 name = "${moduleIdentifier}-${i}-patched";
-                patches = inputs.${i}.patches;
                 src = getFlake _patchSrcUrl |> toString;
+                inherit patches;
               };
 
               patchedInput = rec {
@@ -371,6 +470,31 @@ let
       else
         existingOverrides;
 
+    # Build a set of repo-url -> patch-list mappings from config repositories.
+    # Mirrors `_buildOverridesMap` so a repository's `patches` apply to EVERY
+    # fetch of that url — including transitive (self-)dependency fetches, which
+    # otherwise re-fetch the repo unpatched and leak an unpatched input (the repo
+    # maps to a single flake input, so its patch set must be consistent).
+    _buildPatchesMap =
+      {
+        newDeps,
+        loadOverrides,
+        existingPatches,
+      }:
+      let
+        inherit (builtins) filter listToAttrs;
+        filteredDeps = filter (dep: (dep.patches or [ ]) != [ ]) newDeps;
+      in
+      if loadOverrides then
+        listToAttrs (
+          map (dep: {
+            name = dep.url;
+            value = dep.patches;
+          }) filteredDeps
+        )
+      else
+        existingPatches;
+
     # Load module files from a repository and ensure a default module exists
     # Returns list of modules with _repoInfo attached to each
     _loadModulesFromRepo =
@@ -475,6 +599,7 @@ let
         newDeps,
         existingDeps ? [ ],
         existingOverrides ? [ ],
+        existingPatches ? { },
         loadOverrides ? false,
       }:
       let
@@ -491,6 +616,13 @@ let
           inherit newDeps loadOverrides existingOverrides;
         };
 
+        # Build patch map (repo url -> patch list) the same way, so a repo's
+        # patches follow it across the whole dependency tree, not just its
+        # top-level config entry.
+        patchesMap = _buildPatchesMap {
+          inherit newDeps loadOverrides existingPatches;
+        };
+
         # Process each dependency and accumulate modules + missing-reference diagnostics
         result =
           foldl'
@@ -501,9 +633,17 @@ let
                 missingModules = filter (mod: !_isModuleLoaded existingDeps newDep.url mod) (newDep.modules or [ ]);
 
                 # Fetch repository if new modules are needed or default isn't loaded
-                newRepo = optional (
-                  ((length missingModules) > 0) || !_isModuleLoaded existingDeps newDep.url "default"
-                ) (fetchModulesRepository (newDep // { inherit overrides; }));
+                newRepo =
+                  optional (((length missingModules) > 0) || !_isModuleLoaded existingDeps newDep.url "default")
+                    (
+                      fetchModulesRepository (
+                        newDep
+                        // {
+                          inherit overrides;
+                          patches = patchesMap.${newDep.url} or [ ];
+                        }
+                      )
+                    );
 
                 # All modules present in the fetched repository (includes synthesized "default")
                 repoModules = flatMap _loadModulesFromRepo newRepo;
@@ -558,6 +698,7 @@ let
                       newDeps = innerDeps;
                       existingDeps = allKnownKeys;
                       existingOverrides = overrides;
+                      existingPatches = patchesMap;
                     }
                   else
                     {
