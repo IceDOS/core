@@ -276,10 +276,9 @@ in
               # as NixOS config. nixpkgs' module system types & validates each option —
               # IceDOS declares no schema. (home-manager is reachable the usual way,
               # under [home-manager.users.<name>.*].)
-              {
-                _file = "config.toml / .private.toml (raw NixOS passthrough)";
+              (lib.setDefaultModuleLocation "config.toml / .private.toml (raw NixOS passthrough)" {
                 config = builtins.removeAttrs userConfig [ "icedos" ];
-              }
+              })
 
               home-manager.nixosModules.home-manager
 

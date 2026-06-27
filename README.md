@@ -26,11 +26,24 @@ nix --extra-experimental-features "flakes nix-command pipe-operators" run path:.
 
 ## ⚙️ Configuration
 
-**IceDOS** provides two primary ways to customize your system:
+**IceDOS** provides three ways to customize your system, in increasing order of control:
 
 1. **Simple:** Edit `config.toml`. This file exposes high-level options provided by **IceDOS** modules. You can find all available options of each module in their respective example `config.toml`.
 
-2. **Advanced:** Add nix and/or icedos, modules to the `extra-modules` directory for full control.
+2. **Raw NixOS options:** Any top-level table in `config.toml` (or `.private.toml`) that is **not** `icedos` is applied directly as NixOS configuration — no module needed. The options are typed and validated by nixpkgs itself. Use it for plain options no **IceDOS** module exposes:
+
+   ```toml
+   [services.joycond]
+   enable = true
+
+   # home-manager is reachable the usual way
+   [home-manager.users.alice.programs.git]
+   enable = true
+   ```
+
+   This only covers what TOML can express; for Nix values (packages, `null`, `mkForce`, `lib.*`) use the Advanced method below.
+
+3. **Advanced:** Add nix and/or icedos modules to the `extra-modules` directory for full control.
 
 > **ℹ️ NOTE**
 > The `.state` directory stores the generated `flake.nix` and your `flake.lock`. You generally should not need to edit these manually.

@@ -402,7 +402,14 @@ let
 
         processModuleOutputs =
           { inputs, ... }:
-          { _repoInfo, outputs, ... }:
+
+          {
+            _repoInfo,
+            meta,
+            outputs,
+            ...
+          }:
+
           let
             maskedInputs = _createMaskedInputs {
               baseInputs = inputs;
@@ -410,8 +417,18 @@ let
               repoInfo = _repoInfo;
               isSkipModuleAsInput = hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput;
             };
+
+            # Tag every emitted module with its origin (`<repo>#<module>`) so
+            # nixpkgs eval/type/conflict errors point back at the IceDOS module
+            # instead of an anonymous generated location. setDefaultModuleLocation
+            # only stamps modules that don't already declare their own location.
+            location = "${_repoInfo.url}#${meta.name}";
           in
-          outputs.nixosModules { inputs = maskedInputs; };
+          map (lib.setDefaultModuleLocation location) (
+            outputs.nixosModules {
+              inputs = maskedInputs;
+            }
+          );
       in
       flatten (
         map (processModuleOutputs { inherit inputs; }) (filterByAttrs [ "outputs" "nixosModules" ] modules)
