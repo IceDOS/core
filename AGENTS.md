@@ -66,6 +66,16 @@ nh os <switch|boot|build|build-vm> path:.
   `--export-full-config`.
 - Core's own modules are auto-imported via `getModules "${inputs.icedos-core}/modules"`
   (see `lib/genflake.nix`). A user's `extra-modules/` is imported the same way.
+- **Raw NixOS passthrough** — any top-level TOML table that is **not** `icedos` is
+  injected verbatim as a NixOS `config` body. It declares **no** IceDOS schema;
+  nixpkgs' own module system types and validates each option. `genflake.nix` injects it
+  as `{ config = builtins.removeAttrs userConfig [ "icedos" ]; }` next to the
+  `extra-modules` import. Use it for plain option toggles no IceDOS module exposes
+  (e.g. `[services.joycond] enable = true`, or `[home-manager.users.ice.programs.git]`
+  for a user); it complements `extra-modules/` for anything that needs real Nix
+  (packages, `null`, `mkForce`, `lib.*`). Because the namespace is "everything except
+  `icedos`", a stray top-level key (e.g. a `[applications.btop]` missing its `icedos.`
+  prefix) fails loud as an unknown NixOS option — which is the intended safety net.
 
 ## 4. The core library (`lib/`)
 
@@ -77,7 +87,7 @@ Exposed to every module as **`icedosLib`**.
 | `lib/options/validate.nix` | `validate.{int,float,enum,str,nonEmpty,list,requires,abort}` — rich, path-aware error messages. |
 | `lib/helpers.nix` | `getModules`, `scanModules`, `bash.prelude`, `bash.{blue,green,dim*}String`, `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `generateAccent`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, flake-revision helpers. |
 | `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. |
-| `lib/load-user-config.nix` | Parse `config.toml` + `.private.toml`, strict-merge (duplicate key across the two = error; lists concatenated). |
+| `lib/load-user-config.nix` | Parse `config.toml` + `.private.toml`, strict-merge (duplicate key across the two = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
 | `lib/common.nix` | `abortIf`, `filterByAttrs`, `findFirst`, `flatMap`, `generateAttrPath`, … |
 | `lib/constants.nix` | `ICEDOS_*` env/stage constants, `INPUTS_PREFIX`. |
 | `lib/logger.nix` | `log`/`logValue` — active when `ICEDOS_LOGGING=1`. |
