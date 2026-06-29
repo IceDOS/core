@@ -78,6 +78,13 @@ let
   channels = icedos.system.channels or [ ];
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
+  # Whether to inline the host's /etc/nixos/hardware-configuration.nix into
+  # the generated system. On by default so the machine's essentials
+  # (filesystems, kernel modules, microcode, …) always apply; read raw here
+  # since the injection decision happens at genflake stage. Mirrors the
+  # `icedos.system.loadHardwareConfiguration` option default in modules/options.nix.
+  loadHardwareConfiguration = icedos.system.loadHardwareConfiguration or true;
+
   # `[[icedos.system.overlays.fromChannel]]` entries. Each must set either
   # `channel` (existing `[[icedos.system.channels]]` name) or `url` (flake
   # URL — registered as `icedos-overlay-<sanitized-url>`); `channel` wins
@@ -330,7 +337,9 @@ in
 
               ${concatStringsSep "\n" (map (text: "(${text})") nixosModulesText)}
 
-              ${injectIfExists { file = "/etc/nixos/hardware-configuration.nix"; }}
+              ${lib.optionalString loadHardwareConfiguration (injectIfExists {
+                file = "/etc/nixos/hardware-configuration.nix";
+              })}
               ${injectIfExists { file = "/etc/nixos/extras.nix"; }}
             ]
             ++ modulesFromConfig.options

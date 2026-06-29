@@ -109,6 +109,12 @@ in
         forceFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
         isFirstBuild = mkBoolOption { default = false; };
+
+        # Inline /etc/nixos/hardware-configuration.nix into the system. On by
+        # default so the machine's hardware essentials always apply; the gate
+        # itself lives in lib/genflake.nix (injection happens at genflake stage).
+        loadHardwareConfiguration = mkBoolOption { default = true; };
+
         nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
         packages = mkStrListOption { default = [ ]; };
         permittedInsecurePackages = mkStrListOption { default = [ ]; };
