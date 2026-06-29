@@ -268,3 +268,79 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
   switch. Exception: a module's `meta.dependencies` auto-load, so anything that is a
   (optional)dependency of the repo's always-on `default` module loads without being
   listed.
+
+## 10. Extending the `icedos` CLI
+
+Any module adds subcommands by appending to `icedos.applications.toolset.commands`
+(core modules do it directly; repo modules do it inside `outputs.nixosModules`). A
+command is a `toolsetCommandType` submodule (`modules/options.nix`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `command` | string (required) | subcommand name; must match `[a-zA-Z0-9_-]+`. |
+| `help` | string (required) | one-line help, shown in the parent listing and `icedos --tree`. |
+| `script` | lines | inline bash. **Auto-prefixed with `bash.prelude`** (`modules/toolset.nix`), so `log_ok`/`log_warn`/`log_fail`/`log_info`/`log_step`/`die`/`is_help_flag` + colour vars are available. |
+| `bin` | string | absolute path to an executable instead of `script` (e.g. a `pkgs.writeShellScript`). |
+| `commands` | list | nested subcommands — arbitrarily deep. |
+| `completion.files` | bool | offer file-path completion for this leaf's arguments. |
+
+Asserted in `modules/toolset.nix`: a node with `commands` must **not** also set
+`script`/`bin` (a branch dispatches, a leaf runs); a leaf sets exactly one of the two.
+Nesting just nests `commands`; branch nodes auto-dispatch and render an indented help
+tree. Example — `icedos weather now`:
+
+```nix
+icedos.applications.toolset.commands = [{
+  command = "weather";
+  help = "weather utilities";
+  commands = [{
+    command = "now";
+    help = "print current weather";
+    script = ''curl -s "wttr.in/?format=3"'';   # prelude already injected
+    completion.files = false;
+  }];
+}];
+```
+
+- **Completions are free.** bash/zsh/fish completion files are generated from the whole
+  command tree (`toolset.{mkBashCompletion,mkZshCompletion,mkFishCompletion}` →
+  `/share/{bash-completion,zsh,fish}/…`). Authors never write completion code.
+- **Reference tools by store path.** Command scripts run from `environment.systemPackages`,
+  where the build PATH (`jq`, `nh`, `nixfmt`, …) is **absent** — splice `${pkgs.jq}/bin/jq`,
+  not bare `jq`. (Only `build.sh` itself runs with those on PATH.)
+- **No `compgen`** — `writeShellScript` bash lacks it (see §9); parse args with
+  `while`/`case` + `nullglob` arrays.
+- **Two built-in extension points:**
+  - `icedos.applications.toolset.sessionCommands` (list, default `[]`) — concatenated into
+    the `session` command's children, so a module can add `icedos session <x>` without
+    redeclaring the group (`modules/toolset.nix`).
+  - `icedos.applications.toolset.desktopEntries` (bool, default `false`) — when true, the
+    session lifecycle actions (reboot, reboot-to-UEFI, logout, poweroff, suspend) are also
+    installed as `xdg.desktopEntries`. Modules adding session actions gate their own
+    entries on the same flag.
+
+## 11. Hook authoring contract
+
+`icedos.applications.toolset.rebuild.hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`
+and `icedos.applications.nh.gc.hooks.{preGc,postGc}` are lists of shell snippets. Each
+snippet is compiled to its **own** `pkgs.writeShellScript` with `bash.prelude` prepended
+(`modules/rebuild.nix`, `modules/nh.nix`), so it runs in a fresh shell with the same
+helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars; colours auto-strip
+when stdout isn't a TTY).
+
+Environment a hook can rely on:
+
+| Var | Set by | Notes |
+|---|---|---|
+| `ICEDOS_CONFIG_ROOT` | build app (`flake.nix`) | the config root. |
+| `ICEDOS_STATE_DIR` | build app | the `.state` dir. |
+| `ICEDOS_ROOT` | build app | the core store path. |
+| `ICEDOS_BUILD_DIR` | `build.sh` | temp build dir — set **after** `build.sh` starts, so **not** available in `preRebuild`/`preUpdate` (they run before it). |
+| `ICEDOS_HOOKS_ONLY=1` | `--update-hooks` only | tells `pre/postUpdate` that no HM activation follows, so they must complete standalone. |
+| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` | eval-internal | don't depend on these in runtime hooks. |
+
+Order (`modules/rebuild.nix`): `--update-hooks` short-circuit (pre+postUpdate, then
+exit) → `preRebuild` → `preUpdate` (only with `--update`) → `build.sh` → `postUpdate`
+(only with `--update`) → config snapshot → `postRebuild` → reboot check. `preUpdate`/
+`postUpdate` fire only with `--update`; run them alone (no build) via
+`icedos rebuild --update-hooks` (e.g. `flatpak update`).
