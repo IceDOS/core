@@ -95,7 +95,16 @@ in
           url = mkStrOption { default = "https://icedos.mirrors.knp.one/icedos"; };
 
           key = mkStrOption {
-            default = readFile "${inputs.icedos-core.inputs.cache-server}/nix-public.pem";
+            # `inputs.icedos-core` is only wired in at build stage; the genflake
+            # stage imports this module with a minimal `inputs` (icedos-config
+            # only). Guard the presence check — forcing the missing attr there
+            # throws uncatchably (tryEval can't rescue it), which would abort any
+            # full-config eval (`evaluatedConfig`, the search index, …).
+            default =
+              if inputs ? icedos-core then
+                readFile "${inputs.icedos-core.inputs.cache-server}/nix-public.pem"
+              else
+                "";
           };
 
           priority = mkNumberOption { default = 100; };
