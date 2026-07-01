@@ -23,7 +23,7 @@ in
 {
   environment.systemPackages = mapper pkgs packages;
 
-  icedos.applications.toolset.commands = [
+  icedos.system.toolset.commands = [
     {
       command = "pkgs";
       help = "print package related commands";

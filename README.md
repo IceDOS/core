@@ -117,7 +117,7 @@ Everything under `icedos` is the framework's typed schema. The top-level groups:
 | `icedos.repositories` | Module repositories to load and which modules to enable (see above). |
 | `icedos.system` | System-wide settings: `arch`, `version`, `nixpkgsChannel`, `allowUnfree`, `generations`, `packages`, `permittedInsecurePackages`, `loadHardwareConfiguration`, the binary `cache`, extra `channels`/`overlays`, and `buildVm` options. |
 | `icedos.users` | User accounts (home-manager integrated): groups, password, packages, sudo, … |
-| `icedos.applications.*` | Per-module options. Core ships `toolset` (CLI/hooks) and `nh.gc` (garbage collection); module repos add their own (e.g. `icedos.applications.btop`). |
+| `icedos.applications.*` | Per-module options. Core ships `toolset` (CLI/hooks) and `gc` (garbage collection); module repos add their own (e.g. `icedos.applications.btop`). |
 
 Per-module option defaults are documented in each module's sibling `config.toml`.
 
@@ -199,13 +199,13 @@ target = "shared"
 Run arbitrary commands around the rebuild and garbage-collection lifecycle:
 
 ```toml
-[icedos.applications.toolset.rebuild.hooks]
+[icedos.system.toolset.rebuild.hooks]
 preRebuild  = [ "echo 'before build'" ]
 postRebuild = [ "echo 'after activation'" ]
 preUpdate   = [ "echo 'runs with --update, before build'" ]
 postUpdate  = [ "flatpak update" ]          # runs with --update, after build
 
-[icedos.applications.nh.gc.hooks]
+[icedos.system.gc.hooks]
 preGc  = [ "echo 'before gc'" ]
 postGc = [ "echo 'after gc'" ]
 ```

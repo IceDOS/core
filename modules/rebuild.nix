@@ -22,7 +22,7 @@ let
 
   inherit (config) icedos;
   inherit (icedos) configurationLocation;
-  inherit (icedos.applications.toolset.rebuild) hooks;
+  inherit (icedos.system.toolset.rebuild) hooks;
 
   inherit (hooks)
     postRebuild
@@ -48,7 +48,7 @@ let
   hasPostUpdate = postUpdate != [ ];
 in
 {
-  icedos.applications.toolset.commands = [
+  icedos.system.toolset.commands = [
     {
       command = "rebuild";
       help = "rebuild the system";

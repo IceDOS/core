@@ -158,7 +158,7 @@ Optional module fields:
 `core/modules/*.nix` are **direct NixOS modules** (no `outputs.nixosModules` wrapper,
 no `meta.name`) — they declare `options`/`config` straight up and are loaded by
 `getModules`. The `icedos` CLI subcommands live here as
-`icedos.applications.toolset.commands` (see `modules/toolset.nix`, `modules/rebuild.nix`).
+`icedos.system.toolset.commands` (see `modules/toolset.nix`, `modules/rebuild.nix`).
 
 ### Module rules (enforced / expected)
 
@@ -271,7 +271,7 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 
 ## 10. Extending the `icedos` CLI
 
-Any module adds subcommands by appending to `icedos.applications.toolset.commands`
+Any module adds subcommands by appending to `icedos.system.toolset.commands`
 (core modules do it directly; repo modules do it inside `outputs.nixosModules`). A
 command is a `toolsetCommandType` submodule (`modules/options.nix`):
 
@@ -290,7 +290,7 @@ Nesting just nests `commands`; branch nodes auto-dispatch and render an indented
 tree. Example — `icedos weather now`:
 
 ```nix
-icedos.applications.toolset.commands = [{
+icedos.system.toolset.commands = [{
   command = "weather";
   help = "weather utilities";
   commands = [{
@@ -311,18 +311,18 @@ icedos.applications.toolset.commands = [{
 - **No `compgen`** — `writeShellScript` bash lacks it (see §9); parse args with
   `while`/`case` + `nullglob` arrays.
 - **Two built-in extension points:**
-  - `icedos.applications.toolset.sessionCommands` (list, default `[]`) — concatenated into
+  - `icedos.system.toolset.sessionCommands` (list, default `[]`) — concatenated into
     the `session` command's children, so a module can add `icedos session <x>` without
     redeclaring the group (`modules/toolset.nix`).
-  - `icedos.applications.toolset.desktopEntries` (bool, default `false`) — when true, the
+  - `icedos.system.toolset.desktopEntries` (bool, default `false`) — when true, the
     session lifecycle actions (reboot, reboot-to-UEFI, logout, poweroff, suspend) are also
     installed as `xdg.desktopEntries`. Modules adding session actions gate their own
     entries on the same flag.
 
 ## 11. Hook authoring contract
 
-`icedos.applications.toolset.rebuild.hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`
-and `icedos.applications.nh.gc.hooks.{preGc,postGc}` are lists of shell snippets. Each
+`icedos.system.toolset.rebuild.hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`
+and `icedos.system.gc.hooks.{preGc,postGc}` are lists of shell snippets. Each
 snippet is compiled to its **own** `pkgs.writeShellScript` with `bash.prelude` prepended
 (`modules/rebuild.nix`, `modules/nh.nix`), so it runs in a fresh shell with the same
 helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars; colours auto-strip

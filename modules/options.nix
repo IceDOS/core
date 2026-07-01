@@ -42,7 +42,7 @@ in
 {
   options = {
     icedos = {
-      applications.nh.gc = {
+      system.gc = {
         automatic = mkBoolOption { default = true; };
         days = mkNumberOption { default = 0; };
         generations = mkNumberOption { default = 10; };
@@ -54,7 +54,7 @@ in
         };
       };
 
-      applications.toolset = {
+      system.toolset = {
         commands = mkListOption { default = [ ]; } toolsetCommandType;
         desktopEntries = mkBoolOption { default = false; };
         sessionCommands = mkListOption { default = [ ]; } toolsetCommandType;

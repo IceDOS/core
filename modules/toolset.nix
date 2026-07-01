@@ -7,8 +7,7 @@
 }:
 
 let
-  inherit (config.icedos.applications.toolset) commands desktopEntries sessionCommands;
-
+  inherit (config.icedos.system.toolset) commands desktopEntries sessionCommands;
   inherit (icedosLib.bash) prelude;
 
   inherit (icedosLib.toolset)
@@ -113,7 +112,7 @@ in
     })
   ];
 
-  icedos.applications.toolset.commands = [
+  icedos.system.toolset.commands = [
     {
       command = "session";
       help = "session lifecycle commands";

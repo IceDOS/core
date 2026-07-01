@@ -22,7 +22,7 @@ let
 
   inherit (pkgs) writeShellScript writeShellScriptBin;
 
-  inherit (config.icedos.applications.nh) gc;
+  inherit (config.icedos.system) gc;
   inherit (gc) automatic hooks interval;
   inherit (hooks) postGc preGc;
 
@@ -76,7 +76,7 @@ let
   runHooks = name: scripts: concatStringsSep "\n" (map toString (hookPaths name scripts));
 in
 {
-  icedos.applications.toolset.commands = [
+  icedos.system.toolset.commands = [
     {
       command = "gc";
 
