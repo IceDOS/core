@@ -205,7 +205,12 @@ fi
 if [ "$export_full_config" == "1" ]; then
   (
     cd "$ICEDOS_STATE_DIR"
-    ICEDOS_STAGE="genflake" nix eval $trace --file "$ICEDOS_ROOT/lib/genflake.nix" evaluatedConfig | nixfmt | jq -r . > .cache/full-config.json
+    mkdir -p .cache
+    # Source the merged config from the *full* system eval, not genflake's
+    # `--file` eval: option defaults such as `system.cache.key` read flake
+    # inputs (`inputs.icedos-core.…`) that only exist with flake context, so the
+    # genflake partial eval can never force the whole config.
+    nix eval $trace --json "path:.#nixosConfigurations.$(cat /etc/hostname).config.icedos" > .cache/full-config.json
     jsonfmt .cache/full-config.json -w
 
     toml2json "$ICEDOS_CONFIG_ROOT/config.toml" > .cache/config.json
