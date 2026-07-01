@@ -8,6 +8,7 @@
 let
   inherit (icedosLib.bash) genHelpFlags;
   inherit (config.icedos) configurationLocation;
+  inherit (config.icedos.system.toolset) configurationCommands;
 
   jq = "${pkgs.jq}/bin/jq";
   fzf = "${pkgs.fzf}/bin/fzf";
@@ -196,7 +197,8 @@ in
             showModules
           ];
         }
-      ];
+      ]
+      ++ configurationCommands;
     }
   ];
 }
