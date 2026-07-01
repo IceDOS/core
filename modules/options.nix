@@ -56,6 +56,7 @@ in
 
       system.toolset = {
         commands = mkListOption { default = [ ]; } toolsetCommandType;
+        configurationCommands = mkListOption { default = [ ]; } toolsetCommandType;
         desktopEntries = mkBoolOption { default = false; };
         sessionCommands = mkListOption { default = [ ]; } toolsetCommandType;
 

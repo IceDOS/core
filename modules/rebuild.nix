@@ -146,6 +146,32 @@ in
           echo -e "${dimGreenString ">"} Caching ''${JOINED%, }"
         fi
 
+        # Record which config snapshot built the just-created generation so
+        # `icedos configuration rollback` can restore the exact config.toml that
+        # built it. Only switch/boot mint a new system generation;
+        # build/build-vm/run-vm do not.
+        GEN_CREATED=1
+        for arg in "$@"; do
+          case "$arg" in
+            --build|--build-vm|--run-vm) GEN_CREATED=""
+            break
+          esac
+        done
+
+        if [ "$GEN_CREATED" != "" ] && [ -e /nix/var/nix/profiles/system ]; then
+          GEN="$(basename "$(readlink /nix/var/nix/profiles/system)" | sed 's/^system-\([0-9]*\)-link$/\1/')"
+          shopt -s nullglob
+          SNAP=""
+          for d in "$CACHE_DIR"/*/; do
+            [ -f "''${d}config.toml" ] && SNAP="$(basename "$d")"
+          done
+          shopt -u nullglob
+          if [ -n "$GEN" ] && [ -n "$SNAP" ]; then
+            mkdir -p "$CACHE_DIR/generations"
+            printf '%s' "$SNAP" > "$CACHE_DIR/generations/$GEN"
+          fi
+        fi
+
         ${runHooks "postRebuild" postRebuild}
 
         # Skip reboot check when not switching (no activation happened).
