@@ -44,6 +44,10 @@ while [[ $# -gt 0 ]]; do
       genflake_only=1
       shift
       ;;
+    --export-search-index)
+      export_search_index=1
+      shift
+      ;;
     --update)
       update_all="1"
       update_core="1"
@@ -206,6 +210,28 @@ if [ "$export_full_config" == "1" ]; then
 
     toml2json "$ICEDOS_CONFIG_ROOT/config.toml" > .cache/config.json
     jsonfmt .cache/config.json -w
+  )
+
+  exit 0
+fi
+
+# Lightweight index for `icedos configuration show`: emit only the
+# option + module docs (no full config export, no build), then exit. Cheap
+# enough for the commands to regenerate on demand when the index is stale.
+if [ "$export_search_index" == "1" ]; then
+  (
+    cd "$ICEDOS_STATE_DIR"
+    mkdir -p .cache
+    # One genflake eval producing both docs — evaluating the file per-doc would
+    # redo the whole config load + module resolution each time.
+    search_docs=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
+      --file "$ICEDOS_ROOT/lib/genflake.nix" \
+      --apply 'g: { inherit (g) optionsDoc modulesDoc; }')
+
+    jq -r '.optionsDoc' <<< "$search_docs" > .cache/options-doc.json
+    jq -r '.modulesDoc' <<< "$search_docs" > .cache/modules-doc.json
+    jsonfmt .cache/options-doc.json -w
+    jsonfmt .cache/modules-doc.json -w
   )
 
   exit 0
