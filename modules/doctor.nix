@@ -16,11 +16,8 @@ let
   systemctl = "${pkgs.systemd}/bin/systemctl";
 
   # Substituters the system pulls from, read from Nix settings at eval time —
-  # the same list state.nix writes to /etc/icedos/substituters. Strip the
-  # ?priority=… query and any trailing slash so each is a probe-ready store URI.
-  subList = map (s: lib.removeSuffix "/" (lib.head (lib.splitString "?" s))) (
-    with config.nix.settings; substituters ++ trusted-substituters
-  );
+  # the same list state.nix writes to /etc/icedos/substituters.
+  subList = with config.nix.settings; substituters ++ trusted-substituters;
 
   # nixpkgs + home-manager are the inputs that actually age the system. Their
   # lastModified is known at eval time (flake inputs, see genflake.nix), so we
