@@ -238,6 +238,7 @@ See [AGENTS.md](./AGENTS.md) for the full patching model.
 | `icedos rebuild` | Apply configuration changes to the system (see flags below). |
 | `icedos configuration show options [query]` | Fuzzy-search **IceDOS** options (fzf) with a paste-ready TOML snippet (`--no-fzf` for a plain list). |
 | `icedos configuration show modules [--enabled]` | Browse modules — enabled / available / dependencies (fzf; `--no-fzf` prints a grouped overview). |
+| `icedos doctor` | Health checklist: substituters, cache key, hardware config, store space, generations, gc, input freshness. |
 | `icedos session reboot [uefi]` | Reboot, ignoring inhibitors and other users. Append `uefi` to reboot into firmware setup. |
 | `icedos session logout` | Terminate all sessions for the current user. |
 | `icedos session poweroff` | Power off, ignoring inhibitors and other users. |
