@@ -221,6 +221,8 @@ in
         "nix-command"
         "pipe-operators"
       ];
+
+      fallback = true;
     };
   };
 
