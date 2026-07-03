@@ -21,7 +21,7 @@ let
   inherit (icedosLib.pkgs) mapper;
 in
 {
-  environment.systemPackages = mapper pkgs packages;
+  environment.systemPackages = (mapper pkgs packages) ++ [ pkgs.nixfmt ];
 
   icedos.system.toolset.commands = [
     {
