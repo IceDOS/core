@@ -10,6 +10,7 @@ let
     all
     any
     boolToString
+    collect
     concatMapStrings
     concatStringsSep
     elem
@@ -20,10 +21,12 @@ let
     generators
     hasPrefix
     imap0
+    isOption
     listToAttrs
     optional
     pathExists
     removePrefix
+    showOption
     ;
 
   icedosLib = import ../lib {
@@ -36,9 +39,12 @@ let
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STATE_DIR
+    _loadModulesFromRepo
+    _parseFlakeUrl
     injectIfExists
     mkInputName
     modulesFromConfig
+    resolveExternalDependencyRecursively
     validate
     ;
 
@@ -185,19 +191,140 @@ let
 
   nixosModulesText = modulesFromConfig.nixosModulesText;
 
-  evaluated =
-    (evalModules {
-      modules = [
-        { config = { inherit icedos; }; }
-        (import ../modules/options.nix {
-          inherit icedosLib lib;
-          inputs.icedos-config = ICEDOS_CONFIG_ROOT;
-        })
-      ]
-      ++ modulesFromConfig.options;
-    }).config;
+  evaluatedModules = evalModules {
+    modules = [
+      (import ../modules/options.nix {
+        inherit icedosLib lib;
+        inputs.icedos-config = ICEDOS_CONFIG_ROOT;
+      })
+    ]
+    ++ modulesFromConfig.options;
+  };
+
+  evaluated = evaluatedModules.config;
 
   evaluatedConfig = toJSON evaluated;
+
+  # Searchable index of every IceDOS option (path, type, description, current
+  # value) — consumed by `icedos configuration show`. Reuses the same evalModules
+  # as `evaluatedConfig`: type/description come from `.options`, the value from
+  # `.config` (`evaluated`).
+  optionsDoc =
+    let
+      # Walk the evaluated options tree with `collect isOption`, which treats
+      # each option as a leaf and never expands submodule internals. This is
+      # deliberate: `optionAttrSetToDocList` would recurse through
+      # `getSubOptions`, and `toolsetCommandType` (commands → commands → …) is
+      # infinitely self-recursive, overflowing the stack. The cost is that
+      # submodule-list fields (users.<name>.*, repositories.*) aren't listed
+      # individually; plain nested options (buildVm.memory, system.packages, …)
+      # all are.
+      opts = filter (
+        o: (o.visible or true) && !(o.internal or false) && hasPrefix "icedos." (showOption o.loc)
+      ) (collect isOption evaluatedModules.options);
+
+      # The option's effective value: user override if set, else the resolved
+      # default. Read from `evaluated` (the merged `.config`), not the raw
+      # `.options` default. `tryEval` guards `throw`/`assert`-based defaults;
+      # note it can NOT catch missing-attribute errors, so any default that
+      # forces an absent input must be made presence-safe at its source (see
+      # `cache.key` in modules/options.nix) or it aborts the whole index.
+      renderValue =
+        o:
+        let
+          r = builtins.tryEval (lib.attrByPath o.loc null evaluated);
+        in
+        if r.success then r.value else null;
+
+      # Descriptions are plain strings on modern nixpkgs but may arrive as an
+      # `{ _type = "mdDoc"; text; }` literal — normalise to a bare string.
+      renderDescription =
+        o:
+        let
+          d = o.description or null;
+        in
+        if builtins.isAttrs d then (d.text or null) else d;
+    in
+    toJSON (
+      map (o: {
+        name = showOption o.loc;
+        type = o.type.description or "";
+        description = renderDescription o;
+        value = renderValue o;
+      }) opts
+    );
+
+  # Full module graph for `icedos modules`: every module available in every repo
+  # that contributes a loaded module — configured *and* transitive dependency
+  # repos — each flagged enabled (loaded) / explicit (user-listed) plus its
+  # dependency edges, so disabled siblings show up next to the enabled ones.
+  modulesDoc =
+    let
+      repos = icedos.repositories or [ ];
+
+      # The loaded set: explicitly-enabled modules + their resolved deps. Used
+      # to flag which catalog entries are active and to discover every repo in
+      # play — each module's _repoInfo already carries the full file list.
+      resolved = resolveExternalDependencyRecursively {
+        newDeps = repos;
+        loadOverrides = true;
+      };
+
+      moduleKey = m: "${m._repoInfo.url}/${m.meta.name}";
+      loadedKeys = map moduleKey resolved.modules;
+
+      # Every distinct fetched repo (deduped by url), configured *and* transitive.
+      # `_repoInfo.files` is the complete module list, so re-loading it surfaces
+      # disabled siblings (e.g. providers' jovian) with no extra fetch.
+      # Extra-modules (url = "config") carry no `files`.
+      realRepoInfos = builtins.attrValues (
+        listToAttrs (
+          map (ri: {
+            name = ri.url;
+            value = ri;
+          }) (filter (ri: ri ? files) (map (m: m._repoInfo) resolved.modules))
+        )
+      );
+
+      catalog = flatten (map _loadModulesFromRepo realRepoInfos);
+
+      # Config-local extra modules have no catalog to enumerate; keep them as-is.
+      extraModules = filter (m: !(m._repoInfo ? files)) resolved.modules;
+
+      # Names the user explicitly enabled, keyed by repo baseUrl (== _repoInfo.url).
+      explicitByRepo = listToAttrs (
+        map (r: {
+          name = (_parseFlakeUrl r.url).baseUrl;
+          value = r.modules or [ ];
+        }) repos
+      );
+
+      depEntry = d: { modules = d.modules or [ ]; };
+
+      mkRecord = m: {
+        inherit (m.meta) name;
+        repo = m._repoInfo.url;
+        description = m.meta.description or "";
+        dependencies = map depEntry (m.meta.dependencies or [ ]);
+        optionalDependencies = map depEntry (m.meta.optionalDependencies or [ ]);
+        enabled = elem (moduleKey m) loadedKeys;
+        explicit =
+          (m.meta.name == "default") || elem m.meta.name (explicitByRepo.${m._repoInfo.url} or [ ]);
+      };
+
+      # Drop every `default` module: it's an always-on baseline aggregator (one
+      # per repo), not a user-selectable module — its deps still appear as their
+      # own entries.
+      deduped = builtins.attrValues (
+        listToAttrs (
+          map (m: {
+            name = moduleKey m;
+            value = m;
+          }) (filter (m: m.meta.name != "default") (catalog ++ extraModules))
+        )
+      );
+    in
+    toJSON (map mkRecord deduped);
 
   flakeInputsNix = generators.toPretty {
     multiline = true;
@@ -205,7 +332,12 @@ let
   } flakeInputs;
 in
 {
-  inherit evaluatedConfig flakeInputsNix;
+  inherit
+    evaluatedConfig
+    flakeInputsNix
+    optionsDoc
+    modulesDoc
+    ;
 
   flakeFinal = ''
     {
