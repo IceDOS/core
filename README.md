@@ -288,7 +288,6 @@ These control what gets updated before the build:
 
 | Flag | Effect | Typical use |
 | --- | --- | --- |
-| `--export-full-config` | Generates `.cache/full-config.json` and `.cache/config.json` in the state directory, then exits (no build). | Inspecting merged/evaluated configuration. |
 | `--ask` | Adds `-a` to the `nh os` flow (interactive confirmation). | Manual confirmation before applying. |
 | `--builder <host>` | Adds `--build-host <host>` to the `nh os` flow (build the system closure on a remote host). | Remote/distributed build host workflow. |
 | `--target <host>` | Adds `--target-host <host>` to the `nh os` flow (deploy/activate the built closure on a remote host). Pairs with `--builder`. | Deploying to a remote machine. |
@@ -306,8 +305,6 @@ These control what gets updated before the build:
 - **`--builder` and `--target` are remote-host knobs** — `--builder` builds the closure on a remote host; `--target` activates it on one. Both just add the corresponding `nh os` host flags; use them together to build and deploy remotely.
 
 - **`--update-core` re-execs the command once** — the script updates the config flake and re-runs itself via `nix run . -- <original args>` to avoid stale state after core input updates.
-
-- **`--export-full-config` is a non-build mode** — it exits right after writing the exported config in JSON format.
 
 - **Unknown flags fail** — any unsupported flag prints `Unknown arg: ...` and exits with code `1`.
 

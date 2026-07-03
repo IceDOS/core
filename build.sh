@@ -36,10 +36,6 @@ while [[ $# -gt 0 ]]; do
       run_vm=1
       shift
       ;;
-    --export-full-config)
-      export_full_config=1
-      shift
-      ;;
     --genflake-only)
       genflake_only=1
       shift
@@ -202,27 +198,10 @@ if [ "$genflake_only" == "1" ]; then
   exit 0
 fi
 
-if [ "$export_full_config" == "1" ]; then
-  (
-    cd "$ICEDOS_STATE_DIR"
-    mkdir -p .cache
-    # Source the merged config from the *full* system eval, not genflake's
-    # `--file` eval: option defaults such as `system.cache.key` read flake
-    # inputs (`inputs.icedos-core.…`) that only exist with flake context, so the
-    # genflake partial eval can never force the whole config.
-    nix eval $trace --json "path:.#nixosConfigurations.$(cat /etc/hostname).config.icedos" > .cache/full-config.json
-    jsonfmt .cache/full-config.json -w
-
-    toml2json "$ICEDOS_CONFIG_ROOT/config.toml" > .cache/config.json
-    jsonfmt .cache/config.json -w
-  )
-
-  exit 0
-fi
-
-# Lightweight index for `icedos configuration show`: emit only the
-# option + module docs (no full config export, no build), then exit. Cheap
-# enough for the commands to regenerate on demand when the index is stale.
+# Lightweight index for `icedos configuration show` (and the webui config
+# editor): emit the option + module docs plus a JSON dump of the user's
+# config.toml (no full system eval, no build), then exit. Cheap enough for the
+# commands to regenerate on demand when the index is stale.
 if [ "$export_search_index" == "1" ]; then
   (
     cd "$ICEDOS_STATE_DIR"
@@ -237,6 +216,12 @@ if [ "$export_search_index" == "1" ]; then
     jq -r '.modulesDoc' <<< "$search_docs" > .cache/modules-doc.json
     jsonfmt .cache/options-doc.json -w
     jsonfmt .cache/modules-doc.json -w
+
+    # Raw user config.toml as JSON. The webui editor reads this next to
+    # options-doc.json to tell which keys the user actually set and to recover
+    # submodule-list values (repositories, users) the options doc doesn't expand.
+    toml2json "$ICEDOS_CONFIG_ROOT/config.toml" > .cache/config.json
+    jsonfmt .cache/config.json -w
   )
 
   exit 0

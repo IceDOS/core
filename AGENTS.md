@@ -62,8 +62,8 @@ nh os <switch|boot|build|build-vm> path:.
   formats the generated flake (`nixfmt`), then calls `nh`.
 - **`lib/genflake.nix`** — evaluates the merged config through `evalModules`
   (this is where `validate.*` fires), resolves external repos, and emits the state
-  flake as a Nix string (`flakeFinal`). Also exposes `evaluatedConfig` for
-  `--export-full-config`.
+  flake as a Nix string (`flakeFinal`). Also exposes `optionsDoc` / `modulesDoc`
+  (the search index behind `icedos configuration show`) and `evaluatedConfig`.
 - Core's own modules are auto-imported via `getModules "${inputs.icedos-core}/modules"`
   (see `lib/genflake.nix`). A user's `extra-modules/` is imported the same way.
 - **Raw NixOS passthrough** — any top-level TOML table that is **not** `icedos` is
@@ -227,8 +227,9 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
    needs `icedos rebuild --update-core --build` — the lock otherwise keeps the old core
    store snapshot *even with the path pin*. `path:` inputs for the other repos
    auto-refresh on every build, so no extra flag is needed for them.
-4. **Inspect without building:** `icedos rebuild --export-full-config` writes the merged,
-   evaluated config to `.state/.cache/full-config.json`.
+4. **Inspect without building:** `icedos configuration show options` browses every
+   option with its effective value (regenerates `.state/.cache/options-doc.json` on
+   demand).
 5. **Activation is the user's call.** A plain `icedos rebuild` (`switch`) mutates the
    **live system**. Only run it on explicit user request; default to `--build`.
 6. **Missing a binary?** Use `nix-shell -p <pkg> --run "…"` — don't report a tool as
@@ -236,7 +237,7 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`,
 `--run-vm`, `--update`, `--update-core`, `--update-nixpkgs`, `--update-repos`,
-`--update-repos-inputs`, `--update-hooks`, `--export-full-config`, `--ask`,
+`--update-repos-inputs`, `--update-hooks`, `--ask`,
 `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
 
 ## 8. Hard rules (do not violate)
