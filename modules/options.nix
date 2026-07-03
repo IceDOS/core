@@ -9,11 +9,13 @@ let
   inherit (lib) readFile types;
 
   inherit (icedosLib)
+    mkAttrsOfOption
     mkBoolOption
     mkEitherOption
     mkLinesListOption
     mkLinesOption
     mkListOption
+    mkNonEmptyStrOption
     mkNumberOption
     mkStrListOption
     mkStrOption
@@ -72,6 +74,18 @@ in
         allowUnfree = mkBoolOption { default = true; };
         arch = mkStrOption { default = "x86_64-linux"; };
 
+        bootloaders = {
+          grub = {
+            enable = mkBoolOption { default = false; };
+            device = mkStrOption { default = ""; };
+          };
+
+          systemd-boot = {
+            enable = mkBoolOption { default = true; };
+            mountPoint = mkNonEmptyStrOption { };
+          };
+        };
+
         buildVm = {
           memory = mkNumberOption { default = 1024; };
           cores = mkNumberOption { default = 1; };
@@ -118,6 +132,12 @@ in
 
         forceFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
+
+        git.users = mkSubmoduleAttrsOption { default = { }; } {
+          username = mkStrOption { default = ""; };
+          email = mkStrOption { default = ""; };
+        };
+
         isFirstBuild = mkBoolOption { default = false; };
 
         # Inline /etc/nixos/hardware-configuration.nix into the system. On by
@@ -142,7 +162,19 @@ in
           };
         };
 
+        ssh = mkBoolOption { default = false; };
+
+        sudo = {
+          passwordFeedback = mkBoolOption { default = true; };
+          rs = mkBoolOption { default = true; };
+        };
+
         version = mkStrOption { }; # Set according to docs at https://search.nixos.org/options?show=system.stateVersion
+
+        zsh = {
+          enable = mkBoolOption { default = true; };
+          aliases = mkAttrsOfOption { default = { }; } types.str;
+        };
       };
 
       repositories = mkSubmoduleListOption { default = [ ]; } {

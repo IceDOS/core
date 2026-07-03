@@ -30,7 +30,7 @@ generation, input masking, module resolution). Always go through `icedos rebuild
 |---|---|---|
 | **core** | framework | This repo. CLI (`icedos`), the `lib/` library, base modules, `build.sh`, flake-generation engine. The bible. |
 | `apps` | module repo | ~70 application modules (`btop`, `steam`, `me3`, `sunshine`, …). Per-module dirs. |
-| `hardware` | module repo | Kernel, graphics (`radeon`/`nvidia`), `pipewire`, `bluetooth`, bootloaders, `zram`, … |
+| `hardware` | module repo | Kernel, graphics (`radeon`/`nvidia`), `pipewire`, `bluetooth`, `zram`, … |
 | `desktop` | module repo | Cross-DE desktop glue: `gdm`, `stylix`, `displays`, portals, `entries`, `session`. |
 | `gnome` | DE repo | GNOME desktop + extensions. Root `icedos.nix` + `modules/`. |
 | `hyprland` | DE repo | Hyprland WM + plugins. Root `icedos.nix` + `modules/`. |
