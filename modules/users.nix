@@ -51,6 +51,13 @@ in
   # Rename pre-existing plain files to `<path>.hm-bak` instead of aborting activation.
   home-manager.backupFileExtension = "hm-bak";
 
+  # Install home-manager `home.packages` into `/etc/profiles/per-user/<user>` (via
+  # `users.users.<name>.packages`) rather than a per-user `nix-env` profile. The former
+  # rides the system-generation gcroot (`/nix/var/nix/gcroots/current-system`); the latter
+  # is rooted only by `/nix/var/nix/gcroots/per-user/<user>`, which `nh clean` (>=4.4.0)
+  # deletes as "orphaned" — unrooting the live profile so GC reaps it (kitty/walker vanish).
+  home-manager.useUserPackages = true;
+
   home-manager.users = mapAttrs (
     _: _:
     { lib, ... }:

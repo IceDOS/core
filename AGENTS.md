@@ -262,9 +262,9 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
   per-package duplicate.
 - `writeShellApplication` bash is built `--disable-progcomp`: `compgen`/`complete` are
   missing at runtime (shellcheck still passes). Use `nullglob` arrays instead.
-- hm-managed `xdg.desktopEntries` land in `~/.nix-profile/share/applications/` via a
-  symlink chain inotify can't track — cache-on-startup daemons need a `home.activation`
-  restart hook.
+- hm-managed `xdg.desktopEntries` land in `/etc/profiles/per-user/<user>/share/applications/`
+  (via `home-manager.useUserPackages`) through a symlink chain inotify can't track —
+  cache-on-startup daemons need a `home.activation` restart hook.
 - Module repos have no `enable` option — membership in the repo's `modules` list is the
   switch. Exception: a module's `meta.dependencies` auto-load, so anything that is a
   (optional)dependency of the repo's always-on `default` module loads without being

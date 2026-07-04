@@ -75,13 +75,17 @@ rec {
 
     # PATH export used by icedos systemd user services that shell out to
     # binaries from the host (e.g. systemctl, loginctl) and the user's
-    # nix profile, in addition to whatever derivation the unit ships.
+    # per-user system profile (`/etc/profiles/per-user/$USER`, where home-manager
+    # installs packages under `useUserPackages`), in addition to whatever
+    # derivation the unit ships. The legacy `~/.nix-profile/bin` is kept as a
+    # harmless fallback (empty once `home.packages` move to the per-user profile).
     # Spliced into writeShellScript bodies via `${icedosLib.bash.exportSystemPath}`.
     exportSystemPath = ''
       base_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
       nix_system_path="/run/current-system/sw/bin"
+      nix_peruser_path="/etc/profiles/per-user/''${USER}/bin"
       nix_user_path="''${HOME}/.nix-profile/bin"
-      export PATH="''${base_path}:''${nix_system_path}:''${nix_user_path}:$PATH"
+      export PATH="''${base_path}:''${nix_system_path}:''${nix_peruser_path}:''${nix_user_path}:$PATH"
     '';
 
     genHelpFlags =
