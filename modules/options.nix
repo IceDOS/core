@@ -209,6 +209,13 @@ in
         isSystemUser = mkBoolOption { default = false; };
         packages = mkStrListOption { default = [ ]; };
         sudo = mkBoolOption { default = true; };
+
+        # Opt-in: add this user to `nix.settings.trusted-users` so they can
+        # run unrestricted builds (e.g. shared build hosts, CI accounts).
+        # Off by default — non-admin users should not be daemon-trusted, as
+        # trusted-users can tamper the nix store. See
+        # https://nix.dev/manual/nix/command-ref/conf-file#conf-trusted-users
+        trusted = mkBoolOption { default = false; };
       };
     };
   };

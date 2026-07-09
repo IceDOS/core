@@ -10,10 +10,12 @@ let
   inherit (lib)
     attrNames
     concatLists
+    filterAttrs
     mapAttrs
     mapAttrsToList
     optional
     ;
+
   inherit (config.icedos) system users;
 
   # Resolve home dir the same way `users.users` below does — fall back to
@@ -26,10 +28,12 @@ let
     if (builtins.stringLength h != 0) then h else "/home/${user}";
 in
 {
-  nix.settings.trusted-users = [
-    "root"
-  ]
-  ++ (attrNames users);
+  # `nix.settings.trusted-users` grants unrestricted access to the nix
+  # daemon (store tampering, arbitrary build hooks, etc.) — see
+  # https://nix.dev/manual/nix/command-ref/conf-file#conf-trusted-users
+  # Only opt-in users are added; everyone else relies on the daemon's
+  # normal-user sandbox.
+  nix.settings.trusted-users = [ "root" ] ++ attrNames (filterAttrs (_: u: u.trusted) users);
 
   users.users = mapAttrs (
     user: _:
