@@ -220,5 +220,28 @@ in
     };
   };
 
-  config.icedos = (import ../lib/load-user-config.nix "${inputs.icedos-config}").icedos;
+  # Apply each source file as its own module so nixpkgs eval/type errors on
+  # `icedos.*` values point back at the exact file (config.toml vs .private.toml)
+  # instead of an anonymous `<unknown-file>`. The strict "same key in both files"
+  # check still runs earlier in load-user-config.nix (used by genflake), so
+  # splitting here loses no validation — it only sharpens error attribution.
+  imports =
+    let
+      inherit (builtins) pathExists;
+
+      icedosTable = file: (fromTOML (readFile file)).icedos or { };
+
+      mainFile = "${inputs.icedos-config}/config.toml";
+      privFile = "${inputs.icedos-config}/.private.toml";
+    in
+    [
+      (lib.setDefaultModuleLocation "config.toml" {
+        config.icedos = icedosTable mainFile;
+      })
+    ]
+    ++ lib.optional (pathExists privFile) (
+      lib.setDefaultModuleLocation ".private.toml" {
+        config.icedos = icedosTable privFile;
+      }
+    );
 }
