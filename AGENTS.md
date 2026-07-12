@@ -24,6 +24,14 @@ as a user — you toggle and configure IceDOS modules from `config.toml`.
 **Golden rule: never run `nixos-rebuild` directly.** IceDOS wraps it (state
 generation, input masking, module resolution). Always go through `icedos rebuild`.
 
+`icedos` is a system-wide command (installed in `environment.systemPackages`), so run it
+**from any directory** — it locates the config root itself (`icedos rebuild` internally
+`cd`s to the baked `configurationLocation`). **Never `cd` into a repo checkout** — least of
+all this `core` checkout — to build; a checkout is *not* the config root, and no `cd` is
+needed regardless. And **never run a plain `icedos rebuild`** (that is a `switch`: it needs
+`sudo` and mutates the live system). As an agent you only ever `icedos rebuild --build`; the
+**user** performs the switch.
+
 ## 2. Repo map
 
 | Repo | Kind | Purpose |
@@ -209,6 +217,10 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
 
 This is how you (the agent) validate edits **safely**. Paths are placeholders.
 
+**TL;DR:** edit the repo source → wire it into the user's `config.toml` (point `overrideUrl`
+at your checkout, and enable/configure the module you touched) → run `icedos rebuild --build`
+**from wherever you are**. No `cd`, no `sudo`, no activation. You never switch — the user does.
+
 0. **Locate the config root.** It's the directory holding `config.toml` plus a `flake.nix`
    that calls `icedos.lib.mkIceDOS`. It can live anywhere and be named anything (it's the
    user's own repo, not an IceDOS-org repo). **If you can't find it, ask the user** —
@@ -230,8 +242,10 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 4. **Inspect without building:** `icedos configuration show options` browses every
    option with its effective value (regenerates `.state/.cache/options-doc.json` on
    demand).
-5. **Activation is the user's call.** A plain `icedos rebuild` (`switch`) mutates the
-   **live system**. Only run it on explicit user request; default to `--build`.
+5. **You never activate — the user does.** A plain `icedos rebuild` is a `switch`: it needs
+   `sudo` and mutates the **live** system. Don't run it, don't try to (you have no `sudo`),
+   and don't otherwise touch the running Nix system. Always stop at `--build` and hand off to
+   the user to switch.
 6. **Missing a binary?** Use `nix-shell -p <pkg> --run "…"` — don't report a tool as
    unavailable.
 
@@ -242,7 +256,9 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 
 ## 8. Hard rules (do not violate)
 
-- **Never** `sudo nixos-rebuild` — only the `icedos` CLI.
+- **Never** `sudo nixos-rebuild`, and **never** a plain `icedos rebuild` (`switch`) — it
+  needs `sudo` and mutates the live system. Agents only ever `icedos rebuild --build`
+  (no `cd`, no `sudo`, no activation); the user performs the switch.
 - **Never** `git commit` / `stash` / `reset` / `pull` / `push` in any IceDOS repo. The
   user manages git between turns. Make the edits and stop.
 - If a repo (or the config root) you need isn't checked out locally, **ask the user** for
