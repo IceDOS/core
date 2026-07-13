@@ -205,6 +205,24 @@ let
 
   evaluatedConfig = toJSON evaluated;
 
+  # Map an absolute declaration/source path to a stable repo-relative one.
+  # Production evals resolve paths into /nix/store/<hash>-source/…; dev (path:
+  # override) resolves them under the core root. Strip whichever applies so the
+  # emitted pointer is usable against a repo checkout — and identical in both modes.
+  repoRelative =
+    p:
+    let
+      s = toString p;
+      coreRoot = toString ./.. + "/";
+      m = builtins.match "(.*/[a-z0-9]{32}-[^/]*/)(.*)" s;
+    in
+    if hasPrefix coreRoot s then
+      removePrefix coreRoot s
+    else if m != null then
+      builtins.elemAt m 1
+    else
+      s;
+
   # Searchable index of every IceDOS option (path, type, description, current
   # value) — consumed by `icedos configuration show`. Reuses the same evalModules
   # as `evaluatedConfig`: type/description come from `.options`, the value from
@@ -244,6 +262,27 @@ let
           d = o.description or null;
         in
         if builtins.isAttrs d then (d.text or null) else d;
+
+      # Where the option is declared, as "<repo-relative-file>:<line>". Prefer
+      # declarationPositions (carries line); fall back to declarations (file only).
+      renderDeclaredAt =
+        o:
+        let
+          positions = o.declarationPositions or [ ];
+          decls = o.declarations or [ ];
+        in
+        if positions != [ ] then
+          let
+            pos = builtins.head positions;
+          in
+          if (pos.line or null) == null then
+            repoRelative pos.file
+          else
+            "${repoRelative pos.file}:${toString pos.line}"
+        else if decls != [ ] then
+          repoRelative (builtins.head decls)
+        else
+          null;
     in
     toJSON (
       map (o: {
@@ -251,6 +290,7 @@ let
         type = o.type.description or "";
         description = renderDescription o;
         value = renderValue o;
+        declaredAt = renderDeclaredAt o;
       }) opts
     );
 
@@ -305,6 +345,7 @@ let
         inherit (m.meta) name;
         repo = m._repoInfo.url;
         description = m.meta.description or "";
+        source = if m ? _sourceFile then repoRelative m._sourceFile else null;
         dependencies = map depEntry (m.meta.dependencies or [ ]);
         optionalDependencies = map depEntry (m.meta.optionalDependencies or [ ]);
         enabled = elem (moduleKey m) loadedKeys;

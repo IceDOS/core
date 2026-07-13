@@ -521,6 +521,7 @@ let
           f:
           {
             _repoInfo = repo;
+            _sourceFile = f;
           }
           // import f {
             inherit config lib;
