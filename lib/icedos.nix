@@ -26,6 +26,7 @@ let
     _getModuleKey
     _parseFlakeUrl
     _resolveFlakeRevision
+    _urlIsGitScheme
     filterByAttrs
     findFirst
     flatMap
@@ -159,7 +160,7 @@ let
           if lockRev != "" then
             lockRev
           else if inlineRef != null then
-            "/${inlineRef}"
+            if icedosLib._urlIsGitScheme baseUrl then "?rev=${inlineRef}" else "/${inlineRef}"
           else
             "";
 
@@ -234,7 +235,7 @@ let
           fetchUrl = _repoInfo.fetchUrl or url;
           flakeRev =
             if (hasAttr "rev" _repoInfo) then
-              "/${_repoInfo.rev}"
+              if _urlIsGitScheme fetchUrl then "?rev=${_repoInfo.rev}" else "/${_repoInfo.rev}"
             else if (hasAttr "narHash" _repoInfo) && !(stringStartsWith "path:" fetchUrl) then
               "?narHash=${_repoInfo.narHash}"
             else

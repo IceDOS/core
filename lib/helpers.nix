@@ -741,6 +741,10 @@ rec {
   inputIsOverride = { input }: (hasAttr "override" input) && input.override;
   inputHasPatches = { input }: (hasAttr "patches" input) && builtins.length input.patches > 0;
 
+  # Detect git-transport flake URLs (git+ssh://, git+https://, git+file://, git://, …).
+  # These encode rev as a query parameter (?rev=<hash>), not a path segment.
+  _urlIsGitScheme = url: stringStartsWith "git+" url || stringStartsWith "git://" url;
+
   # Read the state flake.lock — the only lock that holds entries for the
   # dynamically-generated repo inputs. Returns null on first build (lock
   # absent) so callers can treat it as "no pin available".
@@ -751,11 +755,12 @@ rec {
     if pathExists lockPath then fromJSON (readFile lockPath) else null;
 
   # Determine the revision suffix from flake.lock based on repo name.
-  # Returns either /{rev}, ?narHash={hash}, or empty string.
+  # Returns /{rev}, ?rev={rev} (for git schemes), ?narHash={hash}, or empty string.
   _getRevisionFromLock =
     {
       repoName,
       lock,
+      url,
     }:
     let
       hasRev = hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock;
@@ -763,6 +768,8 @@ rec {
     in
     if (builtins.getEnv "ICEDOS_UPDATE" == "1") || (!hasRev && !hasNarHash) then
       ""
+    else if hasRev && _urlIsGitScheme url then
+      "?rev=${lock.nodes.${repoName}.locked.rev}"
     else if hasRev then
       "/${lock.nodes.${repoName}.locked.rev}"
     else
@@ -805,7 +812,7 @@ rec {
     else if !lockedOriginalMatches then
       ""
     else
-      _getRevisionFromLock { inherit repoName lock; };
+      _getRevisionFromLock { inherit repoName lock url; };
 
   # Split a flake URL of the form `scheme:owner/repo/<ref>` into
   # { baseUrl = "scheme:owner/repo"; ref = "<ref>"; }. Only applies to schemes
