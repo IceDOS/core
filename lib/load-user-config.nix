@@ -4,12 +4,11 @@ let
     attrNames
     concatStringsSep
     filter
+    foldl'
     isAttrs
     isList
     listToAttrs
     mapAttrs
-    pathExists
-    readFile
     ;
 
   filterAttrs =
@@ -21,14 +20,17 @@ let
       }) (filter (n: pred n set.${n}) (attrNames set))
     );
 
-  mainPath = "${configRoot}/config.toml";
-  privPath = "${configRoot}/.private.toml";
+  # Ordered, pre-parsed config files: config.toml (global base) then every
+  # enabled configs/*.toml (see lib/config-files.nix, which also applies the
+  # per-file `enable` toggle and strips it). Shared with modules/options.nix so
+  # the two consumers can never disagree about which files are loaded.
+  configFiles = import ./config-files.nix configRoot;
 
-  main = fromTOML (readFile mainPath);
-  priv = if pathExists privPath then fromTOML (readFile privPath) else { };
-
+  # Deep-merge b into a: attrs recurse, lists concatenate, and defining the same
+  # scalar key in two different files is a hard error. `bRel` names the file b
+  # came from so the collision is actionable.
   mergeStrict =
-    path: a: b:
+    bRel: path: a: b:
     let
       onlyA = filterAttrs (k: _: !(b ? ${k})) a;
       onlyB = filterAttrs (k: _: !(a ? ${k})) b;
@@ -40,13 +42,13 @@ let
           subPath = path ++ [ k ];
         in
         if isAttrs av && isAttrs bv then
-          mergeStrict subPath av bv
+          mergeStrict bRel subPath av bv
         else if isList av && isList bv then
           av ++ bv
         else
-          throw "duplicate config key '${concatStringsSep "." subPath}' present in both config.toml AND .private.toml — choose one"
+          throw "duplicate config key '${concatStringsSep "." subPath}' — set in '${bRel}' and an earlier config file; define it in exactly one"
       ) both;
     in
     onlyA // onlyB // resolved;
 in
-mergeStrict [ ] main priv
+foldl' (acc: f: mergeStrict f.rel [ ] acc f.content) { } configFiles

@@ -182,7 +182,7 @@ IceDOS is split into small repositories, pulled in as needed. You don't check th
 | [providers](https://github.com/IceDOS/providers) | modules | Extra package sources: `nur`, `jovian`. |
 | [template](https://github.com/IceDOS/template) | starter | The minimal config you copy to create your own. |
 | [cache-server](https://github.com/IceDOS/cache-server) | infrastructure | The pre-built-package server (not a module repo). |
-| *(your config)* | **you** | **Your own folder/repo** — holds `config.toml`, `flake.nix`, and any `extra-modules/`, and drives everything. |
+| *(your config)* | **you** | **Your own folder/repo** — holds `config.toml`, `flake.nix`, and any `modules/` + `configs/`, and drives everything. |
 
 > The official repos are the modules *we* happen to use — a reference, not a requirement. Anyone can publish their own IceDOS-style module repository and load it with `[[icedos.repositories]]`.
 
@@ -192,7 +192,7 @@ You customize IceDOS at three levels, in increasing order of power. Most people 
 
 1. **Simple — edit `config.toml`.** Flip the high-level options that IceDOS modules expose. Discover them any time with `icedos configuration show options`, or read each module's example `config.toml` in its repo.
 
-2. **Raw NixOS options.** Any top-level table in `config.toml` (or `.private.toml`) that **isn't** `icedos` is applied directly as NixOS configuration — no module needed. NixOS itself checks these for you.
+2. **Raw NixOS options.** Any top-level table in `config.toml` (or a `configs/*.toml`) that **isn't** `icedos` is applied directly as NixOS configuration — no module needed. NixOS itself checks these for you.
 
    ```toml
    [services.joycond]
@@ -205,18 +205,20 @@ You customize IceDOS at three levels, in increasing order of power. Most people 
 
    This covers anything TOML can express. For values TOML can't (packages, `null`, `lib.*`), use level 3.
 
-3. **Advanced — custom [modules](#-nix-terms-in-plain-english).** Drop real Nix into the `extra-modules/` folder for full control. Two kinds are picked up automatically:
+3. **Advanced — custom [modules](#-nix-terms-in-plain-english).** Drop real Nix into the `modules/` folder for full control. Two kinds are picked up automatically:
 
-   - **Plain NixOS module** — `extra-modules/<name>/default.nix` (or a loose `extra-modules/<name>.nix`). A standard module receiving `{ config, lib, pkgs, ... }`.
-   - **IceDOS module** — `extra-modules/<name>/icedos.nix`. A full IceDOS module (may declare `options`, `inputs`, `outputs.nixosModules`, `meta`) exactly like one from a repo (see [AGENTS.md](./AGENTS.md)). It **must** live in its own subfolder.
+   - **Plain NixOS module** — `modules/<name>/default.nix` (or a loose `modules/<name>.nix`). A standard module receiving `{ config, lib, pkgs, ... }`.
+   - **IceDOS module** — `modules/<name>/icedos.nix`. A full IceDOS module (may declare `options`, `inputs`, `outputs.nixosModules`, `meta`) exactly like one from a repo (see [AGENTS.md](./AGENTS.md)). It **must** live in its own subfolder.
 
    ```text
-   extra-modules/
+   modules/
    ├── my-tweak/
    │   └── default.nix     # plain NixOS module
    └── my-feature/
        └── icedos.nix      # full IceDOS module (options + outputs)
    ```
+
+   The scanned module directories are `icedos.system.extraModules` (a list, default `["modules"]`) — add more paths to load modules from several folders. Config directories work the same way via `icedos.system.extraConfigs` (see below).
 
 ### Enabling modules
 
@@ -284,7 +286,7 @@ Your machine's `/etc/nixos/hardware-configuration.nix` is loaded into the system
 loadHardwareConfiguration = true   # default; set false to opt out
 ```
 
-Only set it to `false` if you provide the equivalent hardware settings another way (a module or `extra-modules/`).
+Only set it to `false` if you provide the equivalent hardware settings another way (a module or `modules/`).
 
 ### Users
 
@@ -331,9 +333,15 @@ source = "/home/me/shared"
 target = "shared"
 ```
 
-### `.private.toml` (secrets & per-host values)
+### Splitting config across files (`configs/`)
 
-`.private.toml` has the same shape as `config.toml` and is **merged strictly** with it (lists are joined; defining the same key in both files is an error). Use it to keep secrets or machine-specific values out of your main, shareable config.
+`config.toml` is the global base. Every `*.toml` under `configs/` (name-sorted) is autoloaded and **merged strictly** onto it — lists are joined; defining the same key in two files is an error. Split by concern (`configs/opencode.toml`, `configs/gaming.toml`, …) instead of one giant file. The scanned directories are `icedos.system.extraConfigs` (a list, default `["configs"]`).
+
+Any extra config file can opt out of loading with a top-level `enable = false` (default `true`) — a quick per-file kill switch without deleting it. `config.toml`, when present, is the base and always loads.
+
+`config.toml` is itself **optional** — a config root can be defined entirely by `configs/*.toml` and/or `modules/`. With no `config.toml`, `extraConfigs`/`extraModules` keep their defaults (`configs`/`modules`), so those dirs still load.
+
+A **hidden** config `configs/.<name>.toml` (dot-prefixed) loads exactly the same, but is gitignored — so it stays on this one machine. That's the place for secrets or per-host values you don't want committed (it replaces the old `.private.toml`). Hidden configs **are** captured by `icedos configuration rollback` snapshots, so their values are copied into the state cache under `.state/.cache/`.
 
 ### Hooks (run commands around rebuilds/cleanup)
 
@@ -533,7 +541,7 @@ Each user's login password comes from `defaultPassword` under `[icedos.users.<na
 defaultPassword = "something-better"
 ```
 
-> **⚠️ Security note:** `defaultPassword` sets the account's *initial* password (the one it's created with). Because IceDOS leaves `users.mutableUsers` at its default (`true`), you can change it afterwards with `passwd` and that change **persists** across rebuilds. But the value written here is plain text and world-readable in the Nix store, so treat the *initial* password as non-secret: **keep your config repo private** (put it in `.private.toml`), don't reuse an important password, and consider running `passwd` after first login to set the real one.
+> **⚠️ Security note:** `defaultPassword` sets the account's *initial* password (the one it's created with). Because IceDOS leaves `users.mutableUsers` at its default (`true`), you can change it afterwards with `passwd` and that change **persists** across rebuilds. But the value written here is plain text and world-readable in the Nix store, so treat the *initial* password as non-secret: **keep your config repo private** (put it in a hidden `configs/.<name>.toml`), don't reuse an important password, and consider running `passwd` after first login to set the real one.
 
 ### How do I go back to plain NixOS?
 

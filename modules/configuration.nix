@@ -1,6 +1,7 @@
 {
   config,
   icedosLib,
+  lib,
   pkgs,
   ...
 }:
@@ -14,6 +15,12 @@ let
   fzf = "${pkgs.fzf}/bin/fzf";
   optionsCache = "${configurationLocation}/.cache/options-doc.json";
   modulesCache = "${configurationLocation}/.cache/modules-doc.json";
+
+  # Extra-config dirs (icedos.system.extraConfigs) as shell-quoted args, so the
+  # index-staleness check watches every configured config dir, not just `configs`.
+  configDirsArgs = lib.concatStringsSep " " (
+    map lib.escapeShellArg config.icedos.system.extraConfigs
+  );
 
   # Render one option's detail: type, description, and a paste-ready TOML
   # snippet showing the option's current value (user override if set, else the
@@ -74,7 +81,7 @@ let
     ' "${modulesCache}"
   '';
 
-  # mtime-based staleness: regenerate the index when config.toml / .private.toml
+  # mtime-based staleness: regenerate the index when config.toml / configs/*.toml
   # / the state lock are newer than either doc (or one is missing). Regen reuses
   # the build app through the state-dir build.sh shim (`nix run path:.`), which
   # sets up the env + PATH the genflake eval needs — the same path `icedos
@@ -85,14 +92,21 @@ let
       die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
     fi
 
+    CONFIG_DIRS=(${configDirsArgs})
     stale=0
     for cache in "${optionsCache}" "${modulesCache}"; do
       [ -f "$cache" ] || stale=1
       for src in "${configurationLocation}/../config.toml" \
-                 "${configurationLocation}/../.private.toml" \
                  "${configurationLocation}/flake.lock"; do
         [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
       done
+      shopt -s nullglob
+      for d in "''${CONFIG_DIRS[@]}"; do
+        for src in "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml; do
+          [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
+        done
+      done
+      shopt -u nullglob
     done
 
     if [ "$stale" -eq 1 ]; then

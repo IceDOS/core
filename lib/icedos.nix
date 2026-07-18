@@ -769,34 +769,42 @@ let
         };
       };
 
-    # Load all extra modules from the config's extra-modules directory
-    # Returns empty list if no extra modules directory exists
+    # Load all IceDOS-style extra modules (icedos.nix) from every configured
+    # extra-module directory (config.system.extraModules, default `modules`).
+    # Missing directories contribute nothing; returns [] when none exist.
     _loadExtraModules =
       {
         configFlake,
         narHash,
       }:
       let
-        extraModulesPath = "${configFlake}/extra-modules";
+        dirs = config.system.extraModules or [ "modules" ];
+
+        loadDir =
+          dir:
+          let
+            extraModulesPath = "${configFlake}/${dir}";
+          in
+          if !(pathExists extraModulesPath) then
+            [ ]
+          else
+            map
+              (
+                filePath:
+                _importExtraModule {
+                  inherit filePath narHash extraModulesPath;
+                }
+              )
+              (
+                flatten (
+                  icedosLib.scanModules {
+                    path = extraModulesPath;
+                    filename = "icedos.nix";
+                  }
+                )
+              );
       in
-      if !(pathExists extraModulesPath) then
-        [ ]
-      else
-        map
-          (
-            filePath:
-            _importExtraModule {
-              inherit filePath narHash extraModulesPath;
-            }
-          )
-          (
-            flatten (
-              icedosLib.scanModules {
-                path = extraModulesPath;
-                filename = "icedos.nix";
-              }
-            )
-          );
+      flatten (map loadDir dirs);
 
     # Get the configuration flake (either from inputs or local filesystem)
     _getConfigFlake =

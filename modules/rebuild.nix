@@ -46,6 +46,10 @@ let
 
   hasPreUpdate = preUpdate != [ ];
   hasPostUpdate = postUpdate != [ ];
+
+  # Extra-config dirs (icedos.system.extraConfigs) as shell-quoted args, so the
+  # snapshot machinery mirrors every configured config dir, not just `configs`.
+  configDirsArgs = concatStringsSep " " (map lib.escapeShellArg icedos.system.extraConfigs);
 in
 {
   icedos.system.toolset.commands = [
@@ -56,6 +60,7 @@ in
       script = ''
         CACHE_DIR=".cache"
         CACHED_NAMES=()
+        CONFIG_DIRS=(${configDirsArgs})
 
         cd "${configurationLocation}"
 
@@ -86,6 +91,72 @@ in
             cp "$FILE" "$DATE_FOLDER/$NAME"
             CACHED_NAMES+=("$NAME")
           fi
+        }
+
+        # Latest snapshot folder carrying the .config-set marker — the anchor
+        # that flags a folder as a config (not flake-only) snapshot. A marker,
+        # not config.toml, because config.toml is optional (a root may be all
+        # configs/*.toml + modules/).
+        function latest_config_snapshot() {
+          local d last=""
+          shopt -s nullglob
+          for d in "$CACHE_DIR"/*/; do
+            [ -f "''${d}.config-set" ] && last="$d"
+          done
+          shopt -u nullglob
+          printf '%s' "$last"
+        }
+
+        # True (0) when the working config set (config.toml + every *.toml,
+        # including hidden .*.toml, under each CONFIG_DIRS entry) differs from
+        # snapshot dir $1 (empty $1 = no snapshot).
+        function config_set_changed() {
+          local snap="$1" d f base
+          [ -n "$snap" ] || return 0
+          # config.toml is optional: changed if its presence or content differs.
+          if [ -f "../config.toml" ]; then
+            diff -q "../config.toml" "''${snap}config.toml" &> /dev/null || return 0
+          elif [ -f "''${snap}config.toml" ]; then
+            return 0
+          fi
+          shopt -s nullglob
+          for d in "''${CONFIG_DIRS[@]}"; do
+            for f in "../$d/"*.toml "../$d/".*.toml; do
+              base="$(basename "$f")"
+              diff -q "$f" "''${snap}$d/$base" &> /dev/null || { shopt -u nullglob; return 0; }
+            done
+            for f in "''${snap}$d/"*.toml "''${snap}$d/".*.toml; do
+              base="$(basename "$f")"
+              [ -f "../$d/$base" ] || { shopt -u nullglob; return 0; }
+            done
+          done
+          shopt -u nullglob
+          return 1
+        }
+
+        # Snapshot the config set as a unit (config.toml + every *.toml, including
+        # hidden .*.toml, under each CONFIG_DIRS entry), preserving each dir's
+        # layout, only when it changed — so `icedos configuration rollback` can
+        # restore the exact config that built a generation. Note: hidden configs
+        # may hold secrets/host overrides, so they are copied into the state cache
+        # (readable there) as a consequence.
+        function snapshot_config_set() {
+          local snap folder d f
+          snap="$(latest_config_snapshot)"
+          config_set_changed "$snap" || return 0
+          folder="$CACHE_DIR/$(date -Is)"
+          mkdir -p "$folder"
+          : > "$folder/.config-set"                 # anchor (config.toml may be absent)
+          [ -f "../config.toml" ] && cp "../config.toml" "$folder/config.toml"
+          shopt -s nullglob
+          for d in "''${CONFIG_DIRS[@]}"; do
+            for f in "../$d/"*.toml "../$d/".*.toml; do
+              mkdir -p "$folder/$d"
+              cp "$f" "$folder/$d/$(basename "$f")"
+            done
+          done
+          shopt -u nullglob
+          CACHED_NAMES+=("config set")
         }
 
         if [ ! -d "${configurationLocation}" ]; then
@@ -135,7 +206,7 @@ in
           done
         ''}
 
-        cache "../config.toml"
+        snapshot_config_set
         cache "../flake.lock" ".config"
         cache "../flake.nix" ".config"
         cache "flake.lock" ".state"
@@ -147,8 +218,9 @@ in
         fi
 
         # Record which config snapshot built the just-created generation so
-        # `icedos configuration rollback` can restore the exact config.toml that
-        # built it. Only switch/boot mint a new system generation;
+        # `icedos configuration rollback` can restore the exact config set that
+        # built it. Only switch/boot mint a new system generation; --build
+        # never produces one so there is nothing to record.
         # build/build-vm/run-vm do not.
         GEN_CREATED=1
         for arg in "$@"; do
@@ -163,7 +235,7 @@ in
           shopt -s nullglob
           SNAP=""
           for d in "$CACHE_DIR"/*/; do
-            [ -f "''${d}config.toml" ] && SNAP="$(basename "$d")"
+            [ -f "''${d}.config-set" ] && SNAP="$(basename "$d")"
           done
           shopt -u nullglob
           if [ -n "$GEN" ] && [ -n "$SNAP" ]; then

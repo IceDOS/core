@@ -48,11 +48,17 @@ let
     validate
     ;
 
+  # User module/config directories (config-root relative), read raw here the
+  # same way modules/options.nix declares their defaults. Drive the config-flake
+  # filter (below), the generated extra-module imports, and — for configs —
+  # lib/config-files.nix via load-user-config.nix / options.nix.
+  extraModulesDirs = icedos.system.extraModules or [ "modules" ];
+  extraConfigsDirs = icedos.system.extraConfigs or [ "configs" ];
+
   configRootKeep = [
     "flake.nix"
     "flake.lock"
     "config.toml"
-    ".private.toml"
   ];
 
   # Patch files declared by `[[icedos.repositories]]` `patches`. They must
@@ -76,8 +82,9 @@ let
         relativePath = removePrefix "${ICEDOS_CONFIG_ROOT}/" path;
       in
       (elem relativePath configRootKeep)
-      || (relativePath == "extra-modules")
-      || (hasPrefix "extra-modules/" relativePath)
+      || (any (d: relativePath == d || hasPrefix "${d}/" relativePath) (
+        extraModulesDirs ++ extraConfigsDirs
+      ))
       || (keepPatch relativePath);
   };
 
@@ -371,6 +378,12 @@ let
     multiline = true;
     allowPrettyValues = true;
   } flakeInputs;
+
+  # Full merged user config as JSON — config.toml + every enabled
+  # configs/*.toml (see lib/load-user-config.nix). Consumed by build.sh
+  # (--export-search-index) to replace the old toml2json-of-config.toml
+  # export, so the webui sees the complete config set, not just config.toml.
+  userConfigRaw = toJSON (import ./load-user-config.nix ICEDOS_CONFIG_ROOT);
 in
 {
   inherit
@@ -378,6 +391,7 @@ in
     flakeInputsNix
     optionsDoc
     modulesDoc
+    userConfigRaw
     ;
 
   flakeFinal = ''
@@ -445,18 +459,26 @@ in
                 imports = getModules "''${inputs.icedos-core}/modules";
               }
 
-              # Extra modules and stateVersion
+              # Extra modules and stateVersion. Each configured extra-module
+              # directory (default `modules`) is scanned and imported; missing
+              # ones are skipped.
               {
-                imports = if (pathExists "''${inputs.icedos-config}/extra-modules") then (getModules "''${inputs.icedos-config}/extra-modules") else [];
+                imports = lib.flatten (map (
+                  d:
+                  let
+                    p = "''${inputs.icedos-config}/''${d}";
+                  in
+                  if pathExists p then getModules p else [ ]
+                ) ${builtins.toJSON extraModulesDirs});
                 config.system.stateVersion = "${icedos.system.version}";
               }
 
               # Raw NixOS config passthrough: every top-level table in
-              # config.toml / .private.toml *except* [icedos.*] is applied verbatim
+              # config.toml / configs/*.toml *except* [icedos.*] is applied verbatim
               # as NixOS config. nixpkgs' module system types & validates each option —
               # IceDOS declares no schema. (home-manager is reachable the usual way,
               # under [home-manager.users.<name>.*].)
-              (lib.setDefaultModuleLocation "config.toml / .private.toml (raw NixOS passthrough)" {
+              (lib.setDefaultModuleLocation "config.toml / configs/*.toml (raw NixOS passthrough)" {
                 config = builtins.removeAttrs userConfig [ "icedos" ];
               })
 

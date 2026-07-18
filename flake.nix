@@ -24,14 +24,11 @@
           inherit (builtins) isString pathExists;
           isFlake = value: (value._type or null) == "flake";
 
+          # config.toml is optional — a config root may be defined entirely by
+          # configs/*.toml and/or modules/. The flake itself (flake.nix) is the
+          # marker that identifies the root.
           _configRoot =
-            if
-              (
-                (isFlake configRoot)
-                && (pathExists "${configRoot}/flake.nix")
-                && (pathExists "${configRoot}/config.toml")
-              )
-            then
+            if ((isFlake configRoot) && (pathExists "${configRoot}/flake.nix")) then
               configRoot
             else
               (throw "The value of `configRoot` is invalid. Please set `configRoot = self;`.");

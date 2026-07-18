@@ -217,10 +217,15 @@ if [ "$export_search_index" == "1" ]; then
     jsonfmt .cache/options-doc.json -w
     jsonfmt .cache/modules-doc.json -w
 
-    # Raw user config.toml as JSON. The webui editor reads this next to
-    # options-doc.json to tell which keys the user actually set and to recover
-    # submodule-list values (repositories, users) the options doc doesn't expand.
-    toml2json "$ICEDOS_CONFIG_ROOT/config.toml" > .cache/config.json
+    # Full merged user config as JSON (config.toml + every enabled
+    # configs/*.toml — see lib/load-user-config.nix). The webui editor reads
+    # this next to options-doc.json to tell which keys the user actually set
+    # and to recover submodule-list values (repositories, users) the options
+    # doc doesn't expand.
+    user_config=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
+      --file "$ICEDOS_ROOT/lib/genflake.nix" \
+      --apply 'g: g.userConfigRaw')
+    jq '.' <<< "$user_config" > .cache/config.json
     jsonfmt .cache/config.json -w
   )
 

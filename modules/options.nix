@@ -130,6 +130,17 @@ in
           url = mkStrOption { };
         }; # e.g. https://github.com/NixOS/nixpkgs/branches/active
 
+        # User-supplied module directories (config-root relative). Each is scanned
+        # for modules (subfolders with default.nix / icedos.nix, or loose *.nix)
+        # and imported. Read from config.toml only (bootstrap path).
+        extraModules = mkStrListOption { default = [ "modules" ]; };
+
+        # User-supplied config directories (config-root relative). Every *.toml
+        # under each is autoloaded and merged onto config.toml (the global base).
+        # Hidden .*.toml load too, as local-only overrides. Read from config.toml
+        # only (bootstrap path). See lib/config-files.nix.
+        extraConfigs = mkStrListOption { default = [ "configs" ]; };
+
         forceFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
 
@@ -221,27 +232,22 @@ in
   };
 
   # Apply each source file as its own module so nixpkgs eval/type errors on
-  # `icedos.*` values point back at the exact file (config.toml vs .private.toml)
-  # instead of an anonymous `<unknown-file>`. The strict "same key in both files"
-  # check still runs earlier in load-user-config.nix (used by genflake), so
-  # splitting here loses no validation — it only sharpens error attribution.
+  # `icedos.*` values point back at the exact file (config.toml or a specific
+  # configs/*.toml) instead of an anonymous `<unknown-file>`. The strict
+  # "same key in two files" check still runs in load-user-config.nix (used by
+  # genflake), so splitting here loses no validation — it only sharpens
+  # error attribution.
   imports =
     let
-      inherit (builtins) pathExists;
-
-      icedosTable = file: (fromTOML (readFile file)).icedos or { };
-
-      mainFile = "${inputs.icedos-config}/config.toml";
-      privFile = "${inputs.icedos-config}/.private.toml";
+      # config.toml + every enabled configs/*.toml, pre-parsed — the same set
+      # load-user-config.nix merges (including the per-file `enable` toggle), so
+      # schema validation and the raw passthrough never see a different list.
+      configFiles = import ../lib/config-files.nix "${inputs.icedos-config}";
     in
-    [
-      (lib.setDefaultModuleLocation "config.toml" {
-        config.icedos = icedosTable mainFile;
-      })
-    ]
-    ++ lib.optional (pathExists privFile) (
-      lib.setDefaultModuleLocation ".private.toml" {
-        config.icedos = icedosTable privFile;
+    map (
+      f:
+      lib.setDefaultModuleLocation f.rel {
+        config.icedos = f.content.icedos or { };
       }
-    );
+    ) configFiles;
 }

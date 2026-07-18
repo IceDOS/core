@@ -47,13 +47,13 @@ needed regardless. And **never run a plain `icedos rebuild`** (that is a `switch
 | `tweaks` | module repo | Perf/behavior tweaks: `cachyos`, `gaming`, `kernel`, `dmem`. |
 | `providers` | module repo | Extra package sources: `nur`, `jovian`. |
 | `template` | starter | Minimal user config to fork when creating your own config root. Generic, no personal data. |
-| *(your config)* | **user config** | The user's own config repo — **any name/location**, not an IceDOS-org repo. Holds `config.toml` + `flake.nix` + `extra-modules/` and drives everything. Created by forking `template`. |
+| *(your config)* | **user config** | The user's own config repo — **any name/location**, not an IceDOS-org repo. Holds `config.toml` + `flake.nix` + `modules/` + `configs/` and drives everything. Created by forking `template`. |
 | `cache-server` | infra | Self-hosted Nix binary cache (atticd + nginx + caddy). **Not** a module repo. |
 
 ## 3. Build pipeline (mental model)
 
 ```
-<config-root>/config.toml (+ .private.toml)
+<config-root>/config.toml? (+ configs/*.toml)   (config.toml optional; root marked by flake.nix)
         │  lib/load-user-config.nix   (parse TOML, strict-merge)
         ▼
 icedos.* options                       modules/options.nix declares the schema
@@ -73,14 +73,23 @@ nh os <switch|boot|build|build-vm> path:.
   flake as a Nix string (`flakeFinal`). Also exposes `optionsDoc` / `modulesDoc`
   (the search index behind `icedos configuration show`) and `evaluatedConfig`.
 - Core's own modules are auto-imported via `getModules "${inputs.icedos-core}/modules"`
-  (see `lib/genflake.nix`). A user's `extra-modules/` is imported the same way.
+  (see `lib/genflake.nix`). A user's module dirs (`icedos.system.extraModules`, default
+  `["modules"]`) are imported the same way.
+- User config beyond `config.toml` is autoloaded from the `icedos.system.extraConfigs`
+  dirs (default `["configs"]`): every `*.toml` (including hidden `.*.toml`) is enumerated
+  by `lib/config-files.nix` and strict-merged in, with `config.toml` as the base. Both
+  options are bootstrap paths — read from `config.toml` only (like `system.arch`), or their
+  defaults (`configs`/`modules`) when there is no `config.toml` (which is optional; the root
+  is marked by `flake.nix`). An
+  extra config file opts out of loading with a top-level `enable = false` (default true);
+  `config-files.nix` strips the key so it never leaks into the raw passthrough.
 - **Raw NixOS passthrough** — any top-level TOML table that is **not** `icedos` is
   injected verbatim as a NixOS `config` body. It declares **no** IceDOS schema;
   nixpkgs' own module system types and validates each option. `genflake.nix` injects it
   as `{ config = builtins.removeAttrs userConfig [ "icedos" ]; }` next to the
-  `extra-modules` import. Use it for plain option toggles no IceDOS module exposes
+  extra-modules import. Use it for plain option toggles no IceDOS module exposes
   (e.g. `[services.joycond] enable = true`, or `[home-manager.users.ice.programs.git]`
-  for a user); it complements `extra-modules/` for anything that needs real Nix
+  for a user); it complements `modules/` for anything that needs real Nix
   (packages, `null`, `mkForce`, `lib.*`). Because the namespace is "everything except
   `icedos`", a stray top-level key (e.g. a `[applications.btop]` missing its `icedos.`
   prefix) fails loud as an unknown NixOS option — which is the intended safety net.
@@ -95,7 +104,8 @@ Exposed to every module as **`icedosLib`**.
 | `lib/options/validate.nix` | `validate.{int,float,enum,str,nonEmpty,list,requires,abort}` — rich, path-aware error messages. |
 | `lib/helpers.nix` | `getModules`, `scanModules`, `bash.prelude`, `bash.{blue,green,dim*}String`, `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `generateAccent`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, flake-revision helpers. |
 | `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. Stamps every module's emitted NixOS config with `<repo>#<module>` provenance (`setDefaultModuleLocation`) so nixpkgs eval/type/conflict errors name the source module instead of an anonymous generated location. Extra-modules share this: an `icedos.nix` extra-module is labeled `config#<name>`; a plain `default.nix` extra-module is imported by path, so it already carries its real on-disk location. |
-| `lib/load-user-config.nix` | Parse `config.toml` + `.private.toml`, strict-merge (duplicate key across the two = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
+| `lib/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
+| `lib/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
 | `lib/common.nix` | `abortIf`, `filterByAttrs`, `findFirst`, `flatMap`, `generateAttrPath`, … |
 | `lib/constants.nix` | `ICEDOS_*` env/stage constants, `INPUTS_PREFIX`. |
 | `lib/logger.nix` | `log`/`logValue` — active when `ICEDOS_LOGGING=1`. |
