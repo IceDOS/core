@@ -21,11 +21,11 @@ let
   validNameRegex = "[a-zA-Z0-9_-]+";
 
   rebootBin = pkgs.writeShellScriptBin "icedos-reboot" ''
-    exec /run/wrappers/bin/pkexec ${pkgs.systemd}/bin/systemctl reboot -i
+    exec ${pkgs.systemd}/bin/run0 ${pkgs.systemd}/bin/systemctl reboot -i
   '';
 
   rebootUefiBin = pkgs.writeShellScriptBin "icedos-reboot-uefi" ''
-    exec /run/wrappers/bin/pkexec ${pkgs.systemd}/bin/systemctl reboot --firmware-setup -i
+    exec ${pkgs.systemd}/bin/run0 ${pkgs.systemd}/bin/systemctl reboot --firmware-setup -i
   '';
 
   logoutBin = pkgs.writeShellScriptBin "icedos-logout" ''
@@ -33,11 +33,11 @@ let
   '';
 
   poweroffBin = pkgs.writeShellScriptBin "icedos-poweroff" ''
-    exec /run/wrappers/bin/pkexec ${pkgs.systemd}/bin/systemctl poweroff -i
+    exec ${pkgs.systemd}/bin/run0 ${pkgs.systemd}/bin/systemctl poweroff -i
   '';
 
   suspendBin = pkgs.writeShellScriptBin "icedos-suspend" ''
-    exec /run/wrappers/bin/pkexec ${pkgs.systemd}/bin/systemctl suspend -i
+    exec ${pkgs.systemd}/bin/run0 ${pkgs.systemd}/bin/systemctl suspend -i
   '';
 
   resolve =
