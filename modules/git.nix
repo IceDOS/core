@@ -130,26 +130,60 @@ in
           help = "-c <commit_hash> -d <destination_directory>";
         }
         {
-          command = "pull";
+          command = "rpull";
 
           script = ''
             set -u
 
-            case "''${1-}" in
-              -h | --help | help)
-                echo "usage: icedos git pull <path>"
-                echo "fast-forward pull every git repo found under <path> (default: current directory)"
-                exit 0
-                ;;
-            esac
+            function printHelp() {
+              echo "usage: icedos git rpull [--exclude <patterns>] [<path>]"
+              echo "fast-forward pull every git repo found under <path> (default: current directory)"
+              echo ""
+              echo "options:"
+              echo -e "  ${yellowString "--exclude <patterns>"}: comma-separated substrings; repos whose path contains any match are skipped"
+            }
 
-            root="''${1:-.}"
+            exclude_patterns=()
+            positional=()
+
+            while [[ $# -gt 0 ]]; do
+              case "$1" in
+                -h | --help | help)
+                  printHelp
+                  exit 0
+                  ;;
+                --exclude)
+                  IFS=',' read -ra exclude_patterns <<< "$2"
+                  shift 2
+                  ;;
+                *)
+                  positional+=("$1")
+                  shift
+                  ;;
+              esac
+            done
+
+            root="''${positional[0]:-.}"
             [ -d "$root" ] || die "not a directory: $root"
 
+            excluded=0
             failed=()
             count=0
 
             while IFS= read -r -d "" repo; do
+              skip=false
+              for pat in "''${exclude_patterns[@]}"; do
+                if [[ "$repo" == *"$pat"* ]]; then
+                  skip=true
+                  break
+                fi
+              done
+
+              if $skip; then
+                excluded=$((excluded + 1))
+                continue
+              fi
+
               count=$((count + 1))
               log_step "$repo"
               if ! git -C "$repo" pull --ff-only; then
@@ -158,13 +192,20 @@ in
             done < <(find "$root" -type d -exec test -e "{}/.git" ";" -prune -print0)
 
             echo
-            if [ "$count" -eq 0 ]; then
+            if [ "$count" -eq 0 ] && [ "$excluded" -eq 0 ]; then
               log_warn "no git repositories found under $root"
               exit 0
             fi
 
+            if [ "$count" -eq 0 ] && [ "$excluded" -gt 0 ]; then
+              log_warn "all $excluded repositories excluded, nothing to pull"
+              exit 0
+            fi
+
             if [ ''${#failed[@]} -eq 0 ]; then
-              log_ok "all $count repositories pulled successfully"
+              msg="all $count repositories pulled successfully"
+              [ "$excluded" -gt 0 ] && msg="$msg ($excluded excluded)"
+              log_ok "$msg"
             else
               log_fail "failed pulls:"
               for d in "''${failed[@]}"; do
@@ -174,7 +215,7 @@ in
             fi
           '';
 
-          help = "<path> - fast-forward pull every git repo found recursively under path (default: current directory)";
+          help = "[--exclude <patterns>] <path> - fast-forward pull every git repo found recursively under path (default: current directory)";
         }
       ];
     }
