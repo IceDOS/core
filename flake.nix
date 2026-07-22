@@ -82,6 +82,37 @@
             type = "app";
             program = icedosBuild;
           };
+
+          devShells.${system}.default = pkgs.mkShell {
+            packages = [ pkgs.nix ];
+
+            shellHook = ''
+              source ${self}/lib/prelude.sh
+
+              icedos() {
+                if [ "$1" != "rebuild" ]; then
+                  echo "Available commands:"
+                  echo -e "> ''${PURPLE}rebuild''${NC}           rebuild the system"
+                  return 1
+                fi
+                shift
+                local dir=""
+                local args=()
+                while [[ $# -gt 0 ]]; do
+                  case "$1" in
+                    --dir) dir="$2"; shift 2 ;;
+                    *) args+=("$1"); shift ;;
+                  esac
+                done
+                if [ -n "$dir" ]; then
+                  cd "$dir" || return 1
+                fi
+                nix run path:. -- "''${args[@]}"
+              }
+
+              export -f icedos
+            '';
+          };
         };
     };
 }

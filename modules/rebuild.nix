@@ -62,6 +62,49 @@ in
         CACHED_NAMES=()
         CONFIG_DIRS=(${configDirsArgs})
 
+        REBUILD_DIR=""
+        args=()
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --dir)
+              REBUILD_DIR="$2"
+              shift 2
+              ;;
+            *)
+              args+=("$1")
+              shift
+              ;;
+          esac
+        done
+
+        if [ -n "$REBUILD_DIR" ]; then
+          if [ ! -d "$REBUILD_DIR" ]; then
+            echo -e "${redString "error"}: directory '$REBUILD_DIR' does not exist"
+            exit 1
+          fi
+          if [ ! -f "$REBUILD_DIR/flake.nix" ]; then
+            echo -e "${redString "error"}: no flake.nix found in '$REBUILD_DIR'"
+            exit 1
+          fi
+          cd "$REBUILD_DIR"
+          nix run path:. -- "''${args[@]}"
+          exit $?
+        fi
+
+        if [ ! -d "${configurationLocation}" ]; then
+          printf -v PROMPT '%b' "${dimGreenString ">"} Configuration location (${configurationLocation}) does not exist. Use current directory ($PWD)? [y/N] "
+          read -r -p "$PROMPT" ANSWER
+          case "$ANSWER" in
+            [yY]|[yY][eE][sS]) ;;
+            *)
+              echo -e "${redString "error"}: configuration path is invalid, execute 'nix run .' inside the configuration directory to update the path."
+              exit 1
+              ;;
+          esac
+          nix run path:. -- "''${args[@]}"
+          exit $?
+        fi
+
         cd "${configurationLocation}"
 
         LATEST_CACHE_FOLDER=$(ls -dt "$CACHE_DIR"/*/ 2>/dev/null | head -1)
@@ -159,11 +202,6 @@ in
           CACHED_NAMES+=("config set")
         }
 
-        if [ ! -d "${configurationLocation}" ]; then
-          echo -e "${redString "error"}: configuration path is invalid, execute 'nix run .' inside the configuration directory to update the path."
-          exit 1
-        fi
-
         ${optionalString (hasPreUpdate || hasPostUpdate) ''
           # --update-hooks: run pre+post update hooks and exit. Skips
           # preRebuild/postRebuild, build.sh, cache, reboot check. For
@@ -171,7 +209,7 @@ in
           # without a full system rebuild. ICEDOS_HOOKS_ONLY tells hooks
           # that no HM activation will follow, so they should fully
           # complete their work standalone.
-          for arg in "$@"; do
+          for arg in "''${args[@]}"; do
             if [ "$arg" = "--update-hooks" ]; then
               export ICEDOS_HOOKS_ONLY=1
               ${runHooks "preUpdate" preUpdate}
@@ -182,14 +220,14 @@ in
         ''}
         ${runHooks "preRebuild" preRebuild}
         ${optionalString hasPreUpdate ''
-          for arg in "$@"; do
+          for arg in "''${args[@]}"; do
             if [ "$arg" = "--update" ]; then
               ${runHooks "preUpdate" preUpdate}
               break
             fi
           done
         ''}
-        bash ./build.sh "$@"
+        bash ./build.sh "''${args[@]}"
         BUILD_STATUS=$?
 
         if [ "$BUILD_STATUS" -ne 0 ]; then
@@ -198,7 +236,7 @@ in
         fi
 
         ${optionalString hasPostUpdate ''
-          for arg in "$@"; do
+          for arg in "''${args[@]}"; do
             if [ "$arg" = "--update" ]; then
               ${runHooks "postUpdate" postUpdate}
               break
@@ -223,7 +261,7 @@ in
         # never produces one so there is nothing to record.
         # build/build-vm/run-vm do not.
         GEN_CREATED=1
-        for arg in "$@"; do
+        for arg in "''${args[@]}"; do
           case "$arg" in
             --build|--build-vm|--run-vm) GEN_CREATED=""
             break
@@ -248,7 +286,7 @@ in
 
         # Skip reboot check when not switching (no activation happened).
         SWITCH=1
-        for arg in "$@"; do
+        for arg in "''${args[@]}"; do
           case "$arg" in
             --boot|--build|--build-vm|--run-vm) SWITCH=""
             break

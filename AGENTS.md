@@ -231,6 +231,11 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 at your checkout, and enable/configure the module you touched) → run `icedos rebuild --build`
 **from wherever you are**. No `cd`, no `sudo`, no activation. You never switch — the user does.
 
+> **First install:** On a fresh machine with no built system, `icedos` isn't on PATH yet.
+> Run `nix develop` in the config root to enter the dev shell, which provides a limited
+> `icedos` command (only `rebuild` subcommand, no `configuration`/`doctor`/etc.). After the
+> first system install, the full `icedos` CLI is available everywhere.
+
 0. **Locate the config root.** It's the directory holding `config.toml` plus a `flake.nix`
    that calls `icedos.lib.mkIceDOS`. It can live anywhere and be named anything (it's the
    user's own repo, not an IceDOS-org repo). **If you can't find it, ask the user** —

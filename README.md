@@ -122,14 +122,20 @@ Users are created with the password `1` — set `defaultPassword` above, or chan
 ### 3. Build it for the first time
 
 ```bash
-nix --extra-experimental-features "flakes nix-command pipe-operators" run path:. -- --boot
+nix develop
+icedos rebuild --boot
 ```
 
 In plain English:
 
-- `nix … run path:.` — run the IceDOS builder from the current folder.
-- `--extra-experimental-features "…"` — switch on the Nix features IceDOS needs, just for this one command.
-- `-- --boot` — everything after `--` goes to IceDOS. `--boot` prepares your new system for the **next reboot** (gentler than switching live on the very first run).
+- `nix develop` — enter the IceDOS dev shell, which provides the `icedos` command.
+- `icedos rebuild --boot` — `rebuild` is the only subcommand available in the dev shell (the full CLI is available after the first system install). `--boot` prepares your new system for the **next reboot** (gentler than switching live on the very first run).
+
+Alternatively, you can run the builder directly without the dev shell:
+
+```bash
+nix --extra-experimental-features "flakes nix-command pipe-operators" run path:. -- --boot
+```
 
 ### 4. Reboot
 
