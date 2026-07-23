@@ -193,8 +193,9 @@ no `meta.name`) — they declare `options`/`config` straight up and are loaded b
   with it. The repo's `default` module is always active, so its `dependencies` /
   `optionalDependencies` load even when **not** listed (gated by `fetchDependencies` /
   `fetchOptionalDependencies`), not by the `modules` list.
-- `genUserDefaults`/per-user populates belong in the always-loaded module that owns the
-  path, not in an optional feature module.
+- **Per-user options must always be materialised with `genDefaults`** — see
+  *Per-user (`users`) options* below. The populate belongs in the always-loaded module
+  that owns the path, not in an optional feature module.
 - Prefer upstream `services.<name>` (NixOS or home-manager) over hand-rolled
   `systemd.user.services`/wrapper daemons.
 - **Style:** inherit-fold any repeated parent (`inherit (lib) mkIf mkForce;`,
@@ -202,6 +203,46 @@ no `meta.name`) — they declare `options`/`config` straight up and are loaded b
   repeat. Blank lines around multiline `let` bindings.
 - **Format with `icedos nixf .`** (a core toolset command, `modules/toolset.nix`) after
   editing any `.nix`.
+
+### Per-user (`users`) options
+
+A per-user option is an `attrsOf submodule` keyed by username —
+`mkUsersOption {...}` (≡ `mkSubmoduleAttrsOption { default = {}; } {...}`). Its default
+is `{}`, so **it populates no user by itself**: field defaults only materialise for a
+user once that user's key exists in the attrset.
+
+**Rule 1 — always materialise with `genDefaults`.** The always-loaded module that owns
+the path must fill every normal user, in its `outputs.nixosModules` config:
+
+```nix
+icedos.<path>.users = icedosLib.users.genDefaults { inherit (config.icedos) users; };
+```
+
+`genDefaults` (`lib/helpers.nix`, `users.genDefaults`) writes `{ <normalUser> = {}; … }`
+for every `isNormalUser`, which triggers each submodule's own field defaults; explicit
+`[icedos.<path>.users.<name>]` TOML stanzas still merge on top (submodule attrs merge).
+**Without it**, a user must hand-write an empty per-user stanza just to get defaults, and
+any consumer that reads `users.${name}` without an `or null` guard hard-errors on eval.
+Reference callers: `core/modules/git.nix`, `apps/modules/codium/icedos.nix`,
+`desktop/modules/default/icedos.nix`, `gnome/icedos.nix`(via desktop).
+
+**Rule 2 — nest sub-features under the parent user submodule, never a parallel `.users`
+tree.** If a namespace already owns a per-user submodule, a child feature contributes a
+**nested** sub-option to it (submodule option sets merge across modules — the feature's
+own module can declare `options.icedos.<parent>.users = mkSubmoduleAttrsOption {…} { <feature> = {…}; }`),
+rather than declaring its own `icedos.<parent>.<feature>.users`. The optional feature
+module ships only its nested sub-submodule + consumer; the always-loaded parent's
+`genDefaults` materialises it. Established placements:
+
+| Feature | Correct path (nested) | Owning parent (materialises) |
+|---|---|---|
+| climit | `applications.claude-code.users.<n>.climit` | claude-code `default` |
+| peon-ping | `applications.claude-code.users.<n>.peonPing` | claude-code `default` |
+| gnome per-user | `desktop.users.<n>.gnome` | `desktop/default` |
+| cosmic per-user | `desktop.users.<n>.cosmic` | `desktop/default` |
+
+Detect whether an optional feature is loaded from a sibling module via option presence,
+e.g. `userCfg ? peonPing`, not a separate `.users` attrset.
 
 ## 6. How config + dependencies load
 
@@ -282,6 +323,11 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
 - **Never** add untyped options — always a `validate.*`/`mk*Option` helper with
   `path` + `source` where required.
 - **Always** `icedos nixf .` after editing `.nix`.
+- **Keep docs in lockstep with code.** Whenever a feature, option path, module layout,
+  default, or CLI surface changes — or you learn something worth recording — update the
+  relevant `AGENTS.md` (this bible for framework-wide rules; the repo's own `AGENTS.md`
+  for repo-specific detail) in the **same** change. Stale docs are treated as bugs; a
+  change that alters behaviour but not its docs is incomplete.
 - Don't remove safety checks or rewrite working shell scripts wholesale; be conservative.
 
 ## 9. Gotchas
