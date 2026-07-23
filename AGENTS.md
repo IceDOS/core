@@ -226,23 +226,42 @@ any consumer that reads `users.${name}` without an `or null` guard hard-errors o
 Reference callers: `core/modules/git.nix`, `apps/modules/codium/icedos.nix`,
 `desktop/modules/default/icedos.nix`, `gnome/icedos.nix`(via desktop).
 
-**Rule 2 — nest sub-features under the parent user submodule, never a parallel `.users`
-tree.** If a namespace already owns a per-user submodule, a child feature contributes a
-**nested** sub-option to it (submodule option sets merge across modules — the feature's
-own module can declare `options.icedos.<parent>.users = mkSubmoduleAttrsOption {…} { <feature> = {…}; }`),
-rather than declaring its own `icedos.<parent>.<feature>.users`. The optional feature
-module ships only its nested sub-submodule + consumer; the always-loaded parent's
-`genDefaults` materialises it. Established placements:
+**Rule 2 — nest a sub-feature under the parent user submodule ONLY when it is genuinely
+part of that parent; a standalone module keeps its OWN `.users` tree and is *consumed*.**
+- **Nest** when the feature belongs to one parent (e.g. `climit` is part of claude-code):
+  the feature's module contributes a **nested** sub-option — declares
+  `options.icedos.<parent>.users = mkSubmoduleAttrsOption <args> { <feature> = {…}; }` —
+  rather than a parallel `icedos.<parent>.<feature>.users`; the always-loaded parent's
+  `genDefaults` materialises it (see Rule 2a for the `default` caveat). Also applies to the
+  DE per-user contributions (`gnome`, `cosmic` → `desktop.users.<n>.…`).
+- **Do NOT nest** a standalone module that several parents use. `peon-ping` is its own apps
+  module (`icedos.applications.peon-ping.users.<n>`) with its own upstream package;
+  claude-code and opencode **consume** it — they read `config.icedos.applications.peon-ping.users`
+  to detect it (`builtins.hasAttr user peonPingUsers` / `peonPingUsers != {}`) and wire their
+  own hooks/plugins — they do not own its config.
 
-| Feature | Correct path (nested) | Owning parent (materialises) |
+| Feature | Path | Materialised by |
 |---|---|---|
-| climit | `applications.claude-code.users.<n>.climit` | claude-code `default` |
-| peon-ping | `applications.claude-code.users.<n>.peonPing` | claude-code `default` |
-| gnome per-user | `desktop.users.<n>.gnome` | `desktop/default` |
-| cosmic per-user | `desktop.users.<n>.cosmic` | `desktop/default` |
+| climit (part of claude-code) | `applications.claude-code.users.<n>.climit` | claude-code `default` (nested) |
+| gnome per-user | `desktop.users.<n>.gnome` | `desktop/default` (nested) |
+| cosmic per-user | `desktop.users.<n>.cosmic` | `desktop/default` (nested) |
+| peon-ping (standalone module) | `applications.peon-ping.users.<n>` | peon-ping itself (own `genDefaults`) |
 
-Detect whether an optional feature is loaded from a sibling module via option presence,
-e.g. `userCfg ? peonPing`, not a separate `.users` attrset.
+(Option-path segments are **kebab-case** — `peon-ping`, not `peonPing`; `-` is a valid Nix
+identifier char, so it works unquoted in declarations, `.` selection, and the `?` operator.
+Last-level leaf options keep their existing casing, e.g. `defaultPack`, `fontSize`.)
+
+> **⚠ Rule 2a — exactly ONE declaration per path may set `default`.** When two modules
+> declare the same `attrsOf submodule` option (e.g. `default` + `climit` both declaring
+> `claude-code.users`), nixpkgs must `typeMerge` them. Two declarations that **both**
+> carry `default = {}` do **not** merge — eval dies with
+> `The option '…' is already declared in '…'` (surfacing as a `head`/`assertions` trace).
+> The fix: only the **always-loaded owner** uses `mkSubmoduleAttrsOption { default = {}; }`
+> (or `mkUsersOption`); every **child** contribution omits it — `mkSubmoduleAttrsOption { } {…}`.
+> One default + N no-default children merge cleanly (the child still gets its per-field
+> defaults; it only forgoes the attrset-level `{}`). This mirrors the shipped
+> `desktop.users` pair: `desktop/default` uses `mkUsersOption` (has default), `startup`
+> uses `mkSubmoduleAttrsOption { }` (no default).
 
 ## 6. How config + dependencies load
 

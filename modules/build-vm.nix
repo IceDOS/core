@@ -10,15 +10,15 @@ let
     toInt
     ;
 
-  inherit (config.icedos.system) buildVm;
+  inherit (config.icedos.system) build-vm;
 
-  resParts = splitString "x" buildVm.resolution;
+  resParts = splitString "x" build-vm.resolution;
 in
 {
   virtualisation.vmVariant.virtualisation = {
-    memorySize = buildVm.memory;
-    cores = buildVm.cores;
-    diskSize = buildVm.diskSize;
+    memorySize = build-vm.memory;
+    cores = build-vm.cores;
+    diskSize = build-vm.diskSize;
 
     resolution = {
       x = toInt (elemAt resParts 0);
@@ -29,14 +29,14 @@ in
       imap0 (i: d: {
         name = "shared${toString i}";
         value = { inherit (d) source target; };
-      }) buildVm.sharedDirectories
+      }) build-vm.sharedDirectories
     );
 
-    forwardPorts = optionals buildVm.ssh.enable [
+    forwardPorts = optionals build-vm.ssh.enable [
       {
         from = "host";
-        host.port = buildVm.ssh.hostPort;
-        guest.port = buildVm.ssh.vmPort;
+        host.port = build-vm.ssh.hostPort;
+        guest.port = build-vm.ssh.vmPort;
       }
     ];
   };

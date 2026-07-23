@@ -242,7 +242,7 @@ let
       # `getSubOptions`, and `toolsetCommandType` (commands → commands → …) is
       # infinitely self-recursive, overflowing the stack. The cost is that
       # submodule-list fields (users.<name>.*, repositories.*) aren't listed
-      # individually; plain nested options (buildVm.memory, system.packages, …)
+      # individually; plain nested options (build-vm.memory, system.packages, …)
       # all are.
       opts = filter (
         o: (o.visible or true) && !(o.internal or false) && hasPrefix "icedos." (showOption o.loc)

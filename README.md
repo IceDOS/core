@@ -250,7 +250,7 @@ Everything under `icedos` is IceDOS's own, checked settings. The top-level group
 | Key | What it controls |
 | --- | --- |
 | `icedos.repositories` | Which module repos to load and which modules to enable (see above). |
-| `icedos.system` | System-wide settings: `arch`, `version` (stateVersion), `nixpkgsChannel`, `allowUnfree`, `generations`, `packages`, `permittedInsecurePackages`, `loadHardwareConfiguration`, the binary `cache`, `gc` (auto-cleanup), the `toolset` (CLI + hooks), extra `channels`/`overlays`, and `buildVm`. |
+| `icedos.system` | System-wide settings: `arch`, `version` (stateVersion), `nixpkgsChannel`, `allowUnfree`, `generations`, `packages`, `permittedInsecurePackages`, `loadHardwareConfiguration`, the binary `cache`, `gc` (auto-cleanup), the `toolset` (CLI + hooks), extra `channels`/`overlays`, and `build-vm`. |
 | `icedos.users` | User accounts (home-manager integrated): password, groups, sudo, packages, … |
 | `icedos.<category>.*` | Options exposed by the module repos you load, grouped by category — e.g. `icedos.applications.*` (apps like `btop`, `steam`), `icedos.hardware.*`, `icedos.desktop.*`, `icedos.tweaks.*`. Which categories exist depends on which repos you enable. |
 
@@ -310,7 +310,7 @@ See [How do I set a password?](#how-do-i-set-a-password) for the security caveat
 
 ### Try it in a VM
 
-`icedos rebuild --build-vm` / `--run-vm` build a throwaway virtual machine of your configuration so you can test changes without touching the host. `[icedos.system.buildVm]` tunes that VM image — it never affects your real system:
+`icedos rebuild --build-vm` / `--run-vm` build a throwaway virtual machine of your configuration so you can test changes without touching the host. `[icedos.system.build-vm]` tunes that VM image — it never affects your real system:
 
 | Option | Default | Effect |
 | --- | --- | --- |
@@ -321,20 +321,20 @@ See [How do I set a password?](#how-do-i-set-a-password) for the security caveat
 | `ssh.enable` | `false` | forward a host port to the VM's SSH. |
 | `ssh.hostPort` | `2222` | host-side port for the SSH forward. |
 | `ssh.vmPort` | `22` | guest SSH port. |
-| `[[icedos.system.buildVm.sharedDirectories]]` | `[]` | `{ source, target }` host→guest shared folders. |
+| `[[icedos.system.build-vm.sharedDirectories]]` | `[]` | `{ source, target }` host→guest shared folders. |
 
 ```toml
-[icedos.system.buildVm]
+[icedos.system.build-vm]
 memory = 8192
 cores = 4
 diskSize = 32768
 resolution = "2560x1440"
 
-[icedos.system.buildVm.ssh]
+[icedos.system.build-vm.ssh]
 enable = true
 hostPort = 2222
 
-[[icedos.system.buildVm.sharedDirectories]]
+[[icedos.system.build-vm.sharedDirectories]]
 source = "/home/me/shared"
 target = "shared"
 ```
