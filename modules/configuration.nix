@@ -122,13 +122,24 @@ let
 
     script = ''
       if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
-        echo "Usage: icedos configuration show options"
-        echo "Opens an fzf picker over all icedos options; the preview shows each"
-        echo "option's type, description, and a paste-ready toml snippet."
+        echo "Usage: icedos configuration show options [<name>]"
+        echo "With no argument, opens an fzf picker over all icedos options. With an"
+        echo "option name, prints that option's type, description, and a paste-ready"
+        echo "toml snippet directly — no fzf, scriptable."
         exit 0
       fi
 
       ${ensureIndex}
+
+      # Named lookup: `... show options <name>` prints one option's detail
+      # (type, description, paste-ready toml) straight to stdout, bypassing fzf —
+      # useful for scripting and quick lookups. Empty render = no such option.
+      if [ -n "$1" ]; then
+        detail=$(${detailBin} "$1")
+        [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration show options' to browse)"
+        printf '%s\n' "$detail"
+        exit 0
+      fi
 
       # Sorted "name<TAB>type" stream of every option.
       options_list() {
@@ -162,13 +173,24 @@ let
 
     script = ''
       if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
-        echo "Usage: icedos configuration show modules"
-        echo "Opens an fzf picker over every module (configured + dependency repos);"
-        echo "the preview shows each module's repo, status, description, and dependencies."
+        echo "Usage: icedos configuration show modules [<name>]"
+        echo "With no argument, opens an fzf picker over every module (configured +"
+        echo "dependency repos). With a module name, prints that module's repo, status,"
+        echo "description, and dependencies directly — no fzf, scriptable."
         exit 0
       fi
 
       ${ensureIndex}
+
+      # Named lookup: `... show modules <name>` prints one module's detail
+      # (repo, status, description, deps) straight to stdout, bypassing fzf —
+      # useful for scripting and quick lookups. Empty render = no such module.
+      if [ -n "$1" ]; then
+        detail=$(${moduleDetailBin} "$1")
+        [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration show modules' to browse)"
+        printf '%s\n' "$detail"
+        exit 0
+      fi
 
       # fzf feed: sorted module names. Status markers live in the preview, not
       # the list.
