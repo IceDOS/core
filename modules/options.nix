@@ -37,6 +37,10 @@ let
 
       completion = mkSubmoduleOption { default = { }; } {
         files = mkBoolOption { default = false; };
+        # Shell snippet printing newline-separated candidate values for a
+        # leaf command's positional argument (e.g. module/option names from
+        # a cache). Empty = no dynamic value completion. Leaf commands only.
+        command = mkStrOption { default = ""; };
       };
     };
   };

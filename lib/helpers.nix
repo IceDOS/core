@@ -161,6 +161,37 @@ rec {
             ) cmds;
         in
         go [ ] commands;
+
+      # Walks the command tree and yields one record per leaf node that
+      # opted into dynamic argument completion via a non-empty
+      # `completion.command` (a shell snippet printing newline-separated
+      # candidate values). Each record carries the leaf path and the snippet.
+      walkValueLeaves =
+        commands:
+        let
+          go =
+            parentPath: cmds:
+            concatMap (
+              c:
+              let
+                myPath = parentPath ++ [ c.command ];
+                isValueLeaf = c.commands == [ ] && (c.completion.command or "") != "";
+              in
+              (
+                if isValueLeaf then
+                  [
+                    {
+                      path = myPath;
+                      cmd = c.completion.command;
+                    }
+                  ]
+                else
+                  [ ]
+              )
+              ++ go myPath c.commands
+            ) cmds;
+        in
+        go [ ] commands;
     in
     {
       mkDispatcher =
@@ -247,6 +278,7 @@ rec {
         let
           branches = walkBranches commands;
           fileLeaves = walkFileLeaves commands;
+          valueLeaves = walkValueLeaves commands;
           childNames = b: concatStringsSep " " (map (c: c.name) b.children);
           branchArm = b: ''
             ${escapeShellArg (concatStringsSep " " b.path)})
@@ -271,6 +303,22 @@ rec {
                   return
                   ;;
             '';
+          # Value-completing leaves run their snippet and offer its
+          # newline-separated output as candidates for any positional arg.
+          # IFS is reset to newline here because the function body sets
+          # `IFS=' '` for the key join, which would mis-split the candidates.
+          valueLeafArm =
+            l:
+            let
+              p = concatStringsSep " " l.path;
+            in
+            ''
+              ${escapeShellArg p} | ${escapeShellArg "${p} "}*)
+                  local IFS=$'\n'
+                  COMPREPLY=( $(compgen -W "$(${l.cmd})" -- "$cur") )
+                  return
+                  ;;
+            '';
         in
         ''
           _icedos() {
@@ -280,9 +328,9 @@ rec {
               local key="''${_icedos_args[*]}"
               local words=""
               case "$key" in
-          ${concatMapStrings (l: "      " + fileLeafArm l) fileLeaves}${
-            concatMapStrings (b: "      " + branchArm b) branches
-          }      esac
+          ${concatMapStrings (l: "      " + valueLeafArm l) valueLeaves}${
+            concatMapStrings (l: "      " + fileLeafArm l) fileLeaves
+          }${concatMapStrings (b: "      " + branchArm b) branches}      esac
               COMPREPLY=( $(compgen -W "$words" -- "$cur") )
           }
           complete -F _icedos icedos
@@ -293,6 +341,7 @@ rec {
         let
           branches = walkBranches commands;
           fileLeaves = walkFileLeaves commands;
+          valueLeaves = walkValueLeaves commands;
           # Escape colons (zsh _describe's name/help delimiter) with a backslash.
           escColons = replaceStrings [ ":" ] [ "\\:" ];
           entryStr = c: escapeShellArg "${c.name}:${escColons c.help}";
@@ -313,6 +362,21 @@ rec {
                   return
                   ;;
             '';
+          # Value-completing leaves: run the snippet, split its output on
+          # newlines (the `f` flag), and offer the lines via compadd.
+          valueLeafArm =
+            l:
+            let
+              p = concatStringsSep " " l.path;
+            in
+            ''
+              ${escapeShellArg p} | ${escapeShellArg "${p} "}*)
+                  local -a vals
+                  vals=("''${(@f)$(${l.cmd})}")
+                  compadd -a vals
+                  return
+                  ;;
+            '';
         in
         ''
           #compdef icedos
@@ -323,9 +387,9 @@ rec {
               key="''${(j: :)path}"
               entries=()
               case "$key" in
-          ${concatMapStrings (l: "      " + fileLeafArm l) fileLeaves}${
-            concatMapStrings (b: "      " + branchArm b) branches
-          }      esac
+          ${concatMapStrings (l: "      " + valueLeafArm l) valueLeaves}${
+            concatMapStrings (l: "      " + fileLeafArm l) fileLeaves
+          }${concatMapStrings (b: "      " + branchArm b) branches}      esac
               if (( ''${#entries} > 0 )); then
                   _describe -t commands 'icedos command' entries
               fi
@@ -338,6 +402,7 @@ rec {
         let
           branches = walkBranches commands;
           fileLeaves = walkFileLeaves commands;
+          valueLeaves = walkValueLeaves commands;
           line = c: "        printf '%s\\t%s\\n' ${escapeShellArg c.name} ${escapeShellArg c.help}\n";
 
           caseArm = b: ''
@@ -355,6 +420,19 @@ rec {
               p = concatStringsSep " " l.path;
             in
             "complete -c icedos -F -n ${escapeShellArg ''__icedos_path_match "${p}"''}\n";
+
+          # fish can't inline a quoted command as a `complete -a` argument,
+          # so each value leaf gets a wrapper function running its snippet;
+          # the completion offers that function's newline-separated output.
+          fnName = l: "__icedos_vals_" + replaceStrings [ " " ] [ "_" ] (concatStringsSep " " l.path);
+          valueLeafFn = l: ''
+            function ${fnName l}
+                ${l.cmd}
+            end
+          '';
+          valueLeafComplete =
+            l:
+            "complete -c icedos -f -n ${escapeShellArg ''__icedos_path_match "${concatStringsSep " " l.path}"''} -a ${escapeShellArg "(${fnName l})"}\n";
         in
         ''
           function __icedos_complete_path
@@ -378,8 +456,8 @@ rec {
           ${concatMapStrings (b: "        " + caseArm b) branches}    end
           end
 
-          complete -c icedos -f -a '(__icedos_complete)'
-          ${concatMapStrings fileLeafComplete fileLeaves}'';
+          ${concatMapStrings valueLeafFn valueLeaves}complete -c icedos -f -a '(__icedos_complete)'
+          ${concatMapStrings fileLeafComplete fileLeaves}${concatMapStrings valueLeafComplete valueLeaves}'';
     };
 
   # Authoritative libadwaita named-accent → hex map. Mirrors GNOME 47+

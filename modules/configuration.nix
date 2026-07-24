@@ -120,6 +120,10 @@ let
     command = "options";
     help = "fuzzy-search icedos options (fzf), with a paste-ready toml snippet";
 
+    # Tab-complete option names straight from the cache — no fzf, no index
+    # rebuild. Missing cache (jq error) is swallowed so completion never blocks.
+    completion.command = "${jq} -r 'sort_by(.name)[] | .name' \"${optionsCache}\" 2>/dev/null";
+
     script = ''
       if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
         echo "Usage: icedos configuration show options [<name>]"
@@ -170,6 +174,10 @@ let
   showModules = {
     command = "modules";
     help = "show the icedos module graph (enabled, available, dependencies)";
+
+    # Tab-complete module names straight from the cache — no fzf, no index
+    # rebuild. Missing cache (jq error) is swallowed so completion never blocks.
+    completion.command = "${jq} -r 'sort_by(.name)[] | .name' \"${modulesCache}\" 2>/dev/null";
 
     script = ''
       if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
