@@ -395,6 +395,7 @@ New here? These cover almost everything:
 | `icedos configuration rollback` | Undo — restore the last working system **and** its `config.toml`. |
 | `icedos doctor` | Health check with plain-language fixes. |
 | `icedos gc` | Free up disk space. |
+| `icedos repl` | Open a Nix REPL preloaded with your evaluated config, packages, and lib. |
 
 ### Full command reference
 
@@ -408,6 +409,7 @@ New here? These cover almost everything:
 | `icedos configuration diff` | Show how your working `config.toml` differs from the one that built the current system (your pending changes). |
 | `icedos configuration rollback [--to <gen>] [--dry]` | Roll the system **and** `config.toml` back to a previous generation. `--to` targets a generation number (default: the previous one); `--dry` shows the plan without changing anything. Your current `config.toml` is backed up first. |
 | `icedos doctor` | Health checklist: substituters, cache key, hardware config, store space, generations, gc, input freshness. |
+| `icedos repl` | Open a Nix REPL bound to the current system's evaluation: `config` (evaluated, module defaults included), `options`, `declared` (raw working-tree `config.toml`), `pkgs`, `lib`, `icedosLib`, `inputs`. |
 | `icedos session reboot [uefi]` | Reboot, ignoring inhibitors and other users. Append `uefi` to reboot into firmware setup. |
 | `icedos session logout` | Terminate all sessions for the current user. |
 | `icedos session poweroff` | Power off, ignoring inhibitors and other users. |
