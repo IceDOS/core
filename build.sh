@@ -108,6 +108,42 @@ done
 
 export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
+# Lightweight index for `icedos configuration show` / `configuration validate`
+# (and the webui config editor): emit the option + module docs plus a JSON dump
+# of the user's config.toml, then exit. Runs before every mutating step below —
+# it evaluates lib/genflake.nix directly, so it needs neither the generated
+# flake nor a refreshed lock, and callers get a read-only check (the only writes
+# are the .cache/*.json index files themselves). No full system eval, no build.
+if [ "$export_search_index" == "1" ]; then
+  (
+    cd "$ICEDOS_STATE_DIR"
+    mkdir -p .cache
+    # One genflake eval producing both docs — evaluating the file per-doc would
+    # redo the whole config load + module resolution each time.
+    search_docs=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
+      --file "$ICEDOS_ROOT/lib/genflake.nix" \
+      --apply 'g: { inherit (g) optionsDoc modulesDoc; }')
+
+    jq -r '.optionsDoc' <<< "$search_docs" > .cache/options-doc.json
+    jq -r '.modulesDoc' <<< "$search_docs" > .cache/modules-doc.json
+    jsonfmt .cache/options-doc.json -w
+    jsonfmt .cache/modules-doc.json -w
+
+    # Full merged user config as JSON (config.toml + every enabled
+    # configs/*.toml — see lib/load-user-config.nix). The webui editor reads
+    # this next to options-doc.json to tell which keys the user actually set
+    # and to recover submodule-list values (repositories, users) the options
+    # doc doesn't expand.
+    user_config=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
+      --file "$ICEDOS_ROOT/lib/genflake.nix" \
+      --apply 'g: g.userConfigRaw')
+    jq '.' <<< "$user_config" > .cache/config.json
+    jsonfmt .cache/config.json -w
+  )
+
+  exit 0
+fi
+
 # Refresh every `type: "path"` input in config/flake.lock so a local-
 # core override (inputs.icedos.url = "path:...") lands on every plain
 # rebuild without requiring --update-core. github / git inputs stay
@@ -141,9 +177,6 @@ printf '%s' "$ICEDOS_STATE_DIR" > "$CONFIG"
 if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
 fi
-
-export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
-mkdir -p "$ICEDOS_BUILD_DIR"
 
 # Generate flake
 ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
@@ -198,45 +231,17 @@ if [ "$genflake_only" == "1" ]; then
   exit 0
 fi
 
-# Lightweight index for `icedos configuration show` (and the webui config
-# editor): emit the option + module docs plus a JSON dump of the user's
-# config.toml (no full system eval, no build), then exit. Cheap enough for the
-# commands to regenerate on demand when the index is stale.
-if [ "$export_search_index" == "1" ]; then
-  (
-    cd "$ICEDOS_STATE_DIR"
-    mkdir -p .cache
-    # One genflake eval producing both docs — evaluating the file per-doc would
-    # redo the whole config load + module resolution each time.
-    search_docs=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
-      --file "$ICEDOS_ROOT/lib/genflake.nix" \
-      --apply 'g: { inherit (g) optionsDoc modulesDoc; }')
-
-    jq -r '.optionsDoc' <<< "$search_docs" > .cache/options-doc.json
-    jq -r '.modulesDoc' <<< "$search_docs" > .cache/modules-doc.json
-    jsonfmt .cache/options-doc.json -w
-    jsonfmt .cache/modules-doc.json -w
-
-    # Full merged user config as JSON (config.toml + every enabled
-    # configs/*.toml — see lib/load-user-config.nix). The webui editor reads
-    # this next to options-doc.json to tell which keys the user actually set
-    # and to recover submodule-list values (repositories, users) the options
-    # doc doesn't expand.
-    user_config=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
-      --file "$ICEDOS_ROOT/lib/genflake.nix" \
-      --apply 'g: g.userConfigRaw')
-    jq '.' <<< "$user_config" > .cache/config.json
-    jsonfmt .cache/config.json -w
-  )
-
-  exit 0
-fi
-
 [ "$update_nixpkgs" == "1" ] && [ "$update_all" != "1" ] && (
   set -e
   cd "$ICEDOS_STATE_DIR"
   nix flake update nixpkgs
 )
+
+# Created here, not earlier: every path that exits before the build
+# (--genflake-only, --export-search-index) would otherwise leave an empty temp
+# dir behind on each run. Nothing between the arg parse and here reads it —
+# genflake takes its paths from ICEDOS_ROOT/ICEDOS_STATE_DIR/ICEDOS_CONFIG_ROOT.
+export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
 
 rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
 echo "building from path $ICEDOS_BUILD_DIR..."

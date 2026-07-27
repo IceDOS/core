@@ -392,6 +392,7 @@ New here? These cover almost everything:
 | `icedos rebuild` | Apply your `config.toml` changes to the system. |
 | `icedos configuration show options` | Search what you can set (fuzzy, with paste-ready TOML). |
 | `icedos configuration diff` | See what you've changed since the last rebuild. |
+| `icedos configuration validate` | Check your config for schema/type errors without a rebuild. |
 | `icedos configuration rollback` | Undo — restore the last working system **and** its `config.toml`. |
 | `icedos doctor` | Health check with plain-language fixes. |
 | `icedos gc` | Free up disk space. |
@@ -408,6 +409,7 @@ New here? These cover almost everything:
 | `icedos configuration show modules` | Browse modules — enabled / available / dependencies. |
 | `icedos configuration diff` | Show how your working `config.toml` differs from the one that built the current system (your pending changes). |
 | `icedos configuration rollback [--to <gen>] [--dry]` | Roll the system **and** `config.toml` back to a previous generation. `--to` targets a generation number (default: the previous one); `--dry` shows the plan without changing anything. Your current `config.toml` is backed up first. |
+| `icedos configuration validate` | Evaluate the genflake stage against your working config — types, schema, unknown keys, missing modules — and exit non-zero on the first error. No system closure is built, so module-body errors and cross-module option collisions still surface at rebuild time. Refreshes the `configuration show` search index as a side effect; changes nothing else. |
 | `icedos doctor` | Health checklist: substituters, cache key, hardware config, store space, generations, gc, input freshness. |
 | `icedos repl` | Open a Nix REPL bound to the current system's evaluation: `config` (evaluated, module defaults included), `options`, `declared` (raw working-tree `config.toml`), `pkgs`, `lib`, `icedosLib`, `inputs`. |
 | `icedos session reboot [uefi]` | Reboot, ignoring inhibitors and other users. Append `uefi` to reboot into firmware setup. |

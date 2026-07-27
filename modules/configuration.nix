@@ -7,7 +7,7 @@
 }:
 
 let
-  inherit (icedosLib.bash) genHelpFlags;
+  inherit (icedosLib.bash) genHelpFlags redString;
   inherit (config.icedos) configurationLocation;
   inherit (config.icedos.system.toolset) configurationCommands;
 
@@ -224,6 +224,46 @@ let
       ${moduleDetailBin} "$sel"
     '';
   };
+
+  validateConfig = {
+    command = "validate";
+    help = "validate icedos config without a full rebuild (schema-only, fast)";
+
+    script = ''
+      if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
+        echo "Usage: icedos configuration validate"
+        echo "Validates your icedos config (config.toml + configs/*.toml) by"
+        echo "running the genflake eval — checks types, schema, unknown keys,"
+        echo "and missing modules. Exits 0 if valid, non-zero if not."
+        echo "Scope: the genflake stage only. Errors inside module bodies and"
+        echo "option collisions between modules still surface at rebuild time,"
+        echo "since no system closure is evaluated here."
+        echo "Side effects: none beyond refreshing the search index that"
+        echo "'icedos configuration show' reads (.cache/*-doc.json)."
+        exit 0
+      fi
+
+      if [ "$#" -gt 0 ]; then
+        echo -e "${redString "Unknown arg"}: $1" >&2
+        exit 1
+      fi
+
+      if [ ! -d "${configurationLocation}" ]; then
+        die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
+      fi
+
+      log_step "validating configuration..."
+
+      # Output is a verdict, not a build log: nix eval chatter is held back and
+      # only replayed when the eval actually fails (where it is the error).
+      if out="$( cd "${configurationLocation}" && bash ./build.sh --export-search-index 2>&1 )"; then
+        log_ok "configuration is valid"
+      else
+        [ -n "$out" ] && printf '%s\n' "$out" >&2
+        die "configuration validation failed"
+      fi
+    '';
+  };
 in
 {
   icedos.system.toolset.commands = [
@@ -241,6 +281,7 @@ in
             showModules
           ];
         }
+        validateConfig
       ]
       ++ configurationCommands;
     }
