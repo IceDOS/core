@@ -380,6 +380,7 @@ command is a `toolsetCommandType` submodule (`modules/options.nix`):
 | `bin` | string | absolute path to an executable instead of `script` (e.g. a `pkgs.writeShellScript`). |
 | `commands` | list | nested subcommands — arbitrarily deep. |
 | `completion.files` | bool | offer file-path completion for this leaf's arguments. |
+| `completion.command` | string | shell snippet printing newline-separated candidates for this leaf's arguments (e.g. generation numbers, cached option names). Runs at completion time; must never block or fail loudly. |
 
 Asserted in `modules/toolset.nix`: a node with `commands` must **not** also set
 `script`/`bin` (a branch dispatches, a leaf runs); a leaf sets exactly one of the two.

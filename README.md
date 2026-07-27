@@ -392,6 +392,7 @@ New here? These cover almost everything:
 | `icedos rebuild` | Apply your `config.toml` changes to the system. |
 | `icedos configuration show options` | Search what you can set (fuzzy, with paste-ready TOML). |
 | `icedos configuration diff` | See what you've changed since the last rebuild. |
+| `icedos configuration history` | List generations and which config snapshot built each one. |
 | `icedos configuration validate` | Check your config for schema/type errors without a rebuild. |
 | `icedos configuration rollback` | Undo — restore the last working system **and** its `config.toml`. |
 | `icedos doctor` | Health check with plain-language fixes. |
@@ -408,6 +409,7 @@ New here? These cover almost everything:
 | `icedos configuration show options` | Fuzzy-search IceDOS options (fzf) with a paste-ready TOML snippet. |
 | `icedos configuration show modules` | Browse modules — enabled / available / dependencies. |
 | `icedos configuration diff` | Show how your working `config.toml` differs from the one that built the current system (your pending changes). |
+| `icedos configuration history [--json \| <gen>]` | List system generations newest first — date, kernel, age, and whether the config snapshot that built each one is still on disk (`✓` present, `✗` pruned by gc, `-` never recorded); the current generation is marked `*`. With a generation number, diffs that generation's config snapshot against your working tree. `--json` emits the table for scripts. |
 | `icedos configuration rollback [--to <gen>] [--dry]` | Roll the system **and** `config.toml` back to a previous generation. `--to` targets a generation number (default: the previous one); `--dry` shows the plan without changing anything. Your current `config.toml` is backed up first. |
 | `icedos configuration validate` | Evaluate the genflake stage against your working config — types, schema, unknown keys, missing modules — and exit non-zero on the first error. No system closure is built, so module-body errors and cross-module option collisions still surface at rebuild time. Refreshes the `configuration show` search index as a side effect; changes nothing else. |
 | `icedos doctor` | Health checklist: substituters, cache key, hardware config, store space, generations, gc, input freshness. |

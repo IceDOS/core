@@ -1,22 +1,12 @@
 {
   config,
   icedosLib,
-  lib,
   ...
 }:
 
 let
-  inherit (icedosLib.bash) genHelpFlags;
-  inherit (config.icedos) configurationLocation;
-
-  cacheDir = "${configurationLocation}/.cache";
-  configRoot = "${configurationLocation}/..";
-  workingConfig = "${configRoot}/config.toml";
-
-  # Extra-config dirs (icedos.system.extraConfigs) as shell-quoted args.
-  configDirsArgs = lib.concatStringsSep " " (
-    map lib.escapeShellArg config.icedos.system.extraConfigs
-  );
+  inherit (icedosLib.bash) configSet genHelpFlags;
+  inherit (configSet config) cacheDir walk;
 in
 {
   icedos.system.toolset.configurationCommands = [
@@ -33,7 +23,7 @@ in
           exit 0
         fi
 
-        CONFIG_DIRS=(${configDirsArgs})
+        ${walk}
 
         # Latest config snapshot (see rebuild.nix snapshot_config_set): the folder
         # carries the .config-set marker plus config.toml (optional) + every
@@ -66,24 +56,7 @@ in
           fi
         }
 
-        diff_pair "config.toml" "''${latest}config.toml" "${workingConfig}"
-
-        # For each configured dir: union of snapshot + working *.toml (incl.
-        # hidden), name-sorted, each pair diffed.
-        shopt -s nullglob
-        for d in "''${CONFIG_DIRS[@]}"; do
-          cfg_names="$(
-            for f in "''${latest}$d/"*.toml "''${latest}$d/".*.toml \
-                     "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do
-              basename "$f"
-            done | sort -u
-          )"
-          while IFS= read -r b; do
-            [ -n "$b" ] || continue
-            diff_pair "$d/$b" "''${latest}$d/$b" "${configRoot}/$d/$b"
-          done <<< "$cfg_names"
-        done
-        shopt -u nullglob
+        walk_config_set "$latest" diff_pair
 
         if [ "$differs" -eq 0 ]; then
           log_ok "no differences ($l1 → working tree)"

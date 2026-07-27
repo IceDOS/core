@@ -108,6 +108,54 @@ rec {
     dimPurpleString = s: "\${DIM_PURPLE}${s}\${NC}";
     dimRedString = s: "\${DIM_RED}${s}\${NC}";
     dimYellowString = s: "\${DIM_YELLOW}${s}\${NC}";
+
+    # Config-set paths + the shell walker shared by the `icedos configuration`
+    # diff / rollback / history commands: all three pair a snapshot folder
+    # (`.cache/<timestamp>/`, written by rebuild.nix's snapshot_config_set)
+    # against the working tree, over the same file set — config.toml plus every
+    # *.toml, hidden .*.toml included, under each `icedos.system.extraConfigs`
+    # dir. Takes the NixOS `config`.
+    configSet =
+      config:
+      let
+        inherit (config.icedos) configurationLocation;
+        configRoot = "${configurationLocation}/..";
+        workingConfig = "${configRoot}/config.toml";
+        configDirsArgs = concatStringsSep " " (map escapeShellArg config.icedos.system.extraConfigs);
+      in
+      {
+        inherit configRoot workingConfig configDirsArgs;
+        cacheDir = "${configurationLocation}/.cache";
+
+        # Defines CONFIG_DIRS + `walk_config_set <snapshot_root> <fn>`, which
+        # calls `<fn> <label> <snapshot_path> <working_path>` once per file in
+        # the union of both sides — so files added or removed since the snapshot
+        # are visible too (the callback maps a missing side to /dev/null).
+        # A trailing slash on <snapshot_root> is accepted. The callback runs in
+        # the caller's shell (here-string, not a pipe), so it can set variables.
+        walk = ''
+          CONFIG_DIRS=(${configDirsArgs})
+
+          walk_config_set() {
+            local root="''${1%/}" fn="$2" d b names f
+            "$fn" "config.toml" "$root/config.toml" "${workingConfig}"
+            shopt -s nullglob
+            for d in "''${CONFIG_DIRS[@]}"; do
+              names="$(
+                for f in "$root/$d/"*.toml "$root/$d/".*.toml \
+                         "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do
+                  basename "$f"
+                done | sort -u
+              )"
+              while IFS= read -r b; do
+                [ -n "$b" ] || continue
+                "$fn" "$d/$b" "$root/$d/$b" "${configRoot}/$d/$b"
+              done <<< "$names"
+            done
+            shopt -u nullglob
+          }
+        '';
+      };
   };
 
   # icedos toolset framework: the dispatcher generator (used to build

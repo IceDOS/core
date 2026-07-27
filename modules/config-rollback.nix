@@ -1,30 +1,27 @@
 {
   config,
   icedosLib,
-  lib,
   pkgs,
   ...
 }:
 
 let
   inherit (icedosLib.bash)
+    configSet
     dimGreenString
     genHelpFlags
     purpleString
     redString
     ;
 
-  inherit (config.icedos) configurationLocation;
+  inherit (configSet config)
+    cacheDir
+    configRoot
+    walk
+    workingConfig
+    ;
 
   nh = "${pkgs.nh}/bin/nh";
-  cacheDir = "${configurationLocation}/.cache";
-  configRoot = "${configurationLocation}/..";
-  workingConfig = "${configRoot}/config.toml";
-
-  # Extra-config dirs (icedos.system.extraConfigs) as shell-quoted args.
-  configDirsArgs = lib.concatStringsSep " " (
-    map lib.escapeShellArg config.icedos.system.extraConfigs
-  );
 in
 {
   icedos.system.toolset.configurationCommands = [
@@ -75,7 +72,7 @@ in
         # exact marker the rebuild script records at build time. Generations
         # built before the marker existed have none — those roll back system-only.
         m="$(stat -c %Y "$link" 2>/dev/null)"
-        CONFIG_DIRS=(${configDirsArgs})
+        ${walk}
         snap_file="${cacheDir}/generations/$TARGET"
         if [ -f "$snap_file" ]; then snap="$(cat "$snap_file")"; else snap=""; fi
         snap_root="${cacheDir}/$snap"
@@ -84,10 +81,11 @@ in
         store="$(readlink -f "$link")"
         ker="$(readlink "$store/kernel" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 
-        # Preview one working/snapshot file pair, indented under the plan. A
-        # missing side shows as /dev/null so adds/removes are visible.
+        # Preview one snapshot/working file pair (walk_config_set's callback
+        # signature), indented under the plan. A missing side shows as /dev/null
+        # so adds/removes are visible.
         show_pair() {
-          local label="$1" work="$2" snapf="$3"
+          local label="$1" snapf="$2" work="$3"
           [ -f "$work" ] || work=/dev/null
           [ -f "$snapf" ] || snapf=/dev/null
           if diff -q "$work" "$snapf" >/dev/null 2>&1; then
@@ -105,17 +103,7 @@ in
           echo "  config snapshot:   $snap (recorded at build)"
           echo
           echo "  config set changes that would be restored:"
-          show_pair "config.toml" "${workingConfig}" "$snap_toml"
-          shopt -s nullglob
-          for d in "''${CONFIG_DIRS[@]}"; do
-            for f in "$snap_root/$d/"*.toml "$snap_root/$d/".*.toml \
-                     "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do basename "$f"; done | sort -u \
-              | while IFS= read -r b; do
-                  [ -n "$b" ] || continue
-                  show_pair "$d/$b" "${configRoot}/$d/$b" "$snap_root/$d/$b"
-                done
-          done
-          shopt -u nullglob
+          walk_config_set "$snap_root" show_pair
         else
           echo -e "  ${redString "warning"}: no config snapshot recorded — this will be a SYSTEM-ONLY rollback (config left as-is)"
         fi
