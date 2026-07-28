@@ -20,6 +20,90 @@ let
   inherit (lib) concatMap optional;
   validNameRegex = "[a-zA-Z0-9_-]+";
 
+  # Recursively merge commands sharing a name by concatenating their `commands`
+  # children. Without this, two modules registering e.g. `claude` with different
+  # subcommands (`limits`, `mcp`) produce duplicate case labels in the root
+  # dispatcher — bash always matches the first. Recursion handles the same
+  # scenario at any depth.
+  mergeCommands =
+    cmds:
+    let
+      # Fold over commands, tracking each original entry's classification for the
+      # validation step below — a `_entries` list per group is accumulated so we
+      # can detect leaf/branch collisions across modules.
+      grouped = builtins.foldl' (
+        acc: cmd:
+        if builtins.hasAttr cmd.command acc then
+          acc
+          // {
+            ${cmd.command} = acc.${cmd.command} // {
+              commands = acc.${cmd.command}.commands ++ cmd.commands;
+              _entries = acc.${cmd.command}._entries ++ [
+                {
+                  hasCommands = cmd.commands != [ ];
+                  hasScriptOrBin = cmd.script != "" || cmd.bin != "";
+                }
+              ];
+            };
+          }
+        else
+          acc
+          // {
+            ${cmd.command} = cmd // {
+              _entries = [
+                {
+                  hasCommands = cmd.commands != [ ];
+                  hasScriptOrBin = cmd.script != "" || cmd.bin != "";
+                }
+              ];
+            };
+          }
+      ) { } cmds;
+
+      # Validate cross-module collisions: if multiple entries share a name and
+      # disagree on leaf vs branch classification, or if multiple leaves collide,
+      # the outcome is order-dependent (NixOS list concatenation decides which
+      # definition wins). A single-entry group that declares both `commands` and
+      # `script`/`bin` is already caught by the accurate assertion below and
+      # falls through.
+      check =
+        name: entry:
+        let
+          entries = entry._entries;
+          n = builtins.length entries;
+          anyBranch = builtins.any (x: x.hasCommands) entries;
+          anyLeaf = builtins.any (x: x.hasScriptOrBin) entries;
+          leafCount = builtins.foldl' (acc: x: if x.hasScriptOrBin then acc + 1 else acc) 0 entries;
+        in
+        if n > 1 && anyBranch && anyLeaf then
+          builtins.abort ''
+            icedos toolset: command "${name}" is registered as BOTH a leaf (script/bin)
+            and a branch (subcommands) by different modules. This is ambiguous —
+            NixOS list ordering decides which definition wins. Use unique command
+            names or consolidate the definitions into a single module.''
+        else if n > 1 && leafCount > 1 then
+          builtins.abort ''
+            icedos toolset: command "${name}" has multiple leaf definitions
+            (script/bin) from different modules (${toString leafCount} registrations).
+            Only the first survives — rename or consolidate.''
+        else
+          true;
+
+      validated = builtins.all (n: check n grouped.${n}) (builtins.attrNames grouped);
+      merged = builtins.attrValues grouped;
+    in
+    builtins.seq validated (
+      map (
+        cmd:
+        builtins.removeAttrs cmd [ "_entries" ]
+        // {
+          commands = mergeCommands cmd.commands;
+        }
+      ) merged
+    );
+
+  mergedCommands = mergeCommands commands;
+
   rebootBin = pkgs.writeShellScriptBin "icedos-reboot" ''
     exec ${pkgs.systemd}/bin/run0 ${pkgs.systemd}/bin/systemctl reboot -i
   '';
@@ -63,10 +147,10 @@ let
           cmd.bin;
     };
 
-  resolvedCommands = map resolve commands;
+  resolvedCommands = map resolve mergedCommands;
 
   flatten = cmd: [ cmd ] ++ concatMap flatten cmd.commands;
-  allCommands = concatMap flatten commands;
+  allCommands = concatMap flatten mergedCommands;
 in
 {
   assertions =
@@ -94,19 +178,19 @@ in
         (pkgs.writeTextFile {
           name = "icedos-bash-completion";
           destination = "/share/bash-completion/completions/icedos";
-          text = mkBashCompletion { inherit commands; };
+          text = mkBashCompletion { commands = mergedCommands; };
         })
 
         (pkgs.writeTextFile {
           name = "icedos-zsh-completion";
           destination = "/share/zsh/site-functions/_icedos";
-          text = mkZshCompletion { inherit commands; };
+          text = mkZshCompletion { commands = mergedCommands; };
         })
 
         (pkgs.writeTextFile {
           name = "icedos-fish-completion";
           destination = "/share/fish/vendor_completions.d/icedos.fish";
-          text = mkFishCompletion { inherit commands; };
+          text = mkFishCompletion { commands = mergedCommands; };
         })
       ];
     })
