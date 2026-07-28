@@ -391,6 +391,7 @@ New here? These cover almost everything:
 | --- | --- |
 | `icedos rebuild` | Apply your `config.toml` changes to the system. |
 | `icedos configuration show options` | Search what you can set (fuzzy, with paste-ready TOML). |
+| `icedos configuration get <path>` | Print the effective value of a specific option by dotted path. |
 | `icedos configuration diff` | See what you've changed since the last rebuild. |
 | `icedos configuration history` | List generations and which config snapshot built each one. |
 | `icedos configuration validate` | Check your config for schema/type errors without a rebuild. |
