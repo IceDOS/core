@@ -95,7 +95,7 @@ let
     CONFIG_DIRS=(${configDirsArgs})
     stale=0
     for cache in "${optionsCache}" "${modulesCache}"; do
-      [ -f "$cache" ] || stale=1
+      [ -f "$cache" ] && [ -s "$cache" ] || stale=1
       for src in "${configurationLocation}/../config.toml" \
                  "${configurationLocation}/flake.lock"; do
         [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
@@ -111,8 +111,15 @@ let
 
     if [ "$stale" -eq 1 ]; then
       log_step "refreshing configuration index..."
-      ( cd "${configurationLocation}" && bash ./build.sh --export-search-index ) \
-        || die "failed to build configuration index"
+      if ! ( cd "${configurationLocation}" && bash ./build.sh --export-search-index ); then
+        # Both caches must be valid — build.sh --export-search-index produces both atomically
+        if [ -f "${optionsCache}" ] && [ -s "${optionsCache}" ] \
+        && [ -f "${modulesCache}" ] && [ -s "${modulesCache}" ]; then
+          log_warn "index may be stale — run 'icedos rebuild --build'"
+        else
+          die "failed to build configuration index (no cache available)"
+        fi
+      fi
     fi
   '';
 
