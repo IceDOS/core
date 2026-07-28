@@ -396,7 +396,7 @@ New here? These cover almost everything:
 | `icedos configuration validate` | Check your config for schema/type errors without a rebuild. |
 | `icedos configuration rollback` | Undo — restore the last working system **and** its `config.toml`. |
 | `icedos doctor` | Health check with plain-language fixes. |
-| `icedos gc` | Free up disk space. |
+| `icedos gc [--dry]` | Free up disk space (--dry to preview). |
 | `icedos repl` | Open a Nix REPL preloaded with your evaluated config, packages, and lib. |
 
 ### Full command reference
@@ -424,7 +424,7 @@ New here? These cover almost everything:
 | `icedos pkgs run <attr>` | Build a package and run it **without installing** (`--select/-s`, `--detach/-d`, `--insecure`). |
 | `icedos repair` | Verify and repair the Nix store. |
 | `icedos shell` | Spawn a `nix-shell` with an optimized env (`--insecure`). |
-| `icedos gc` | Clean the Nix + home-manager store and profiles, and purge leftover build dirs. |
+| `icedos gc [--dry/-n/--dry-run]` | Clean the Nix + home-manager store and profiles, and purge leftover build dirs. Append `--dry` / `-n` / `--dry-run` for a no-op preview of what would be deleted. |
 
 ### `icedos rebuild`
 

@@ -8,10 +8,12 @@
 
 let
   inherit (icedosLib.bash)
-    prelude
     dimBlueString
     dimGreenString
     dimRedString
+    dimYellowString
+    genHelpFlags
+    prelude
     ;
 
   inherit (lib)
@@ -81,12 +83,51 @@ in
       command = "gc";
 
       script = ''
-        ${runHooks "preGc" preGc}
-        "${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" && ${cleanExtra}
-        ${runHooks "postGc" postGc}
+        if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
+          echo "Usage: icedos gc [--dry|-n|--dry-run]"
+          echo "Clean the nix store, home-manager profiles, and temp build dirs."
+          echo
+          echo "Options:"
+          echo -e "  ${dimYellowString "--dry, -n, --dry-run"}: preview what would be deleted without actually cleaning"
+          exit 0
+        fi
+
+        DRY_RUN=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --dry|--dry-run|-n)
+              DRY_RUN="-n"
+              shift
+              ;;
+            *)
+              die "unknown arg: $1"
+              ;;
+          esac
+        done
+
+        if [ -n "$DRY_RUN" ]; then
+          log_step "dry run — no changes will be made"
+        fi
+
+        if [ -z "$DRY_RUN" ]; then
+          :
+          ${runHooks "preGc" preGc}
+        fi
+
+        "${pkgs.nh}/bin/nh" clean all -k "${generations}" -K "${days}" $DRY_RUN \
+          || die "nh clean failed"
+
+        if [ -z "$DRY_RUN" ]; then
+          ${cleanExtra}
+          :
+          ${runHooks "postGc" postGc}
+        else
+          echo
+          log_warn "dry run — preGc hooks, cleanExtra (temp build dirs), and postGc hooks skipped"
+        fi
       '';
 
-      help = "clean nix plus home manager, store and profiles";
+      help = "clean nix store, home-manager profiles, and temp build dirs (--dry/-n/--dry-run for no-op preview)";
     }
   ];
 
