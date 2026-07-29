@@ -88,147 +88,184 @@ let
   # rebuild` takes, so no IceDOS env has to be reconstructed here. Both docs are
   # produced together by `build.sh --export-search-index`.
   ensureIndex = ''
-    if [ ! -d "${configurationLocation}" ]; then
-      die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
-    fi
+    ensure_index() {
+      if [ ! -d "${configurationLocation}" ]; then
+        die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
+      fi
 
-    CONFIG_DIRS=(${configDirsArgs})
-    stale=0
-    for cache in "${optionsCache}" "${modulesCache}"; do
-      [ -f "$cache" ] && [ -s "$cache" ] || stale=1
-      for src in "${configurationLocation}/../config.toml" \
-                 "${configurationLocation}/flake.lock"; do
-        [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
-      done
-      shopt -s nullglob
-      for d in "''${CONFIG_DIRS[@]}"; do
-        for src in "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml; do
+      CONFIG_DIRS=(${configDirsArgs})
+      stale=0
+      for cache in "${optionsCache}" "${modulesCache}"; do
+        [ -f "$cache" ] && [ -s "$cache" ] || stale=1
+        for src in "${configurationLocation}/../config.toml" \
+                   "${configurationLocation}/flake.lock"; do
           [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
         done
+        shopt -s nullglob
+        for d in "''${CONFIG_DIRS[@]}"; do
+          for src in "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml; do
+            [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
+          done
+        done
+        shopt -u nullglob
       done
-      shopt -u nullglob
-    done
 
-    if [ "$stale" -eq 1 ]; then
-      log_step "refreshing configuration index..."
-      if ! ( cd "${configurationLocation}" && bash ./build.sh --export-search-index ); then
-        # Both caches must be valid — build.sh --export-search-index produces both atomically
-        if [ -f "${optionsCache}" ] && [ -s "${optionsCache}" ] \
-        && [ -f "${modulesCache}" ] && [ -s "${modulesCache}" ]; then
-          log_warn "index may be stale — run 'icedos rebuild --build'"
-        else
-          die "failed to build configuration index (no cache available)"
+      if [ "$stale" -eq 1 ]; then
+        log_step "refreshing configuration index..."
+        if ! ( cd "${configurationLocation}" && bash ./build.sh --export-search-index ); then
+          if [ -f "${optionsCache}" ] && [ -s "${optionsCache}" ] \
+          && [ -f "${modulesCache}" ] && [ -s "${modulesCache}" ]; then
+            log_warn "index may be stale — run 'icedos rebuild --build'"
+          else
+            die "failed to build configuration index (no cache available)"
+          fi
         fi
       fi
-    fi
+    }
   '';
 
-  showOptions = {
-    command = "options";
-    help = "fuzzy-search icedos options (fzf), with a paste-ready toml snippet";
+  searchCmd = {
+    command = "search";
+    help = "search icedos options and/or modules";
 
-    # Tab-complete option names straight from the cache — no fzf, no index
-    # rebuild. Missing cache (jq error) is swallowed so completion never blocks.
-    completion.command = "${jq} -r 'sort_by(.name)[] | .name' \"${optionsCache}\" 2>/dev/null";
+    completion.command = "printf 'options\\nmodules\\n'";
 
     script = ''
       if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
-        echo "Usage: icedos configuration show options [<name>]"
-        echo "With no argument, opens an fzf picker over all icedos options. With an"
-        echo "option name, prints that option's type, description, and a paste-ready"
-        echo "toml snippet directly — no fzf, scriptable."
+        echo "Usage: icedos configuration search [options|modules] [<name>]"
+        echo
+        echo "  With no args, opens an fzf picker over both options and modules."
+        echo "  icedos configuration search options [<name>]"
+        echo "    fuzzy-search options, or print detail for <name>"
+        echo "  icedos configuration search modules [<name>]"
+        echo "    browse modules, or print detail for <name>"
+        echo
+        echo "Examples:"
+        echo "  icedos configuration search"
+        echo "  icedos configuration search options"
+        echo "  icedos configuration search options icedos.system.arch"
+        echo "  icedos configuration search modules steam"
         exit 0
       fi
 
-      ${ensureIndex}
+      mode="all"
+      case "''${1:-}" in
+        options|modules) mode="$1"; shift ;;
+      esac
 
-      # Named lookup: `... show options <name>` prints one option's detail
-      # (type, description, paste-ready toml) straight to stdout, bypassing fzf —
-      # useful for scripting and quick lookups. Empty render = no such option.
-      if [ -n "$1" ]; then
-        detail=$(${detailBin} "$1")
-        [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration show options' to browse)"
-        printf '%s\n' "$detail"
-        exit 0
+      # Fail fast on bad args before paying for index refresh
+      case "$mode" in
+        all)
+          [ "$#" -gt 0 ] && die "unknown arg: $1"
+          ;;
+        options|modules)
+          case "''${1:-}" in --help|-h|help|h) echo "Usage: icedos configuration search $mode [<name>]"; exit 0 ;; esac
+          [ "$#" -gt 1 ] && die "unknown arg: $2"
+          ;;
+      esac
+
+      # In non-TTY mode (piped), redirect index chatter to stderr so
+      # machine-readable output stays clean.
+${ensureIndex}
+      if [ ! -t 1 ]; then
+        ensure_index 1>&2
+      else
+        ensure_index
       fi
 
-      # Sorted "name<TAB>type" stream of every option.
       options_list() {
         ${jq} -r 'sort_by(.name)[] | [ .name, (.type // "") ] | @tsv' "${optionsCache}"
       }
-
-      # Non-interactive (pipes): emit the sorted list and exit.
-      if [ ! -t 1 ]; then
-        options_list
-        exit 0
-      fi
-
-      # Default: fzf picker. Preview renders the option detail; selecting one
-      # prints the same detail to stdout for copy/paste.
-      sel=$(options_list \
-        | ${fzf} --delimiter='\t' --with-nth=1 \
-                 --prompt='option> ' \
-                 --layout=reverse --height=80% --border \
-                 --preview '${detailBin} {1}' \
-                 --preview-window='right,60%,wrap' \
-        | cut -f1)
-
-      [ -z "$sel" ] && exit 0
-      ${detailBin} "$sel"
-    '';
-  };
-
-  showModules = {
-    command = "modules";
-    help = "show the icedos module graph (enabled, available, dependencies)";
-
-    # Tab-complete module names straight from the cache — no fzf, no index
-    # rebuild. Missing cache (jq error) is swallowed so completion never blocks.
-    completion.command = "${jq} -r 'sort_by(.name)[] | .name' \"${modulesCache}\" 2>/dev/null";
-
-    script = ''
-      if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
-        echo "Usage: icedos configuration show modules [<name>]"
-        echo "With no argument, opens an fzf picker over every module (configured +"
-        echo "dependency repos). With a module name, prints that module's repo, status,"
-        echo "description, and dependencies directly — no fzf, scriptable."
-        exit 0
-      fi
-
-      ${ensureIndex}
-
-      # Named lookup: `... show modules <name>` prints one module's detail
-      # (repo, status, description, deps) straight to stdout, bypassing fzf —
-      # useful for scripting and quick lookups. Empty render = no such module.
-      if [ -n "$1" ]; then
-        detail=$(${moduleDetailBin} "$1")
-        [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration show modules' to browse)"
-        printf '%s\n' "$detail"
-        exit 0
-      fi
-
-      # fzf feed: sorted module names. Status markers live in the preview, not
-      # the list.
       modules_list() {
         ${jq} -r 'sort_by(.name)[] | .name' "${modulesCache}"
       }
+      search_list() {
+        ${jq} -r '.[] | "option::" + .name' "${optionsCache}"
+        ${jq} -r '.[] | "module::" + .name' "${modulesCache}"
+      }
 
-      # Non-interactive (pipes): emit the sorted name list and exit.
-      if [ ! -t 1 ]; then
-        modules_list
-        exit 0
-      fi
+      run_options() {
+        case "''${1:-}" in
+          --help|-h|help|h) echo "Usage: icedos configuration search options [<name>]"; exit 0 ;;
+        esac
+        [ "$#" -gt 1 ] && die "unknown arg: $2"
+        if [ -n "$1" ]; then
+          detail=$(${detailBin} "$1")
+          [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration search options' to browse)"
+          printf '%s\n' "$detail"
+          exit 0
+        fi
+        if [ ! -t 1 ]; then
+          options_list
+          exit 0
+        fi
+        sel=$(options_list \
+          | ${fzf} --delimiter='\t' --with-nth=1 \
+                   --prompt='option> ' \
+                   --layout=reverse --height=80% --border \
+                   --preview '${detailBin} {1}' \
+                   --preview-window='right,60%,wrap' \
+          | cut -f1)
+        [ -z "$sel" ] && exit 0
+        ${detailBin} "$sel"
+      }
 
-      # Default: fzf picker over module names; preview renders the module detail
-      # (repo, status, deps); selecting one prints that detail to stdout.
-      sel=$(modules_list \
-        | ${fzf} --prompt='module> ' \
-                 --layout=reverse --height=80% --border \
-                 --preview '${moduleDetailBin} {}' \
-                 --preview-window='right,60%,wrap')
+      run_modules() {
+        case "''${1:-}" in
+          --help|-h|help|h) echo "Usage: icedos configuration search modules [<name>]"; exit 0 ;;
+        esac
+        [ "$#" -gt 1 ] && die "unknown arg: $2"
+        if [ -n "$1" ]; then
+          detail=$(${moduleDetailBin} "$1")
+          [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration search modules' to browse)"
+          printf '%s\n' "$detail"
+          exit 0
+        fi
+        if [ ! -t 1 ]; then
+          modules_list
+          exit 0
+        fi
+        sel=$(modules_list \
+          | ${fzf} --prompt='module> ' \
+                   --layout=reverse --height=80% --border \
+                   --preview '${moduleDetailBin} {}' \
+                   --preview-window='right,60%,wrap')
+        [ -z "$sel" ] && exit 0
+        ${moduleDetailBin} "$sel"
+      }
 
-      [ -z "$sel" ] && exit 0
-      ${moduleDetailBin} "$sel"
+      run_all() {
+        if [ ! -t 1 ]; then
+          search_list | sort
+          exit 0
+        fi
+        sel=$(search_list | sort \
+          | ${fzf} --delimiter='::' --with-nth=2 \
+                   --prompt='search> ' \
+                   --layout=reverse --height=80% --border \
+                   --preview '
+                     t={1} n={2}
+                     if [ "$t" = "option" ]; then
+                       ${detailBin} "$n"
+                     else
+                       ${moduleDetailBin} "$n"
+                     fi
+                   ' \
+                   --preview-window='right,60%,wrap')
+        [ -z "$sel" ] && exit 0
+        t="''${sel%%::*}" n="''${sel#*::}"
+        if [ "$t" = "option" ]; then
+          ${detailBin} "$n"
+        else
+          ${moduleDetailBin} "$n"
+        fi
+      }
+
+      case "$mode" in
+        options) run_options "$@" ;;
+        modules) run_modules "$@" ;;
+        all)     run_all ;;
+      esac
     '';
   };
 
@@ -246,7 +283,7 @@ let
         echo "option collisions between modules still surface at rebuild time,"
         echo "since no system closure is evaluated here."
         echo "Side effects: none beyond refreshing the search index that"
-        echo "'icedos configuration show' reads (.cache/*-doc.json)."
+        echo "'icedos configuration search' reads (.cache/*-doc.json)."
         exit 0
       fi
 
@@ -261,8 +298,6 @@ let
 
       log_step "validating configuration..."
 
-      # Output is a verdict, not a build log: nix eval chatter is held back and
-      # only replayed when the eval actually fails (where it is the error).
       if out="$( cd "${configurationLocation}" && bash ./build.sh --export-search-index 2>&1 )"; then
         log_ok "configuration is valid"
       else
@@ -279,15 +314,7 @@ in
       help = "inspect your icedos configuration";
 
       commands = [
-        {
-          command = "show";
-          help = "show icedos options and modules";
-
-          commands = [
-            showOptions
-            showModules
-          ];
-        }
+        searchCmd
         validateConfig
       ]
       ++ configurationCommands;

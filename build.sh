@@ -108,7 +108,7 @@ done
 
 export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
-# Lightweight index for `icedos configuration show` / `configuration validate`
+# Lightweight index for `icedos configuration search` / `configuration validate`
 # (and the webui config editor): emit the option + module docs plus a JSON dump
 # of the user's config.toml, then exit. Runs before every mutating step below —
 # it evaluates lib/genflake.nix directly, so it needs neither the generated

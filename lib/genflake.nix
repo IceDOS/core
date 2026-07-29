@@ -231,7 +231,7 @@ let
       s;
 
   # Searchable index of every IceDOS option (path, type, description, current
-  # value) — consumed by `icedos configuration show`. Reuses the same evalModules
+  # value) — consumed by `icedos configuration search`. Reuses the same evalModules
   # as `evaluatedConfig`: type/description come from `.options`, the value from
   # `.config` (`evaluated`).
   optionsDoc =
