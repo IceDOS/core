@@ -206,20 +206,23 @@ in
           command = "reboot";
 
           script = ''
-            case "$1" in
-              "")
-                systemctl reboot -i || sudo systemctl reboot -i
-                ;;
-              uefi)
-                systemctl reboot --firmware-setup -i || sudo systemctl reboot --firmware-setup -i
-                ;;
-              *)
-                die "unknown arg: $1"
-                ;;
-            esac
+            uefi=false
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --uefi) uefi=true; shift ;;
+                -*) die "unknown flag: $1" ;;
+                *) die "unknown arg: $1" ;;
+              esac
+            done
+
+            if [ "$uefi" = true ]; then
+              systemctl reboot --firmware-setup -i || sudo systemctl reboot --firmware-setup -i
+            else
+              systemctl reboot -i || sudo systemctl reboot -i
+            fi
           '';
 
-          help = "reboot ignoring inhibitors and users, uefi supported by appending it as an argument";
+          help = "reboot ignoring inhibitors and users (--uefi to reboot into firmware setup)";
         }
         {
           command = "logout";

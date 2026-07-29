@@ -34,7 +34,7 @@ Each point leads with the benefit; the technical term is in parentheses for peop
 - **↩️ Undo anything** — every rebuild is saved, and `icedos configuration rollback` restores the last working system **and** the `config.toml` that built it, in one command *(generations + config snapshots)*.
 - **⚡ No waiting for compiles** — packages download pre-built from the IceDOS server instead of building on your machine *(self-hosted binary cache)*. On by default.
 - **🩺 Built-in health check** — `icedos status` inspects your system and tells you, in plain language, what to fix.
-- **🔎 Discover every setting** — `icedos configuration search options` fuzzy-searches everything you can change and hands you a ready-to-paste snippet.
+- **🔎 Discover every setting** — `icedos configuration search --options` fuzzy-searches everything you can change and hands you a ready-to-paste snippet.
 - **✅ Typo-proof settings** — options are validated with error messages that name the exact setting and file, catching mistakes before a full rebuild *(path-aware validation)*.
 - **🧪 Try changes safely** — build a throwaway virtual machine of your config to test it without touching your real system *(`--build-vm`)*.
 - **🧹 Stays tidy on its own** — old versions are cleaned up automatically on a schedule *(automatic garbage collection)*, and the generated build files are tucked away in a `.state/` folder so your own files stay clean.
@@ -117,7 +117,7 @@ enable = true
 
 Users are created with the password `1` — set `defaultPassword` above, or change it after first login (see [How do I set a password?](#how-do-i-set-a-password)).
 
-**Finding modules and options:** browse the [repository map](#-how-icedos-is-organized), then open each repo's own example `config.toml` on GitHub for the module names and settings it offers. (The `icedos configuration search options` search is easier — but it needs a built system, so use the repos for this first setup.)
+**Finding modules and options:** browse the [repository map](#-how-icedos-is-organized), then open each repo's own example `config.toml` on GitHub for the module names and settings it offers. (The `icedos configuration search --options` search is easier — but it needs a built system, so use the repos for this first setup.)
 
 ### 3. Build it for the first time
 
@@ -145,7 +145,7 @@ Restart, and pick the newest entry in the boot menu — you'll land in your new 
 
 From now on the loop is always the same: **edit `config.toml`, then run `icedos rebuild`.**
 
-- `icedos configuration search options` — search everything you can set (fuzzy, with paste-ready TOML). Works now that you have a built system.
+- `icedos configuration search --options` — search everything you can set (fuzzy, with paste-ready TOML). Works now that you have a built system.
 - `icedos status` — a quick health check and dashboard.
 - Broke something? `icedos configuration rollback` restores the last working system **and** the `config.toml` that built it.
 
@@ -196,7 +196,7 @@ IceDOS is split into small repositories, pulled in as needed. You don't check th
 
 You customize IceDOS at three levels, in increasing order of power. Most people never leave level 1.
 
-1. **Simple — edit `config.toml`.** Flip the high-level options that IceDOS modules expose. Discover them any time with `icedos configuration search options`, or read each module's example `config.toml` in its repo.
+1. **Simple — edit `config.toml`.** Flip the high-level options that IceDOS modules expose. Discover them any time with `icedos configuration search --options`, or read each module's example `config.toml` in its repo.
 
 2. **Raw NixOS options.** Any top-level table in `config.toml` (or a `configs/*.toml`) that **isn't** `icedos` is applied directly as NixOS configuration — no module needed. NixOS itself checks these for you.
 
@@ -254,7 +254,7 @@ Everything under `icedos` is IceDOS's own, checked settings. The top-level group
 | `icedos.users` | User accounts (home-manager integrated): password, groups, sudo, packages, … |
 | `icedos.<category>.*` | Options exposed by the module repos you load, grouped by category — e.g. `icedos.applications.*` (apps like `btop`, `steam`), `icedos.hardware.*`, `icedos.desktop.*`, `icedos.tweaks.*`. Which categories exist depends on which repos you enable. |
 
-Per-option details live in each module's sibling `config.toml`, and are searchable with `icedos configuration search options`.
+Per-option details live in each module's sibling `config.toml`, and are searchable with `icedos configuration search --options`.
 
 ### Channels & overlays
 
@@ -390,7 +390,7 @@ New here? These cover almost everything:
 | Command | What it does |
 | --- | --- |
 | `icedos rebuild` | Apply your `config.toml` changes to the system. |
-| `icedos configuration search options` | Search what you can set (fuzzy, with paste-ready TOML). |
+| `icedos configuration search --options` | Search what you can set (fuzzy, with paste-ready TOML). |
 | `icedos configuration get <path>` | Print the effective value of a specific option by dotted path. |
 | `icedos configuration diff` | See what you've changed since the last rebuild. |
 | `icedos configuration history` | List generations and which config snapshot built each one. |
@@ -407,14 +407,14 @@ New here? These cover almost everything:
 | `icedos` | List top-level commands. |
 | `icedos --tree` | Recursively list every command and subcommand. |
 | `icedos rebuild` | Apply configuration changes to the system (see flags below). |
-| `icedos configuration search options` | Fuzzy-search IceDOS options (fzf) with a paste-ready TOML snippet. |
-| `icedos configuration search modules` | Browse modules — enabled / available / dependencies. |
+| `icedos configuration search --options` | Fuzzy-search IceDOS options (fzf) with a paste-ready TOML snippet. |
+| `icedos configuration search --modules` | Browse modules — enabled / available / dependencies. |
 | `icedos configuration diff` | Show how your working `config.toml` differs from the one that built the current system (your pending changes). |
 | `icedos configuration history [--json \| <gen>]` | List system generations newest first — date, kernel, age, and whether the config snapshot that built each one is still on disk (`✓` present, `✗` pruned by gc, `-` never recorded); the current generation is marked `*`. With a generation number, diffs that generation's config snapshot against your working tree. `--json` emits the table for scripts. |
 | `icedos configuration rollback [--to <gen>] [--dry]` | Roll the system **and** `config.toml` back to a previous generation. `--to` targets a generation number (default: the previous one); `--dry` shows the plan without changing anything. Your current `config.toml` is backed up first. |
 | `icedos configuration validate` | Evaluate the genflake stage against your working config — types, schema, unknown keys, missing modules — and exit non-zero on the first error. No system closure is built, so module-body errors and cross-module option collisions still surface at rebuild time. Refreshes the `configuration search` search index as a side effect; changes nothing else. |
 | `icedos repl` | Open a Nix REPL bound to the current system's evaluation: `config` (evaluated, module defaults included), `options`, `declared` (raw working-tree `config.toml`), `pkgs`, `lib`, `icedosLib`, `inputs`. |
-| `icedos session reboot [uefi]` | Reboot, ignoring inhibitors and other users. Append `uefi` to reboot into firmware setup. |
+| `icedos session reboot [--uefi]` | Reboot, ignoring inhibitors and other users. Pass `--uefi` to reboot into firmware setup. |
 | `icedos session logout` | Terminate all sessions for the current user. |
 | `icedos session poweroff` | Power off, ignoring inhibitors and other users. |
 | `icedos session suspend` | Suspend, ignoring inhibitors and other users. |
@@ -531,7 +531,7 @@ Undo it: `icedos configuration rollback` restores the last generation (system **
 
 ### How do I find out what a setting does, or what I can set?
 
-`icedos configuration search options` — a fuzzy search over every option, with type and a paste-ready TOML snippet. Browse features with `icedos configuration search modules`.
+`icedos configuration search --options` — a fuzzy search over every option, with type and a paste-ready TOML snippet. Browse features with `icedos configuration search --modules`.
 
 ### `status` says `hardware-configuration.nix` is missing
 

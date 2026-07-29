@@ -314,7 +314,7 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
    needs `icedos rebuild --update-core --build` — the lock otherwise keeps the old core
    store snapshot *even with the path pin*. `path:` inputs for the other repos
    auto-refresh on every build, so no extra flag is needed for them.
-4. **Inspect without building:** `icedos configuration search options` browses every
+4. **Inspect without building:** `icedos configuration search --options` browses every
    option with its effective value (regenerates `.state/.cache/options-doc.json` on
    demand).
 5. **You never activate — the user does.** A plain `icedos rebuild` is a `switch`: it needs

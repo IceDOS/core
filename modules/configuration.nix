@@ -128,30 +128,41 @@ let
     command = "search";
     help = "search icedos options and/or modules";
 
-    completion.command = "printf 'options\\nmodules\\n'";
+    completion.command = "printf '%s\\n' --options --modules";
 
     script = ''
             if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
-              echo "Usage: icedos configuration search [options|modules] [<name>]"
+              echo "Usage: icedos configuration search [--options|--modules] [<name>]"
               echo
-              echo "  With no args, opens an fzf picker over both options and modules."
-              echo "  icedos configuration search options [<name>]"
-              echo "    fuzzy-search options, or print detail for <name>"
-              echo "  icedos configuration search modules [<name>]"
-              echo "    browse modules, or print detail for <name>"
+              echo "  With no flags, opens an fzf picker over both options and modules."
+              echo "  --options [<name>]    fuzzy-search options, or print detail for <name>"
+              echo "  --modules [<name>]    browse modules, or print detail for <name>"
               echo
               echo "Examples:"
               echo "  icedos configuration search"
-              echo "  icedos configuration search options"
-              echo "  icedos configuration search options icedos.system.arch"
-              echo "  icedos configuration search modules steam"
+              echo "  icedos configuration search --options"
+              echo "  icedos configuration search --options icedos.system.arch"
+              echo "  icedos configuration search --modules steam"
               exit 0
             fi
 
             mode="all"
-            case "''${1:-}" in
-              options|modules) mode="$1"; shift ;;
-            esac
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --options) mode="options"; shift ;;
+                --modules) mode="modules"; shift ;;
+                --) shift; break ;;
+                --help|-h|help|h) printf '%s\n' \
+                  "Usage: icedos configuration search [--options|--modules] [<name>]" \
+                  "" \
+                  "  With no flags, opens an fzf picker over both options and modules." \
+                  "  --options [<name>]    fuzzy-search options, or print detail for <name>" \
+                  "  --modules [<name>]    browse modules, or print detail for <name>"
+                  exit 0 ;;
+                -*) die "unknown flag: $1" ;;
+                *) break ;;
+              esac
+            done
 
             # Fail fast on bad args before paying for index refresh
             case "$mode" in
@@ -159,7 +170,6 @@ let
                 [ "$#" -gt 0 ] && die "unknown arg: $1"
                 ;;
               options|modules)
-                case "''${1:-}" in --help|-h|help|h) echo "Usage: icedos configuration search $mode [<name>]"; exit 0 ;; esac
                 [ "$#" -gt 1 ] && die "unknown arg: $2"
                 ;;
             esac
@@ -185,13 +195,9 @@ let
             }
 
             run_options() {
-              case "''${1:-}" in
-                --help|-h|help|h) echo "Usage: icedos configuration search options [<name>]"; exit 0 ;;
-              esac
-              [ "$#" -gt 1 ] && die "unknown arg: $2"
               if [ -n "$1" ]; then
                 detail=$(${detailBin} "$1")
-                [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration search options' to browse)"
+                [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration search --options' to browse)"
                 printf '%s\n' "$detail"
                 exit 0
               fi
@@ -211,13 +217,9 @@ let
             }
 
             run_modules() {
-              case "''${1:-}" in
-                --help|-h|help|h) echo "Usage: icedos configuration search modules [<name>]"; exit 0 ;;
-              esac
-              [ "$#" -gt 1 ] && die "unknown arg: $2"
               if [ -n "$1" ]; then
                 detail=$(${moduleDetailBin} "$1")
-                [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration search modules' to browse)"
+                [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration search --modules' to browse)"
                 printf '%s\n' "$detail"
                 exit 0
               fi

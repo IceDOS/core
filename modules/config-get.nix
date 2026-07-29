@@ -26,7 +26,7 @@ in
           echo
           echo "Prints the effective value (user override → module default) of an"
            echo "icedos option. Works for any option shown by 'icedos configuration"
-           echo "search options'. For scripting: the output is a bare value —"
+           echo "search --options'. For scripting: the output is a bare value —"
           echo "string, number, bool, or JSON for compound types."
           echo
           echo "Examples:"
@@ -51,7 +51,7 @@ in
         ' "${optionsCache}")
 
         if [ "$result" = "__MISSING__" ]; then
-          die "no such option: $1 (run 'icedos configuration search options' to browse)"
+          die "no such option: $1 (run 'icedos configuration search --options' to browse)"
         fi
         printf '%s\n' "$result"
       '';
