@@ -33,7 +33,7 @@ Each point leads with the benefit; the technical term is in parentheses for peop
 - **📝 One file to rule it all** — your whole machine is described in `config.toml`. Turn features on by name; you don't hand-write system code for the common cases.
 - **↩️ Undo anything** — every rebuild is saved, and `icedos configuration rollback` restores the last working system **and** the `config.toml` that built it, in one command *(generations + config snapshots)*.
 - **⚡ No waiting for compiles** — packages download pre-built from the IceDOS server instead of building on your machine *(self-hosted binary cache)*. On by default.
-- **🩺 Built-in health check** — `icedos doctor` inspects your system and tells you, in plain language, what to fix.
+- **🩺 Built-in health check** — `icedos status` inspects your system and tells you, in plain language, what to fix.
 - **🔎 Discover every setting** — `icedos configuration search options` fuzzy-searches everything you can change and hands you a ready-to-paste snippet.
 - **✅ Typo-proof settings** — options are validated with error messages that name the exact setting and file, catching mistakes before a full rebuild *(path-aware validation)*.
 - **🧪 Try changes safely** — build a throwaway virtual machine of your config to test it without touching your real system *(`--build-vm`)*.
@@ -146,7 +146,7 @@ Restart, and pick the newest entry in the boot menu — you'll land in your new 
 From now on the loop is always the same: **edit `config.toml`, then run `icedos rebuild`.**
 
 - `icedos configuration search options` — search everything you can set (fuzzy, with paste-ready TOML). Works now that you have a built system.
-- `icedos doctor` — a quick health check.
+- `icedos status` — a quick health check and dashboard.
 - Broke something? `icedos configuration rollback` restores the last working system **and** the `config.toml` that built it.
 
 ## 📖 Nix terms in plain English
@@ -396,7 +396,7 @@ New here? These cover almost everything:
 | `icedos configuration history` | List generations and which config snapshot built each one. |
 | `icedos configuration validate` | Check your config for schema/type errors without a rebuild. |
 | `icedos configuration rollback` | Undo — restore the last working system **and** its `config.toml`. |
-| `icedos doctor` | Health check with plain-language fixes. |
+| `icedos status` | System dashboard: gen, store, gc, modules, inputs, pending config, health checks. |
 | `icedos gc [--dry]` | Free up disk space (--dry to preview). |
 | `icedos repl` | Open a Nix REPL preloaded with your evaluated config, packages, and lib. |
 
@@ -413,12 +413,12 @@ New here? These cover almost everything:
 | `icedos configuration history [--json \| <gen>]` | List system generations newest first — date, kernel, age, and whether the config snapshot that built each one is still on disk (`✓` present, `✗` pruned by gc, `-` never recorded); the current generation is marked `*`. With a generation number, diffs that generation's config snapshot against your working tree. `--json` emits the table for scripts. |
 | `icedos configuration rollback [--to <gen>] [--dry]` | Roll the system **and** `config.toml` back to a previous generation. `--to` targets a generation number (default: the previous one); `--dry` shows the plan without changing anything. Your current `config.toml` is backed up first. |
 | `icedos configuration validate` | Evaluate the genflake stage against your working config — types, schema, unknown keys, missing modules — and exit non-zero on the first error. No system closure is built, so module-body errors and cross-module option collisions still surface at rebuild time. Refreshes the `configuration search` search index as a side effect; changes nothing else. |
-| `icedos doctor` | Health checklist: substituters, cache key, hardware config, store space, generations, gc, input freshness. |
 | `icedos repl` | Open a Nix REPL bound to the current system's evaluation: `config` (evaluated, module defaults included), `options`, `declared` (raw working-tree `config.toml`), `pkgs`, `lib`, `icedosLib`, `inputs`. |
 | `icedos session reboot [uefi]` | Reboot, ignoring inhibitors and other users. Append `uefi` to reboot into firmware setup. |
 | `icedos session logout` | Terminate all sessions for the current user. |
 | `icedos session poweroff` | Power off, ignoring inhibitors and other users. |
 | `icedos session suspend` | Suspend, ignoring inhibitors and other users. |
+| `icedos status` | One-screen system dashboard: gen, store, gc, modules, inputs, pending config, and health checks (substituters, cache trust, hardware). |
 | `icedos nixf [dir]` | Format all `.nix` files in the current (or given) directory. |
 | `icedos pkgs list` | List installed packages. |
 | `icedos pkgs build` | Build a package derivation (`--path/-p`, `--run/-r`). |
@@ -497,8 +497,8 @@ icedos rebuild
 # Something broke — undo the last change
 icedos configuration rollback
 
-# Health check
-icedos doctor
+# Health check & dashboard
+icedos status
 
 # Run a package once, without installing it
 icedos pkgs run firefox
@@ -518,7 +518,7 @@ icedos nixf .
 
 1. **Read the last lines of the error.** IceDOS validation messages name the exact option and file that's wrong, so the fix is usually one line.
 2. **See what you changed.** `icedos configuration diff` shows how your working `config.toml` differs from the last build that worked — the culprit is almost always in there.
-3. **Run `icedos doctor`** for common environment issues (cache, disk space, missing hardware config).
+3. **Run `icedos status`** for common environment issues (cache, disk space, missing hardware config).
 4. **Still stuck?** Re-run with `icedos rebuild --logs` for a full trace — and only then suspect a module bug worth reporting upstream.
 
 **If your config checks out, it might not be you.** IceDOS follows the `nixos-unstable` channel by default for fresh packages, and every so often an upstream package fails to build there for a day or two. When the error is a *package build failure* rather than a config/validation error, it's often transient — try again later, or `icedos rebuild --update` once upstream ships a fix. Prefer stability over bleeding edge? You can point `icedos.system.nixpkgsChannel` at a stable release (e.g. `github:nixos/nixpkgs/nixos-26.05`) — but **the IceDOS modules are written and tested against the latest (unstable) nixpkgs**, so pinning stable can itself cause breakage (missing packages, renamed options). It's a tradeoff, not a guaranteed fix — treat it as an advanced move.
@@ -533,7 +533,7 @@ Undo it: `icedos configuration rollback` restores the last generation (system **
 
 `icedos configuration search options` — a fuzzy search over every option, with type and a paste-ready TOML snippet. Browse features with `icedos configuration search modules`.
 
-### `doctor` says `hardware-configuration.nix` is missing
+### `status` says `hardware-configuration.nix` is missing
 
 Regenerate it:
 

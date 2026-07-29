@@ -293,7 +293,7 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
 
 > **First install:** On a fresh machine with no built system, `icedos` isn't on PATH yet.
 > Run `nix develop` in the config root to enter the dev shell, which provides a limited
-> `icedos` command (only `rebuild` subcommand, no `configuration`/`doctor`/etc.). After the
+> `icedos` command (only `rebuild` subcommand, no `configuration`/`status`/etc.). After the
 > first system install, the full `icedos` CLI is available everywhere.
 
 0. **Locate the config root.** It's the directory holding `config.toml` plus a `flake.nix`

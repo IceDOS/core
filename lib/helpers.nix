@@ -156,6 +156,23 @@ rec {
           }
         '';
       };
+
+    # Timer-value acquisition for nh-clean timer. Sets gc_age/gc_dt when a
+    # trigger timestamp is available; leaves them empty otherwise. Callers
+    # set `now` then format the output. Sourced from the systemd timer's
+    # LastTriggerUSec which persists across reboots (Persistent flag on the
+    # timer unit).
+    gcTimerCheckSnippet = { systemctl }: ''
+      last=$(${systemctl} show nh-clean.timer -p LastTriggerUSec --value --timestamp=unix 2>/dev/null)
+      ts="''${last#@}"
+      if [ -n "$ts" ] && [ "$ts" -gt 0 ] 2>/dev/null; then
+        gc_age=$(((now - ts) / 86400))
+        gc_dt=$(date -d "@$ts" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "?")
+      else
+        gc_age=""
+        gc_dt=""
+      fi
+    '';
   };
 
   # icedos toolset framework: the dispatcher generator (used to build
@@ -962,4 +979,19 @@ rec {
 
   # Generate a unique key for a module (url/name combination).
   _getModuleKey = url: name: "${url}/${name}";
+
+  # nixpkgs + home-manager are the inputs that actually age the system. Their
+  # lastModified is known at eval time (flake inputs, see lib/genflake.nix), so
+  # we inject it and only compute the age at runtime. Consumed by status.nix
+  # for the input freshness section.
+  freshInputs = inputs: [
+    {
+      name = "nixpkgs";
+      lm = inputs.nixpkgs.sourceInfo.lastModified;
+    }
+    {
+      name = "home-manager";
+      lm = inputs.home-manager.sourceInfo.lastModified;
+    }
+  ];
 }

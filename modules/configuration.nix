@@ -131,141 +131,141 @@ let
     completion.command = "printf 'options\\nmodules\\n'";
 
     script = ''
-      if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
-        echo "Usage: icedos configuration search [options|modules] [<name>]"
-        echo
-        echo "  With no args, opens an fzf picker over both options and modules."
-        echo "  icedos configuration search options [<name>]"
-        echo "    fuzzy-search options, or print detail for <name>"
-        echo "  icedos configuration search modules [<name>]"
-        echo "    browse modules, or print detail for <name>"
-        echo
-        echo "Examples:"
-        echo "  icedos configuration search"
-        echo "  icedos configuration search options"
-        echo "  icedos configuration search options icedos.system.arch"
-        echo "  icedos configuration search modules steam"
-        exit 0
-      fi
+            if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
+              echo "Usage: icedos configuration search [options|modules] [<name>]"
+              echo
+              echo "  With no args, opens an fzf picker over both options and modules."
+              echo "  icedos configuration search options [<name>]"
+              echo "    fuzzy-search options, or print detail for <name>"
+              echo "  icedos configuration search modules [<name>]"
+              echo "    browse modules, or print detail for <name>"
+              echo
+              echo "Examples:"
+              echo "  icedos configuration search"
+              echo "  icedos configuration search options"
+              echo "  icedos configuration search options icedos.system.arch"
+              echo "  icedos configuration search modules steam"
+              exit 0
+            fi
 
-      mode="all"
-      case "''${1:-}" in
-        options|modules) mode="$1"; shift ;;
-      esac
+            mode="all"
+            case "''${1:-}" in
+              options|modules) mode="$1"; shift ;;
+            esac
 
-      # Fail fast on bad args before paying for index refresh
-      case "$mode" in
-        all)
-          [ "$#" -gt 0 ] && die "unknown arg: $1"
-          ;;
-        options|modules)
-          case "''${1:-}" in --help|-h|help|h) echo "Usage: icedos configuration search $mode [<name>]"; exit 0 ;; esac
-          [ "$#" -gt 1 ] && die "unknown arg: $2"
-          ;;
-      esac
+            # Fail fast on bad args before paying for index refresh
+            case "$mode" in
+              all)
+                [ "$#" -gt 0 ] && die "unknown arg: $1"
+                ;;
+              options|modules)
+                case "''${1:-}" in --help|-h|help|h) echo "Usage: icedos configuration search $mode [<name>]"; exit 0 ;; esac
+                [ "$#" -gt 1 ] && die "unknown arg: $2"
+                ;;
+            esac
 
-      # In non-TTY mode (piped), redirect index chatter to stderr so
-      # machine-readable output stays clean.
-${ensureIndex}
-      if [ ! -t 1 ]; then
-        ensure_index 1>&2
-      else
-        ensure_index
-      fi
+            # In non-TTY mode (piped), redirect index chatter to stderr so
+            # machine-readable output stays clean.
+      ${ensureIndex}
+            if [ ! -t 1 ]; then
+              ensure_index 1>&2
+            else
+              ensure_index
+            fi
 
-      options_list() {
-        ${jq} -r 'sort_by(.name)[] | [ .name, (.type // "") ] | @tsv' "${optionsCache}"
-      }
-      modules_list() {
-        ${jq} -r 'sort_by(.name)[] | .name' "${modulesCache}"
-      }
-      search_list() {
-        ${jq} -r '.[] | "option::" + .name' "${optionsCache}"
-        ${jq} -r '.[] | "module::" + .name' "${modulesCache}"
-      }
+            options_list() {
+              ${jq} -r 'sort_by(.name)[] | [ .name, (.type // "") ] | @tsv' "${optionsCache}"
+            }
+            modules_list() {
+              ${jq} -r 'sort_by(.name)[] | .name' "${modulesCache}"
+            }
+            search_list() {
+              ${jq} -r '.[] | "option::" + .name' "${optionsCache}"
+              ${jq} -r '.[] | "module::" + .name' "${modulesCache}"
+            }
 
-      run_options() {
-        case "''${1:-}" in
-          --help|-h|help|h) echo "Usage: icedos configuration search options [<name>]"; exit 0 ;;
-        esac
-        [ "$#" -gt 1 ] && die "unknown arg: $2"
-        if [ -n "$1" ]; then
-          detail=$(${detailBin} "$1")
-          [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration search options' to browse)"
-          printf '%s\n' "$detail"
-          exit 0
-        fi
-        if [ ! -t 1 ]; then
-          options_list
-          exit 0
-        fi
-        sel=$(options_list \
-          | ${fzf} --delimiter='\t' --with-nth=1 \
-                   --prompt='option> ' \
-                   --layout=reverse --height=80% --border \
-                   --preview '${detailBin} {1}' \
-                   --preview-window='right,60%,wrap' \
-          | cut -f1)
-        [ -z "$sel" ] && exit 0
-        ${detailBin} "$sel"
-      }
+            run_options() {
+              case "''${1:-}" in
+                --help|-h|help|h) echo "Usage: icedos configuration search options [<name>]"; exit 0 ;;
+              esac
+              [ "$#" -gt 1 ] && die "unknown arg: $2"
+              if [ -n "$1" ]; then
+                detail=$(${detailBin} "$1")
+                [ -z "$detail" ] && die "unknown option: $1 (run 'icedos configuration search options' to browse)"
+                printf '%s\n' "$detail"
+                exit 0
+              fi
+              if [ ! -t 1 ]; then
+                options_list
+                exit 0
+              fi
+              sel=$(options_list \
+                | ${fzf} --delimiter='\t' --with-nth=1 \
+                         --prompt='option> ' \
+                         --layout=reverse --height=80% --border \
+                         --preview '${detailBin} {1}' \
+                         --preview-window='right,60%,wrap' \
+                | cut -f1)
+              [ -z "$sel" ] && exit 0
+              ${detailBin} "$sel"
+            }
 
-      run_modules() {
-        case "''${1:-}" in
-          --help|-h|help|h) echo "Usage: icedos configuration search modules [<name>]"; exit 0 ;;
-        esac
-        [ "$#" -gt 1 ] && die "unknown arg: $2"
-        if [ -n "$1" ]; then
-          detail=$(${moduleDetailBin} "$1")
-          [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration search modules' to browse)"
-          printf '%s\n' "$detail"
-          exit 0
-        fi
-        if [ ! -t 1 ]; then
-          modules_list
-          exit 0
-        fi
-        sel=$(modules_list \
-          | ${fzf} --prompt='module> ' \
-                   --layout=reverse --height=80% --border \
-                   --preview '${moduleDetailBin} {}' \
-                   --preview-window='right,60%,wrap')
-        [ -z "$sel" ] && exit 0
-        ${moduleDetailBin} "$sel"
-      }
+            run_modules() {
+              case "''${1:-}" in
+                --help|-h|help|h) echo "Usage: icedos configuration search modules [<name>]"; exit 0 ;;
+              esac
+              [ "$#" -gt 1 ] && die "unknown arg: $2"
+              if [ -n "$1" ]; then
+                detail=$(${moduleDetailBin} "$1")
+                [ -z "$detail" ] && die "unknown module: $1 (run 'icedos configuration search modules' to browse)"
+                printf '%s\n' "$detail"
+                exit 0
+              fi
+              if [ ! -t 1 ]; then
+                modules_list
+                exit 0
+              fi
+              sel=$(modules_list \
+                | ${fzf} --prompt='module> ' \
+                         --layout=reverse --height=80% --border \
+                         --preview '${moduleDetailBin} {}' \
+                         --preview-window='right,60%,wrap')
+              [ -z "$sel" ] && exit 0
+              ${moduleDetailBin} "$sel"
+            }
 
-      run_all() {
-        if [ ! -t 1 ]; then
-          search_list | sort
-          exit 0
-        fi
-        sel=$(search_list | sort \
-          | ${fzf} --delimiter='::' --with-nth=2 \
-                   --prompt='search> ' \
-                   --layout=reverse --height=80% --border \
-                   --preview '
-                     t={1} n={2}
-                     if [ "$t" = "option" ]; then
-                       ${detailBin} "$n"
-                     else
-                       ${moduleDetailBin} "$n"
-                     fi
-                   ' \
-                   --preview-window='right,60%,wrap')
-        [ -z "$sel" ] && exit 0
-        t="''${sel%%::*}" n="''${sel#*::}"
-        if [ "$t" = "option" ]; then
-          ${detailBin} "$n"
-        else
-          ${moduleDetailBin} "$n"
-        fi
-      }
+            run_all() {
+              if [ ! -t 1 ]; then
+                search_list | sort
+                exit 0
+              fi
+              sel=$(search_list | sort \
+                | ${fzf} --delimiter='::' --with-nth=2 \
+                         --prompt='search> ' \
+                         --layout=reverse --height=80% --border \
+                         --preview '
+                           t={1} n={2}
+                           if [ "$t" = "option" ]; then
+                             ${detailBin} "$n"
+                           else
+                             ${moduleDetailBin} "$n"
+                           fi
+                         ' \
+                         --preview-window='right,60%,wrap')
+              [ -z "$sel" ] && exit 0
+              t="''${sel%%::*}" n="''${sel#*::}"
+              if [ "$t" = "option" ]; then
+                ${detailBin} "$n"
+              else
+                ${moduleDetailBin} "$n"
+              fi
+            }
 
-      case "$mode" in
-        options) run_options "$@" ;;
-        modules) run_modules "$@" ;;
-        all)     run_all ;;
-      esac
+            case "$mode" in
+              options) run_options "$@" ;;
+              modules) run_modules "$@" ;;
+              all)     run_all ;;
+            esac
     '';
   };
 
@@ -316,6 +316,31 @@ in
       commands = [
         searchCmd
         validateConfig
+        {
+          command = "refresh";
+          help = "rebuild the search index (options + modules)";
+          script = ''
+            if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
+              echo "Usage: icedos configuration refresh"
+              echo "Forces a rebuild of the options and modules search index"
+              echo "(.cache/*-doc.json) that 'icedos configuration search' reads."
+              echo "This is the same index that is auto-refreshed when stale."
+              exit 0
+            fi
+
+            [ "$#" -gt 0 ] && die "unknown arg: $1"
+
+            if [ ! -d "${configurationLocation}" ]; then
+              die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
+            fi
+
+            log_step "refreshing configuration index..."
+            if ! ( cd "${configurationLocation}" && bash ./build.sh --export-search-index ); then
+              die "failed to refresh configuration index"
+            fi
+            log_ok "configuration index refreshed"
+          '';
+        }
       ]
       ++ configurationCommands;
     }
