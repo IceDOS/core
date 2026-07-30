@@ -54,6 +54,11 @@ in
         generations = mkNumberOption { default = 10; };
         interval = mkStrOption { default = "Mon *-*-* 00:00:00"; };
 
+        cache = {
+          days = mkNumberOption { default = 30; };
+          generations = mkNumberOption { default = 100; };
+        };
+
         hooks = {
           preGc = mkLinesListOption { default = [ ]; };
           postGc = mkLinesListOption { default = [ ]; };
