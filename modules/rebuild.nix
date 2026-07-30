@@ -9,6 +9,7 @@
 let
   inherit (icedosLib.bash)
     dimGreenString
+    genHelpFlags
     prelude
     purpleString
     redString
@@ -58,10 +59,41 @@ in
       help = "rebuild the system";
 
       script = ''
+        if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
+          echo "Usage: icedos rebuild [flags]"
+          echo
+          echo "Flags:"
+          echo "  --dry, -n, --dry-run      validate flake generation without building"
+          echo "                            (regenerates .state/flake.nix, refreshes path input"
+          echo "                            locks; does NOT evaluate nixosConfigurations so"
+          echo "                            module-body errors remain out of scope)"
+          echo "  --logs                    show full build log with --show-trace"
+          echo "  --dir <dir>               use alternate config directory"
+          echo "  --update                  update everything (core, nixpkgs, repos, repo inputs) + run update hooks"
+          echo "  --update-hooks            run update hooks only (pre+post), no build"
+          echo "  --build                   build closure without switching"
+          echo "  --boot                    build and set as boot entry"
+          echo "  --update-core             update core flake inputs before rebuild"
+          echo "  --update-nixpkgs          update nixpkgs input before rebuild"
+          echo "  --update-repos            update repo inputs before rebuild"
+          echo "  --update-repos-inputs     update repo input locks before rebuild"
+          echo "  --build-vm                build a VM test image"
+          echo "  --run-vm                  build and run a VM test image"
+          echo "  --genflake-only           generate .state/flake.nix and exit (--dry's underlying mechanism)"
+          echo "  --ask                     ask for confirmation before applying (nh os -a)"
+          echo "  --builder <host>          build the system on a remote host"
+          echo "  --target <host>           deploy/activate the built system on a remote host"
+          echo "  --nh-args ...             forward extra args to nh os (consumes until --build-args)"
+          echo "  --build-args ...          forward all remaining args to the final rebuild command (must be last)"
+          echo "  --help                    show this message"
+          exit 0
+        fi
+
         CACHE_DIR=".cache"
         CACHED_NAMES=()
         CONFIG_DIRS=(${configDirsArgs})
 
+        DRY=0
         REBUILD_DIR=""
         args=()
         while [[ $# -gt 0 ]]; do
@@ -70,12 +102,48 @@ in
               REBUILD_DIR="$2"
               shift 2
               ;;
+            --dry|--dry-run|-n)
+              DRY=1
+              shift
+              ;;
+            --build-args)
+              args+=("$1")
+              shift
+              while [[ $# -gt 0 ]]; do
+                args+=("$1")
+                shift
+              done
+              ;;
+            --nh-args)
+              args+=("$1")
+              shift
+              while [[ $# -gt 0 ]] && [[ "$1" != "--build-args" ]]; do
+                args+=("$1")
+                shift
+              done
+              ;;
             *)
               args+=("$1")
               shift
               ;;
-          esac
+           esac
         done
+
+        [ "$DRY" = "1" ] && args=("--genflake-only" "''${args[@]}")
+
+        # Strip --update-hooks early so every dispatch path (--dir, normal)
+        # sees clean args — under DRY it would be rejected by build.sh.
+        if [ "$DRY" = "1" ]; then
+          filtered=()
+          for arg in "''${args[@]}"; do
+            if [ "$arg" = "--update-hooks" ]; then
+              log_warn "--update-hooks ignored under --dry"
+            else
+              filtered+=("$arg")
+            fi
+          done
+          args=("''${filtered[@]}")
+        fi
 
         if [ -n "$REBUILD_DIR" ]; then
           if [ ! -d "$REBUILD_DIR" ]; then
@@ -203,21 +271,31 @@ in
         }
 
         ${optionalString (hasPreUpdate || hasPostUpdate) ''
-          # --update-hooks: run pre+post update hooks and exit. Skips
-          # preRebuild/postRebuild, build.sh, cache, reboot check. For
-          # refreshing non-nix things (flatpak, ...)
-          # without a full system rebuild. ICEDOS_HOOKS_ONLY tells hooks
-          # that no HM activation will follow, so they should fully
-          # complete their work standalone.
-          for arg in "''${args[@]}"; do
-            if [ "$arg" = "--update-hooks" ]; then
-              export ICEDOS_HOOKS_ONLY=1
-              ${runHooks "preUpdate" preUpdate}
-              ${runHooks "postUpdate" postUpdate}
-              exit 0
-            fi
-          done
+          if [ "$DRY" != "1" ]; then
+            # --update-hooks: run pre+post update hooks and exit. Skips
+            # preRebuild/postRebuild, build.sh, cache, reboot check. For
+            # refreshing non-nix things (flatpak, ...)
+            # without a full system rebuild. ICEDOS_HOOKS_ONLY tells hooks
+            # that no HM activation will follow, so they should fully
+            # complete their work standalone.
+            for arg in "''${args[@]}"; do
+              if [ "$arg" = "--update-hooks" ]; then
+                export ICEDOS_HOOKS_ONLY=1
+                ${runHooks "preUpdate" preUpdate}
+                ${runHooks "postUpdate" postUpdate}
+                exit 0
+              fi
+            done
+          fi
         ''}
+        if [ "$DRY" = "1" ]; then
+          log_step "dry run — generating flake..."
+          bash ./build.sh "''${args[@]}"; rc=$?
+          if [ "$rc" -eq 0 ]; then
+            log_ok "dry run — flake generated and inputs locked (module eval not checked)"
+          fi
+          exit "$rc"
+        fi
         ${runHooks "preRebuild" preRebuild}
         ${optionalString hasPreUpdate ''
           for arg in "''${args[@]}"; do

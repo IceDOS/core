@@ -461,6 +461,7 @@ With no flags this is a `switch`: it builds your configuration and activates it 
 | Flag | Effect |
 | --- | --- |
 | `--ask` | Ask for confirmation before applying (`nh os -a`). |
+| `--dry`, `-n`, `--dry-run` | Validate flake generation without building (regenerates `.state/flake.nix`, refreshes path input locks; does NOT evaluate nixosConfigurations so module-body errors remain out of scope). |
 | `--logs` | Verbose logging + full traces — use when a build fails. |
 | `--builder <host>` | Build the system on a remote host. |
 | `--target <host>` | Deploy/activate the built system on a remote host (pairs with `--builder`). |

@@ -324,7 +324,7 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
 6. **Missing a binary?** Use `nix-shell -p <pkg> --run "…"` — don't report a tool as
    unavailable.
 
-`icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`,
+`icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
 `--run-vm`, `--update`, `--update-core`, `--update-nixpkgs`, `--update-repos`,
 `--update-repos-inputs`, `--update-hooks`, `--ask`,
 `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
