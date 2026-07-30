@@ -97,6 +97,168 @@ rec {
       in
       if excludeNoArgs then base else ''"$1" == "" || '' + base;
 
+    # Generate a bash arg parser from a Nix flag spec. Returns bash source that
+    # must be spliced into a script body (e.g. via `${icedosLib.bash.mkFlags {}}`).
+    # Toolset leaves get the prelude auto-injected, so `die` is always available;
+    # standalone consumers get a `die` polyfill at the top of the emitted block.
+    mkFlags =
+      {
+        prefix,
+        flags,
+        passthroughUnknown ? false,
+      }:
+      let
+        # Map flag name to bash variable name (e.g. "gpu-layers" → "LLAMACPP_GPU_LAYERS")
+        toVarName = name: "${prefix}_${lib.toUpper (builtins.replaceStrings ["-"] ["_"] name)}";
+
+        # Map flag name to "was set" tracking variable
+        toSetVar = name: "${toVarName name}_SET";
+
+        # Short flag pattern for case arm, e.g. "-H|" or ""
+        shortPat = f:
+          if f ? short then "-${f.short}|" else "";
+
+        # Flag spec for help text alignment
+        flagSpec = f:
+          let
+            shortPart = if f ? short then "-${f.short}, " else "    ";
+            flagPart = "--${f.name}";
+            typePart =
+              if f.type == "string" then " <string>"
+              else if f.type == "int" then " <int>"
+              else if f.type == "bool" then ""
+              else if f.type == "enum" then " <${lib.concatStringsSep "|" f.choices}>"
+              else "";
+          in
+          "${shortPart}${flagPart}${typePart}";
+
+        # Compute max flag spec width for alignment
+        maxSpecLen = foldl' max 0 (map (f: stringLength (flagSpec f)) flags);
+
+        # Help text line for one flag
+        helpLine = f:
+          let
+            spec = flagSpec f;
+            pad = maxSpecLen - stringLength spec + 2;
+            defaultHelp = if f.type == "bool" then if f.default then "true" else "false" else if f.type == "int" then toString (builtins.floor f.default) else toString f.default;
+          in
+          "  ${spec}${lib.concatStringsSep "" (lib.genList (_: " ") pad)}${f.description} (default: ${defaultHelp})";
+
+        # Full help text with real newlines
+        helpText = "Flags:\n${lib.concatStringsSep "\n" (map helpLine flags)}";
+
+        # Escaped default value for bash
+        escDefault = f:
+          if f.type == "bool" then
+            if f.default then "true" else "false"
+          else if f.type == "int" then
+            lib.escapeShellArg (toString (builtins.floor f.default))
+          else
+            lib.escapeShellArg (toString f.default);
+
+        # Variable declarations for one flag
+        varDecl = f: "${toVarName f.name}=${escDefault f}\n${toSetVar f.name}=0";
+
+        # Generate case arms for one flag
+        genCaseArm = f:
+          let
+            var = toVarName f.name;
+            svar = toSetVar f.name;
+            long = "--${f.name}";
+            sp = shortPat f;
+          in
+          if f.type == "bool" then ''
+            ${sp}${long})
+              ${var}="true"; ${svar}=1
+              shift
+              ;;
+            --no-${f.name})
+              ${var}="false"; ${svar}=1
+              shift
+              ;;
+            ${long}=true|${long}=false)
+              ${var}="''${1#${long}=}"; ${svar}=1
+              shift
+              ;;
+          '' else ''
+            ${sp}${long})
+              [[ $# -ge 2 ]] || die "${long} requires a value"
+              ${lib.optionalString (f.type == "int") ''[[ "$2" =~ ^-?[0-9]+$ ]] || die "${long} must be an integer"''}
+              ${lib.optionalString (f.type == "enum") ''
+              case "$2" in
+                ${lib.concatStringsSep "|" f.choices}) ;;
+                *) die "invalid value for ${long}: $2 (choose: ${lib.concatStringsSep ", " f.choices})" ;;
+              esac
+              ''}
+              ${var}="$2"; ${svar}=1
+              shift 2
+              ;;
+            ${long}=*)
+              v="''${1#${long}=}"
+              ${lib.optionalString (f.type == "int") ''[[ "$v" =~ ^-?[0-9]+$ ]] || die "${long} must be an integer"''}
+              ${lib.optionalString (f.type == "enum") ''
+              case "$v" in
+                ${lib.concatStringsSep "|" f.choices}) ;;
+                *) die "invalid value for ${long}: $v (choose: ${lib.concatStringsSep ", " f.choices})" ;;
+              esac
+              ''}
+              ${var}="$v"; ${svar}=1
+              shift
+              ;;
+          '';
+
+        shorts = lib.filter (s: s != null) (map (f: if f ? short then f.short else null) flags);
+      in
+        assert lib.assertMsg (lib.all (n: builtins.match "^[a-z0-9-]+$" n != null) (map (f: f.name) flags)) "mkFlags (${prefix}): flag names must match [a-z0-9-]+";
+        assert lib.assertMsg (lib.all (s: builtins.match "^[a-zA-Z0-9-]+$" s != null) shorts) "mkFlags (${prefix}): short flags must match [a-zA-Z0-9-]+";
+        assert lib.assertMsg (lib.length (lib.unique (map (f: toVarName f.name) flags)) == lib.length flags) "mkFlags (${prefix}): duplicate variable names generated";
+        assert lib.assertMsg (lib.length (lib.unique shorts) == lib.length shorts) "mkFlags (${prefix}): duplicate short flags";
+        assert lib.assertMsg (!(lib.elem "help" (map (f: f.name) flags))) "mkFlags (${prefix}): 'help' is a reserved flag name";
+        assert lib.assertMsg (!(lib.elem "h" shorts)) "mkFlags (${prefix}): 'h' is a reserved short flag";
+        ''
+        if ! declare -F die >/dev/null 2>&1; then
+          die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+        fi
+
+        ${lib.concatStringsSep "\n" (map varDecl flags)}
+
+        _HELP_TEXT=$(cat <<'__ICEDOS_MKFLAGS_EOF__'
+${helpText}
+__ICEDOS_MKFLAGS_EOF__
+        )
+
+        _REST=()
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            -h|--help)
+              echo "$_HELP_TEXT"
+              exit 0
+              ;;
+            ${lib.concatStringsSep "\n" (map genCaseArm flags)}
+            --)
+              shift
+              _REST+=("$@")
+              break
+              ;;
+            ${if passthroughUnknown then ''
+            -*)
+              _REST+=("$1")
+              shift
+              ;;
+            '' else ''
+            -*)
+              die "unknown flag: $1"
+              ;;
+            ''}
+            *)
+              _REST+=("$1")
+              shift
+              ;;
+          esac
+        done
+        set -- "''${_REST[@]}"
+        '';
+
     blueString = s: "\${BLUE}${s}\${NC}";
     greenString = s: "\${GREEN}${s}\${NC}";
     purpleString = s: "\${PURPLE}${s}\${NC}";

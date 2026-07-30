@@ -8,6 +8,7 @@
 }:
 
 let
+  inherit (config.icedos) configurationLocation;
   inherit (config.icedos.system) packages;
   inherit (lib) mapAttrs mapAttrsToList;
 
@@ -19,6 +20,16 @@ let
     ;
 
   inherit (icedosLib.pkgs) mapper;
+
+  # Wrapper expression so the bash script can evaluate with baked-in
+  # configurationLocation and core input paths.
+  buildPkgExpr = pkgs.writeText "icedos-build-pkg.nix" ''
+    { packagePath, extraArgs ? {} }:
+    (import "${inputs.icedos-core}/lib/build-package.nix") {
+      stateDir = "${configurationLocation}";
+      inherit packagePath extraArgs;
+    }
+  '';
 in
 {
   environment.systemPackages = (mapper pkgs packages) ++ [ pkgs.nixfmt ];
@@ -35,26 +46,41 @@ in
         }
         {
           command = "build";
-          help = "build provided package derivation";
+          help = "build a package.nix — requires prior 'icedos rebuild'";
           script = ''
             ${prelude}
 
             if [[ ${genHelpFlags { }} ]]; then
               echo "Available arguments:"
-              echo -e "> ${purpleString "--run|-r"}: provide binary name to launch after building"
-              echo -e "> ${purpleString "--path|-p"}: provide nix derivation path to build"
+              echo -e "> ${purpleString "--path|-p"}: path to a package.nix to build"
+              echo -e "> ${purpleString "--run|-r"}: binary name to launch after building"
+              echo -e "> ${purpleString "--"}: remaining arguments forwarded to the launched binary"
+              echo "The package is evaluated against the system's pkgs (generated"
+              echo "flake context) with icedosLib.packaging auto-supplied."
+              echo "Run 'icedos rebuild' first if you haven't yet."
               exit 0
             fi
+
+            PATH_ARG=""
+            RUN_ARG=""
+            declare -a BIN_ARGS=()
 
             while [[ $# -gt 0 ]]; do
               case "$1" in
                 --path|-p)
-                  BUILD="nix-build -E '(import <nixpkgs> {}).callPackage $2 {}'"
+                  [ $# -ge 2 ] || die "--path requires a value"
+                  PATH_ARG="$2"
                   shift 2
                   ;;
                 --run|-r)
-                  RUN="| xargs -I {} bash -c '{}/bin/$2'"
+                  [ $# -ge 2 ] || die "--run requires a value"
+                  RUN_ARG="$2"
                   shift 2
+                  ;;
+                --)
+                  shift
+                  BIN_ARGS+=("$@")
+                  break
                   ;;
                 *)
                   echo -e "${redString "Unknown arg"}: $1"
@@ -62,9 +88,29 @@ in
               esac
             done
 
-            [ "$BUILD" == "" ] && echo -e "${redString "error"}: --path|-p is required" && exit 1
+            [ -z "$PATH_ARG" ] && echo -e "${redString "error"}: --path|-p is required" && exit 1
 
-            bash -c "$BUILD $RUN"
+            [ ''${#BIN_ARGS[@]} -gt 0 ] && [ -z "$RUN_ARG" ] && echo -e "${redString "error"}: -- requires --run" && exit 1
+
+            if [ ! -f "$PATH_ARG" ]; then
+              echo -e "${redString "error"}: file not found — $PATH_ARG"
+              exit 1
+            fi
+
+            PATH_ARG="$(realpath "$PATH_ARG")"
+
+            if [ ! -f "${configurationLocation}/flake.nix" ]; then
+              die "no generated flake at '${configurationLocation}'; run 'icedos rebuild' first."
+            fi
+
+            OUT="$(nix-build --no-out-link -E '(import ${buildPkgExpr}) { packagePath = "'"$PATH_ARG"'"; }')" || exit 1
+            read -r OUT <<< "$OUT"
+
+            if [ -z "$RUN_ARG" ]; then
+              echo "$OUT"
+            else
+              exec "$OUT/bin/$RUN_ARG" "''${BIN_ARGS[@]}"
+            fi
           '';
         }
 
