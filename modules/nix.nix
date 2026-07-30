@@ -47,6 +47,7 @@ in
         {
           command = "build";
           help = "build a package.nix — requires prior 'icedos rebuild'";
+          completion.files = true;
           script = ''
             ${prelude}
 
