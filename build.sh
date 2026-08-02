@@ -2,8 +2,6 @@
 
 export NIXPKGS_ALLOW_UNFREE=1
 
-ICEDOS_DIR="/tmp/icedos"
-CONFIG="$ICEDOS_DIR/configuration-location"
 FLAKE="flake.nix"
 
 cd "$(dirname "$(readlink -f "$0")")"
@@ -167,12 +165,6 @@ if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
   exec env skip_update_core=1 nix run path:. -- "${previous_arguments[@]}"
   exit 0
 fi
-
-mkdir -p "$ICEDOS_DIR"
-
-# Save current directory into a file
-[ -f "$CONFIG" ] && rm -f "$CONFIG" || sudo rm -rf "$CONFIG"
-printf '%s' "$ICEDOS_STATE_DIR" > "$CONFIG"
 
 if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
