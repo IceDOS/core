@@ -104,7 +104,7 @@ in
               die "no generated flake at '${configurationLocation}'; run 'icedos rebuild' first."
             fi
 
-            OUT="$(nix-build --no-out-link -E '(import ${buildPkgExpr}) { packagePath = "'"$PATH_ARG"'"; }')" || exit 1
+            OUT="$(nix-build --no-out-link --argstr packagePath "$PATH_ARG" -E '(import ${buildPkgExpr})')" || exit 1
             read -r OUT <<< "$OUT"
 
             if [ -z "$RUN_ARG" ]; then
@@ -172,6 +172,14 @@ in
             done
 
             [ -z "$PACKAGE" ] && echo -e "${redString "error"}: package name is required" && exit 1
+
+            # `+` only ever parses on the `nix-build -A` path — it is not a Nix
+            # identifier char, so it always errors on `nix eval p.$PACKAGE` and
+            # falls through to the build. Kept so `-A` accepts the same set.
+            if [[ ! "$PACKAGE" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
+              echo -e "${redString "error"}: invalid package attribute '$PACKAGE'"
+              exit 1
+            fi
 
             run_bin() {
               if [ "$DETACH" -eq 1 ]; then
