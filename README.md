@@ -75,7 +75,7 @@ Here's a minimal but complete **desktop** example — KDE Plasma on an AMD machi
 ```toml
 # --- your user -------------------------------------------------------
 [icedos.users.you]                 # rename "you" to your login name
-# defaultPassword = "1"            # initial password; change after first login with passwd
+# initialPassword = "1"            # initial password; change after first login with passwd
 
 [icedos.system]
 version = "25.11"                  # keep the template's value
@@ -115,7 +115,7 @@ modules = [ "steam", "btop" ]      # add whatever you like
 enable = true
 ```
 
-Users are created with the password `1` — set `defaultPassword` above, or change it after first login (see [How do I set a password?](#how-do-i-set-a-password)).
+Users are created with the password `1` — set `initialPassword` above, or change it after first login (see [How do I set a password?](#how-do-i-set-a-password)).
 
 **Finding modules and options:** browse the [repository map](#-how-icedos-is-organized), then open each repo's own example `config.toml` on GitHub for the module names and settings it offers. (The `icedos configuration search --options` search is easier — but it needs a built system, so use the repos for this first setup.)
 
@@ -303,7 +303,7 @@ Declare user accounts under `icedos.users.<name>`. A minimal entry is just the n
 sudo = true                       # in the wheel group (admin), default: true
 extraGroups = [ "networkmanager" ]
 packages = [ "firefox" ]          # apps just for this user
-# defaultPassword = "change-me"   # login password (default: "1")
+# initialPassword = "change-me"   # initial password (default: "1")
 ```
 
 See [How do I set a password?](#how-do-i-set-a-password) for the security caveat.
@@ -548,14 +548,16 @@ nixos-generate-config --show-hardware-config | sudo tee /etc/nixos/hardware-conf
 
 ### How do I set a password?
 
-Each user's login password comes from `defaultPassword` under `[icedos.users.<name>]` (default: `1`). It's the password the account is **created** with — set it to something of your own:
+Each user's login password comes from `initialPassword` under `[icedos.users.<name>]` (default: `1`). It's the password the account is **created** with — set it to something of your own:
 
 ```toml
 [icedos.users.alice]
-defaultPassword = "something-better"
+initialPassword = "something-better"
 ```
 
-> **⚠️ Security note:** `defaultPassword` sets the account's *initial* password (the one it's created with). Because IceDOS leaves `users.mutableUsers` at its default (`true`), you can change it afterwards with `passwd` and that change **persists** across rebuilds. But the value written here is plain text and world-readable in the Nix store, so treat the *initial* password as non-secret: **keep your config repo private** (put it in a hidden `configs/.<name>.toml`), don't reuse an important password, and consider running `passwd` after first login to set the real one.
+`initialPassword` is ignored for accounts that **already exist** — change those with `passwd` (editing `initialPassword` and rebuilding silently does nothing). A brand-new user still gets it on the next rebuild. `initialPassword` replaces the old `defaultPassword` key: an existing config still using `defaultPassword` fails the build loudly with "option `icedos.users.<name>.defaultPassword' does not exist" — just rename the key.
+
+> **⚠️ Security note:** `initialPassword` sets the account's *initial* password (the one it's created with). Because IceDOS leaves `users.mutableUsers` at its default (`true`), you can change it afterwards with `passwd` and that change **persists** across rebuilds. But the value written here is plain text and world-readable in the Nix store, so treat the *initial* password as non-secret: **keep your config repo private** (e.g. a hidden `configs/.<name>.toml` — gitignored, so it stays out of git, though still readable in the store), don't reuse an important password, and consider running `passwd` after first login to set the real one.
 
 ### How do I go back to plain NixOS?
 

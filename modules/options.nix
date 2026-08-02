@@ -221,10 +221,10 @@ in
       };
 
       users = mkSubmoduleAttrsOption { } {
-        defaultPassword = mkStrOption { default = "1"; };
         description = mkStrOption { default = ""; };
         extraGroups = mkStrListOption { default = [ ]; };
         home = mkStrOption { default = ""; };
+        initialPassword = mkStrOption { default = "1"; };
         isNormalUser = mkBoolOption { default = true; };
         isSystemUser = mkBoolOption { default = false; };
         packages = mkStrListOption { default = [ ]; };

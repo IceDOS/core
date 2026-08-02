@@ -45,9 +45,9 @@ in
       description = userAttrs.description;
       extraGroups = optional userAttrs.sudo "wheel" ++ userAttrs.extraGroups;
       home = if (builtins.stringLength homeDir != 0) then homeDir else "/home/${user}";
+      initialPassword = userAttrs.initialPassword;
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
-      password = userAttrs.defaultPassword;
       packages = icedosLib.pkgs.mapper pkgs users.${user}.packages;
     }
   ) users;
