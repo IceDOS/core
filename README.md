@@ -367,6 +367,8 @@ postGc = [ "echo 'after gc'" ]
 
 `preUpdate`/`postUpdate` only fire when `--update` is passed. You can also run them on their own — without a system rebuild — via `icedos rebuild --update-hooks` (handy for refreshing non-Nix things like `flatpak update`).
 
+Hooks don't run as root by default. Rebuild hooks always run as the invoking user. Gc hooks run once per normal user, as that user — identically from `icedos gc` and from the automatic `nh-clean.service` timer (the command elevates once with `sudo` and runs all per-user invocations inside that single root context). A hook may still escalate itself with `sudo` where its user has permission. Write identity-independent gc hooks (e.g. sweeping `~/.cache`) rather than assuming a specific `$USER`/`$HOME`.
+
 ### Patches (without forking)
 
 IceDOS can apply patches at three levels, all from your config, without forking anything:

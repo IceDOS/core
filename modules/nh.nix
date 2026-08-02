@@ -20,7 +20,9 @@ let
   inherit (configSet config) cacheDir;
 
   inherit (lib)
+    concatMap
     concatStringsSep
+    escapeShellArg
     imap0
     mkIf
     ;
@@ -37,6 +39,7 @@ let
     interval
     ;
   inherit (hooks) postGc preGc;
+  inherit (config.icedos) users;
 
   days = "${toString gc.days}d";
   generations = toString gc.generations;
@@ -291,13 +294,83 @@ let
   # fresh shell process (isolated env/traps/`set -e`/`exit`). Prelude
   # prepended so hooks have color vars + log helpers, matching the
   # rebuild-hooks ergonomics. hookPaths returns a list (usable as
-  # ExecStartPre/Post); runHooks joins paths with newlines (usable
-  # inside the toolset bash script).
+  # ExecStartPre/Post); runHooksAsUsers emits one runuser-wrapped
+  # invocation per normal user for the timer service; gcHookRunBlock
+  # wraps the same lines so `icedos gc` runs them per user from a
+  # single sudo'd root context, keeping both paths identical.
   hookPaths =
     name: scripts:
     imap0 (i: s: writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}") scripts;
 
-  runHooks = name: scripts: concatStringsSep "\n" (map toString (hookPaths name scripts));
+  # Hook execution identity. Hooks don't run as root by default: both the
+  # `icedos gc` command and the automatic nh-clean.service run them once per
+  # normal user (as that user) via runuser. The service is already root; the
+  # `icedos gc` command self-elevates with sudo to switch users when needed.
+  # A hook may also escalate itself with `sudo` where the user it runs as has
+  # permission (e.g. NOPASSWD). A config with no normal users skips hooks in
+  # both paths. The shared system steps of the service/command (nh clean,
+  # temp-dir and config-history cleanup) stay root.
+  normalUsers = map (u: u.name) (icedosLib.users.getNormal { inherit users; });
+
+  runuser = "${pkgs.util-linux}/bin/runuser";
+  coreutilsEnv = "${pkgs.coreutils}/bin/env";
+
+  # `runuser -u` alone inherits the caller's environment (PATH, XDG_*,
+  # DBUS_*, ...), leaking e.g. the invoking user's profile dirs into another
+  # user's hooks. `runuser -l` is not an option: it is mutually exclusive
+  # with `-u` in util-linux >= 2.42, and without /etc/login.defs (NixOS) its
+  # login mode sets PATH to /usr/local/bin:/usr/bin:/bin. So pin the identity
+  # and a NixOS login PATH explicitly via `env -i` — hooks then see the same
+  # deterministic env from the timer (systemd) and from `icedos gc`
+  # (sudo'd root), regardless of who invoked the command. Quote each whole
+  # `NAME=value` item so it parses identically under bash and systemd
+  # ExecStart (which only strips quotes wrapping a full item).
+  loginEnv =
+    user:
+    let
+      home =
+        if (builtins.stringLength users.${user}.home != 0) then users.${user}.home else "/home/${user}";
+      path = "/run/wrappers/bin:${home}/.nix-profile/bin:${home}/.local/state/nix/profile/bin:/etc/profiles/per-user/${user}/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin";
+    in
+    concatStringsSep " " [
+      ''"HOME=${home}"''
+      ''"USER=${user}"''
+      ''"LOGNAME=${user}"''
+      ''"PATH=${path}"''
+    ];
+
+  runHooksAsUsers =
+    name: scripts:
+    concatMap (
+      u:
+      map (h: "${runuser} -u \"${u}\" -- ${coreutilsEnv} -i ${loginEnv u} ${h}") (hookPaths name scripts)
+    ) normalUsers;
+
+  # The `icedos gc` command runs gc hooks per user just like the timer
+  # service, but it isn't root — so instead of sudo-ing once per hook×user
+  # pair, it elevates a single time (`sudo bash -c`) and runs every
+  # per-user hook inside that one root context. Already root? Run the
+  # lines directly. No hooks/users? Emit nothing. The `exit 0` appended to
+  # the sudo payload keeps `|| die` firing only when elevation itself fails
+  # (sudo auth/exec), never on a hook's exit status — hook failures are
+  # then treated the same as in the already-root branch (no `set -e`).
+  gcHookRunBlock =
+    name: scripts:
+    let
+      runs = concatStringsSep "\n" (runHooksAsUsers name scripts);
+    in
+    if runs == "" then
+      ""
+    else
+      ''
+        if [ "$("${pkgs.coreutils}/bin/id" -u)" -eq 0 ]; then
+          ${runs}
+        else
+          /run/wrappers/bin/sudo "${pkgs.bash}/bin/bash" -c ${
+            escapeShellArg (runs + "\nexit 0")
+          } || die "sudo failed; cannot run gc hooks per user"
+        fi
+      '';
 in
 {
   icedos.system.toolset.commands = [
@@ -353,7 +426,7 @@ in
 
         if [ -z "$DRY_RUN" ]; then
           :
-          ${runHooks "preGc" preGc}
+          ${gcHookRunBlock "preGc" preGc}
         fi
 
         "${pkgs.nh}/bin/nh" clean all -k "$GC_GENS" -K "''${GC_DAYS}d" $DRY_RUN \
@@ -371,7 +444,7 @@ in
           cat "$_summary_clean"
           cat "$_summary_cache"
           :
-          ${runHooks "postGc" postGc}
+          ${gcHookRunBlock "postGc" postGc}
         else
           ${cleanExtra} -n
           ${cacheCleanScript} $CACHE_ARGS -n
@@ -395,12 +468,12 @@ in
 
   systemd.services = mkIf automatic {
     nh-clean.serviceConfig = {
-      ExecStartPre = map toString (hookPaths "preGc" preGc);
+      ExecStartPre = runHooksAsUsers "preGc" preGc;
       ExecStartPost = [
         "-${cleanExtra}"
         "-${cacheCleanScript}"
       ]
-      ++ map toString (hookPaths "postGc" postGc);
+      ++ runHooksAsUsers "postGc" postGc;
     };
   };
 }

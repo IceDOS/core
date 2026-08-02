@@ -426,6 +426,32 @@ snippet is compiled to its **own** `pkgs.writeShellScript` with `bash.prelude` p
 helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars; colours auto-strip
 when stdout isn't a TTY).
 
+### Execution identity — hooks don't run as root by default
+
+| Hook | Invoked by | Runs as |
+|---|---|---|
+| `preRebuild` / `postRebuild` | `icedos rebuild` | the **invoking user** |
+| `preUpdate` / `postUpdate` | `icedos rebuild --update` / `--update-hooks` | the **invoking user** |
+| `preGc` / `postGc` | `icedos gc` | **once per normal user**, as that user (self-elevates with `sudo` when not already root) |
+| `preGc` / `postGc` | `nh-clean.service` (automatic timer) | **once per normal user**, as that user (`runuser -u <user> --`) |
+
+Gc hooks run identically from `icedos gc` and from the timer: once per normal user,
+as that user. They are **not** run as root by default — the timer (already root) uses
+`runuser`; the `icedos gc` command elevates a single time with `sudo` and runs every
+per-user invocation inside that one root context. Rebuild hooks always run as the
+invoking user. A hook may still **escalate itself with `sudo`** where the user it runs
+as has permission (e.g. NOPASSWD) — the service/command only control the starting
+identity. Each per-user invocation is wrapped in `env -i` with the target user's
+`HOME`/`USER`/`LOGNAME` and a NixOS login `PATH` (`runuser -l` is mutually exclusive
+with `-u` and, without `/etc/login.defs`, sets a bare non-NixOS PATH), so hooks see
+the same deterministic env whether they came from the timer or from `icedos gc` run
+by any user — no `XDG_*`/`DBUS_*`/invoker-PATH leakage into other users' hooks. The
+`nh clean all` call self-elevates to root via
+sudo internally (nh's own store-GC step, `crates/nh-clean/src/clean.rs`), but that is
+nh's process, not the hooks. Write **identity-independent** hooks (e.g. `unshade --all`
+sweeping `~/.cache`) that make sense for any user rather than assuming a specific
+`$USER`/`$HOME`. A config with no normal users skips gc hooks in both paths.
+
 Environment a hook can rely on:
 
 | Var | Set by | Notes |

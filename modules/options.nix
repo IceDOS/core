@@ -60,8 +60,41 @@ in
         };
 
         hooks = {
-          preGc = mkLinesListOption { default = [ ]; };
-          postGc = mkLinesListOption { default = [ ]; };
+          preGc = mkLinesListOption {
+            default = [ ];
+            description = ''
+              Shell snippets run immediately before (`preGc`) garbage collection.
+              Run once per normal user (see `icedos.users`), as that user — never
+              as root by default: both `icedos gc` and the automatic
+              `nh-clean.service` timer run them that way. The service is already
+              root and switches per user with runuser; `icedos gc` elevates a
+              single time with sudo and runs every per-user invocation inside that
+              one root context. A hook may still escalate itself with `sudo` where
+              the user it runs as has permission (e.g. NOPASSWD). Write hooks that
+              make sense per user identity (e.g. sweeping ~/.cache) without
+              assuming a specific user. Each invocation starts from a minimal
+              environment (`env -i`) with only `HOME`, `USER`, `LOGNAME`, and a
+              NixOS login `PATH` set — no XDG/DBus/invoker-PATH leakage.
+            '';
+          };
+
+          postGc = mkLinesListOption {
+            default = [ ];
+            description = ''
+              Shell snippets run immediately after (`postGc`) garbage collection.
+              Run once per normal user (see `icedos.users`), as that user — never
+              as root by default: both `icedos gc` and the automatic
+              `nh-clean.service` timer run them that way. The service is already
+              root and switches per user with runuser; `icedos gc` elevates a
+              single time with sudo and runs every per-user invocation inside that
+              one root context. A hook may still escalate itself with `sudo` where
+              the user it runs as has permission (e.g. NOPASSWD). Write hooks that
+              make sense per user identity (e.g. sweeping ~/.cache) without
+              assuming a specific user. Each invocation starts from a minimal
+              environment (`env -i`) with only `HOME`, `USER`, `LOGNAME`, and a
+              NixOS login `PATH` set — no XDG/DBus/invoker-PATH leakage.
+            '';
+          };
         };
       };
 
@@ -72,10 +105,43 @@ in
         sessionCommands = mkListOption { default = [ ]; } toolsetCommandType;
 
         rebuild.hooks = {
-          preRebuild = mkLinesListOption { default = [ ]; };
-          postRebuild = mkLinesListOption { default = [ ]; };
-          preUpdate = mkLinesListOption { default = [ ]; };
-          postUpdate = mkLinesListOption { default = [ ]; };
+          preRebuild = mkLinesListOption {
+            default = [ ];
+
+            description = ''
+              Shell snippets run before the build (`preRebuild`). Always run as
+              the invoking user — the account running `icedos rebuild` — never
+              escalated.
+            '';
+          };
+
+          postRebuild = mkLinesListOption {
+            default = [ ];
+
+            description = ''
+              Shell snippets run after activation (`postRebuild`). Always run as
+              the invoking user — the account running `icedos rebuild` — never
+              escalated.
+            '';
+          };
+
+          preUpdate = mkLinesListOption {
+            default = [ ];
+            description = ''
+              Shell snippets run before `--update` (and under `--update-hooks`).
+              Always run as the invoking user — the account running
+              `icedos rebuild` — never escalated.
+            '';
+          };
+
+          postUpdate = mkLinesListOption {
+            default = [ ];
+            description = ''
+              Shell snippets run after `--update` (and under `--update-hooks`).
+              Always run as the invoking user — the account running
+              `icedos rebuild` — never escalated.
+            '';
+          };
         };
       };
 
