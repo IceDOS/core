@@ -13,6 +13,7 @@ let
     prelude
     purpleString
     redString
+    requireConfigOwner
     ;
 
   inherit (lib)
@@ -89,6 +90,8 @@ in
           exit 0
         fi
 
+        ORIG_ARGS=("$@")
+        ${requireConfigOwner}
         CACHE_DIR=".cache"
         CACHED_NAMES=()
         CONFIG_DIRS=(${configDirsArgs})
@@ -159,7 +162,12 @@ in
           exit $?
         fi
 
+        require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
+
         if [ ! -d "${configurationLocation}" ]; then
+          if [ -n "''${ICEDOS_OWNER_DECLINED:-}" ]; then
+            die "no permission to access configuration path '${configurationLocation}'; run it as the owning user or fix the permissions."
+          fi
           printf -v PROMPT '%b' "${dimGreenString ">"} Configuration location (${configurationLocation}) does not exist. Use current directory ($PWD)? [y/N] "
           read -r -p "$PROMPT" ANSWER
           case "$ANSWER" in
@@ -173,7 +181,7 @@ in
           exit $?
         fi
 
-        cd "${configurationLocation}"
+        cd "${configurationLocation}" || die "no permission to enter '${configurationLocation}'; run it as the owning user or fix the permissions."
 
         LATEST_CACHE_FOLDER=$(ls -dt "$CACHE_DIR"/*/ 2>/dev/null | head -1)
 

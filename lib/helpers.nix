@@ -373,6 +373,165 @@ rec {
         gc_dt=""
       fi
     '';
+
+    # Guard before executing anything from the baked `configurationLocation`.
+    # It can point into another user's home (default `$PWD/.state` of whoever
+    # ran the first build), and running its `build.sh` lets that owner execute
+    # code as the invoker (and as root during a switch). This is a
+    # permission check, not an ownership check:
+    #
+    #   - the invoker can read+execute the config (and its .state dir) →
+    #     if another user's, warn one line that their build.sh will run as
+    #     the invoker, then proceed; if the invoker's own, proceed silently —
+    #     they're authorized to run it
+    #   - same owner but NOT readable → warn to fix the permissions, proceed
+    #     (the build will fail on its own if truly broken)
+    #   - different owner, not readable, invoker not root → warn and prompt;
+    #     on y/Y re-run the command as the owner (`sudo -u`, re-entry guarded
+    #     by `ICEDOS_OWNER_RERUN=1`), on anything else fall through so the
+    #     caller's own checks (e.g. rebuild's "use current directory?"
+    #     bootstrap) decide, with `ICEDOS_OWNER_DECLINED=1` set so those callers
+    #     can tell EACCES from a missing config.
+    #   - different owner and the invoker is root → prompt regardless of
+    #     readability (`test -r`/`-x` always pass for uid 0), so root never
+    #     silently executes another user's build.sh. Accept re-runs as the
+    #     owner via `runuser` + `env -i` (owner HOME/PATH, mirroring nh.nix);
+    #     declining aborts — root passes every `-d` test, so no caller
+    #     fall-through could stop the build.
+    #   - non-interactive (stdin not a tty): an unreadable root aborts
+    #     unconditionally; a root invoker on an accessible root has been warned
+    #     and proceeds (so scripted/CI rebuilds that elevate don't hard-fail).
+    #   - a failed re-run keeps the re-run's exit status.
+    #
+    # Call with the config root (`"${configurationLocation}/.."`), the config's
+    # state dir (that's `"${configurationLocation}"` — it IS the state dir; see
+    # `options.icedos.configurationLocation` in lib/genflake.nix), and the
+    # command's ORIGINAL args (capture `ORIG_ARGS=("$@")` at the top of the
+    # script, before any parsing shifts them), so the owner re-run gets the same
+    # command line. Safe to call only when `$0` resolves to the command script.
+    requireConfigOwner = ''
+      require_config_owner() {
+        local root="$1" state_dir="$2" orig="$1" owner me state answer rc PROMPT readable probe warn_suffix owner_home owner_path
+        shift 2
+        # `test -d` cannot tell "absent" from "inaccessible": a 0700 parent
+        # (the NixOS homeMode default) makes it fail with EACCES, silently
+        # skipping a config root that lives in another user's home. Probe
+        # with stat and only treat the root as absent when it really is
+        # (ENOENT).
+        root=$(realpath -m "$root" 2>/dev/null) || root="$orig"
+        warn_suffix=""
+        if ! owner=$(LC_ALL=C stat -c %U "$root" 2>&1); then
+          case "$owner" in
+            *'No such file or directory'* | *'Not a directory'* | *'not a directory'*)
+              return 0
+              ;;
+          esac
+          # Inaccessible — walk up to the first stat-able ancestor to find
+          # who owns the tree this command would execute.
+          owner=""
+          probe="$root"
+          while [ -n "$probe" ] && [ "$probe" != "/" ]; do
+            if owner=$(stat -c %U "$probe" 2>/dev/null); then
+              break
+            fi
+            case "$probe" in
+              */*) probe="''${probe%/*}" ;;
+              *) break ;;
+            esac
+          done
+          [ -n "$owner" ] || return 0
+          warn_suffix=" (nearest accessible ancestor)"
+        fi
+        me=$(id -un)
+        state="''${state_dir:-$root/.state}"
+
+        # Re-entered after an owner re-run — never prompt again, or unrelated
+        # sudo hops could ping-pong between users.
+        if [ -n "''${ICEDOS_OWNER_RERUN:-}" ]; then
+          return 0
+        fi
+
+        if [ -r "$root" ] && [ -x "$root" ] \
+           && { [ ! -e "$state" ] || { [ -r "$state" ] && [ -x "$state" ]; }; }; then
+          readable=1
+        else
+          readable=0
+        fi
+
+        if [ "$owner" != "$me" ]; then
+          # Another user's config root — warn whoever runs it, even when
+          # readable, so they know whose build.sh executes as them.
+          echo -e "''${YELLOW}warning''${NC}: configuration root '$root' is owned by '$owner'$warn_suffix; running it as '$me'." >&2
+          # Prompt for a re-run when the root isn't readable, or whenever the
+          # invoker is root: `test -r`/`-x` always succeed for uid 0, so
+          # readability alone would let root silently execute another user's
+          # build.sh. The runuser branch below is the only root-side re-run
+          # path, so it must be reachable.
+          if [ "$readable" = "0" ] || [ "$(id -u)" -eq 0 ]; then
+            echo "         Re-running as '$owner' executes that user's build.sh with '$me' privileges." >&2
+            if [ -t 0 ]; then
+              printf -v PROMPT '%b' "''${DIM_GREEN}>''${NC} Run 'icedos' as '$owner'? [y/N] "
+              read -r -p "$PROMPT" answer
+              case "$answer" in
+                [yY]|[yY][eE][sS]) ;;
+                # Declined. A root invoker must abort outright: uid 0 passes
+                # every `-d`/`-r`/`-x` test, so there is no fall-through that
+                # would stop the build — proceeding would execute the other
+                # user's build.sh as root anyway. A non-root invoker falls
+                # through so the caller's own checks (e.g. rebuild's "use
+                # current directory?" bootstrap) get a say, with the flag set
+                # so those callers can tell EACCES from a missing config.
+                *)
+                  if [ "$(id -u)" -eq 0 ]; then
+                    die "aborted: declined to execute the configuration root of '$owner' as root"
+                  fi
+                  ICEDOS_OWNER_DECLINED=1
+                  return 0
+                  ;;
+              esac
+            else
+              # Unattended (stdin not a tty): an unreadable root can't be
+              # recovered from — abort. A root invoker on an accessible root
+              # has already been warned above; let it proceed, or scripted/
+              # CI rebuilds that legitimately elevate would hard-fail.
+              [ "$readable" = "0" ] && die "aborted: no permission to configuration root '$root' (owned by '$owner')"
+              return 0
+            fi
+
+            if [ "$(id -u)" -eq 0 ]; then
+              # `runuser` inherits root's env (HOME=/root, root's PATH, …) by
+              # default, which breaks the owner's nix — mirror nh.nix and pin
+              # the identity plus a NixOS login PATH via `env -i`, resolving
+              # the owner's home at runtime.
+              owner_home=$(getent passwd "$owner" | cut -d: -f6)
+              [ -n "$owner_home" ] || owner_home="/home/$owner"
+              owner_path="/run/wrappers/bin:$owner_home/.nix-profile/bin:$owner_home/.local/state/nix/profile/bin:/etc/profiles/per-user/$owner/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
+              /run/current-system/sw/bin/runuser -u "$owner" -- \
+                /run/current-system/sw/bin/env -i "HOME=$owner_home" "USER=$owner" "LOGNAME=$owner" "PATH=$owner_path" \
+                ICEDOS_OWNER_RERUN=1 "$0" "$@"
+            else
+              # sudo resets the environment by default, so carry the re-entry
+              # marker explicitly rather than as a bare `VAR=x sudo …` prefix.
+              # Resolve sudo by the setuid wrapper path (the only working one).
+              /run/wrappers/bin/sudo -u "$owner" -- /run/current-system/sw/bin/env ICEDOS_OWNER_RERUN=1 "$0" "$@"
+            fi
+            rc=$?
+            [ "$rc" -eq 0 ] && exit 0
+            echo "re-run as '$owner' exited with $rc" >&2
+            exit "$rc"
+          fi
+          return 0
+        fi
+
+        # Same owner, but the config isn't readable — they'll likely hit a
+        # confusing build failure, so point at the permissions up front.
+        if [ "$readable" = "0" ]; then
+          echo -e "''${YELLOW}warning''${NC}: you do not have read/execute permission on configuration root '$root'." >&2
+          echo "         Fix the permissions before running 'icedos rebuild' — the build will fail otherwise." >&2
+        fi
+        return 0
+      }
+    '';
   };
 
   # icedos toolset framework: the dispatcher generator (used to build

@@ -7,7 +7,7 @@
 }:
 
 let
-  inherit (icedosLib.bash) genHelpFlags redString;
+  inherit (icedosLib.bash) genHelpFlags redString requireConfigOwner;
   inherit (config.icedos) configurationLocation;
   inherit (config.icedos.system.toolset) configurationCommands;
 
@@ -90,6 +90,9 @@ let
   ensureIndex = ''
     ensure_index() {
       if [ ! -d "${configurationLocation}" ]; then
+        if [ -n "''${ICEDOS_OWNER_DECLINED:-}" ]; then
+          die "no permission to access configuration path '${configurationLocation}'; run it as the owning user or fix the permissions."
+        fi
         die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
       fi
 
@@ -146,6 +149,8 @@ let
               exit 0
             fi
 
+            ORIG_ARGS=("$@")
+            ${requireConfigOwner}
             mode="all"
             while [ "$#" -gt 0 ]; do
               case "$1" in
@@ -173,6 +178,11 @@ let
                 [ "$#" -gt 1 ] && die "unknown arg: $2"
                 ;;
             esac
+
+            # Permission guard runs once, before the index refresh below can
+            # exec build.sh as the invoker — and outside ensure_index's 1>&2
+            # redirect, so an accepted owner re-run keeps stdout on stdout.
+            require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
 
             # In non-TTY mode (piped), redirect index chatter to stderr so
             # machine-readable output stays clean.
@@ -289,12 +299,21 @@ let
         exit 0
       fi
 
+      ORIG_ARGS=("$@")
+
+      ${requireConfigOwner}
+
       if [ "$#" -gt 0 ]; then
         echo -e "${redString "Unknown arg"}: $1" >&2
         exit 1
       fi
 
+      require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
+
       if [ ! -d "${configurationLocation}" ]; then
+        if [ -n "''${ICEDOS_OWNER_DECLINED:-}" ]; then
+          die "no permission to access configuration path '${configurationLocation}'; run it as the owning user or fix the permissions."
+        fi
         die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
       fi
 
@@ -330,9 +349,18 @@ in
               exit 0
             fi
 
+            ORIG_ARGS=("$@")
+
+            ${requireConfigOwner}
+
             [ "$#" -gt 0 ] && die "unknown arg: $1"
 
+            require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
+
             if [ ! -d "${configurationLocation}" ]; then
+              if [ -n "''${ICEDOS_OWNER_DECLINED:-}" ]; then
+                die "no permission to access configuration path '${configurationLocation}'; run it as the owning user or fix the permissions."
+              fi
               die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
             fi
 

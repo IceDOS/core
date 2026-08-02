@@ -7,7 +7,7 @@
 }:
 
 let
-  inherit (icedosLib.bash) dimGreenString redString;
+  inherit (icedosLib.bash) dimGreenString redString requireConfigOwner;
   inherit (config.icedos) configurationLocation;
 
   jq = "${pkgs.jq}/bin/jq";
@@ -97,7 +97,12 @@ let
   '';
 
   ensureIndex = ''
+    require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
+
     if [ ! -d "${configurationLocation}" ]; then
+      if [ -n "''${ICEDOS_OWNER_DECLINED:-}" ]; then
+        die "no permission to access configuration path '${configurationLocation}'; run it as the owning user or fix the permissions."
+      fi
       die "configuration path '${configurationLocation}' is invalid; run 'icedos rebuild' once."
     fi
 
@@ -182,6 +187,8 @@ let
       completion.command = "${jq} -r 'sort_by(.name)[] | select(.explicit == ${explicitFilter}) | .name' \"${modulesCache}\" 2>/dev/null";
 
       script = ''
+        ORIG_ARGS=("$@")
+        ${requireConfigOwner}
         DRY=0
         MODULE_NAME=""
         while [[ $# -gt 0 ]]; do
