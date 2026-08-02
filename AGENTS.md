@@ -77,7 +77,9 @@ nh os <switch|boot|build|build-vm> path:.
   `["modules"]`) are imported the same way.
 - User config beyond `config.toml` is autoloaded from the `icedos.system.extraConfigs`
   dirs (default `["configs"]`): every `*.toml` (including hidden `.*.toml`) is enumerated
-  by `lib/config-files.nix` and strict-merged in, with `config.toml` as the base. Both
+  by `lib/config-files.nix` and strict-merged in, with `config.toml` as the base. Hidden
+  `.*.toml` are a **gitignore-only** channel — their values are plaintext in the store (and
+  rollback snapshots), so treat them as private, not secret. Both
   options are bootstrap paths — read from `config.toml` only (like `system.arch`), or their
   defaults (`configs`/`modules`) when there is no `config.toml` (which is optional; the root
   is marked by `flake.nix`). An

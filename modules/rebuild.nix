@@ -248,9 +248,9 @@ in
         # Snapshot the config set as a unit (config.toml + every *.toml, including
         # hidden .*.toml, under each CONFIG_DIRS entry), preserving each dir's
         # layout, only when it changed — so `icedos configuration rollback` can
-        # restore the exact config that built a generation. Note: hidden configs
-        # may hold secrets/host overrides, so they are copied into the state cache
-        # (readable there) as a consequence.
+        # restore the exact config that built a generation. Hidden .*.toml are
+        # gitignored private configs, not secrets: they're copied into the state
+        # cache (and are already plaintext in the store) so rollback can restore them.
         function snapshot_config_set() {
           local snap folder d f
           snap="$(latest_config_snapshot)"

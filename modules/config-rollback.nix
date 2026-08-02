@@ -108,7 +108,7 @@ in
           echo -e "  ${redString "warning"}: no config snapshot recorded — this will be a SYSTEM-ONLY rollback (config left as-is)"
         fi
         echo
-        echo "  note: hidden .*.toml (in your config dirs) are snapshotted too — secrets/host values land in the state cache."
+        echo "  note: hidden .*.toml (in your config dirs) are snapshotted too — gitignored private configs (not secrets); their values land in the state cache."
         echo
 
         if [ "$DRY" -eq 1 ]; then

@@ -354,7 +354,7 @@ Any extra config file can opt out of loading with a top-level `enable = false` (
 
 `config.toml` is itself **optional** — a config root can be defined entirely by `configs/*.toml` and/or `modules/`. With no `config.toml`, `extraConfigs`/`extraModules` keep their defaults (`configs`/`modules`), so those dirs still load.
 
-A **hidden** config `configs/.<name>.toml` (dot-prefixed) loads exactly the same, but is gitignored — so it stays on this one machine. That's the place for secrets or per-host values you don't want committed (it replaces the old `.private.toml`). Hidden configs **are** captured by `icedos configuration rollback` snapshots, so their values are copied into the state cache under `.state/.cache/`.
+A **hidden** config `configs/.<name>.toml` (dot-prefixed) loads exactly the same, but is gitignored — the template's `.gitignore`, which you keep in your own config repo, ships `.*.toml` (and `.*.nix`, `modules/.*/`) — so it stays on this one machine and out of your repo (forks made before that rule existed should add the patterns themselves). It's a **gitignore-only** channel for per-host or private values, **not a secrets vault**: hidden configs are plaintext in the Nix store (world-readable, and shared with any machine that shares the closure), and every `icedos rebuild` whose config set changed snapshots them into `.state/.cache/`. Anyone with read access to the machine can read them — keep real secrets (passwords, tokens, keys) in a proper secret store (e.g. agenix, sops-nix).
 
 ### Hooks (run commands around rebuilds/cleanup)
 
@@ -575,7 +575,7 @@ initialPassword = "something-better"
 
 `initialPassword` is ignored for accounts that **already exist** — change those with `passwd` (editing `initialPassword` and rebuilding silently does nothing). A brand-new user still gets it on the next rebuild. `initialPassword` replaces the old `defaultPassword` key: an existing config still using `defaultPassword` fails the build loudly with "option `icedos.users.<name>.defaultPassword' does not exist" — just rename the key.
 
-> **⚠️ Security note:** `initialPassword` sets the account's *initial* password (the one it's created with). Because IceDOS leaves `users.mutableUsers` at its default (`true`), you can change it afterwards with `passwd` and that change **persists** across rebuilds. But the value written here is plain text and world-readable in the Nix store, so treat the *initial* password as non-secret: **keep your config repo private** (e.g. a hidden `configs/.<name>.toml` — gitignored, so it stays out of git, though still readable in the store), don't reuse an important password, and consider running `passwd` after first login to set the real one.
+> **⚠️ Security note:** `initialPassword` sets the account's *initial* password (the one it's created with). Because IceDOS leaves `users.mutableUsers` at its default (`true`), you can change it afterwards with `passwd` and that change **persists** across rebuilds. But the value written here is plain text and world-readable in the Nix store, so treat the *initial* password as non-secret: **keep your config repo private** (e.g. a hidden `configs/.<name>.toml` — gitignored by the template's `.gitignore`, so it stays out of git, though still readable in the store), don't reuse an important password, and consider running `passwd` after first login to set the real one.
 
 ### How do I go back to plain NixOS?
 
