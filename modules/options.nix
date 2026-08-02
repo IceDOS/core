@@ -181,7 +181,7 @@ in
         };
 
         cache = {
-          enable = mkBoolOption { default = true; };
+          enable = mkBoolOption { default = false; };
           url = mkStrOption { default = "https://icedos.mirrors.knp.one/icedos"; };
 
           key = mkStrOption {

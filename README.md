@@ -32,7 +32,7 @@ Each point leads with the benefit; the technical term is in parentheses for peop
 - **🎮 Gaming that just works** — curated kernels, graphics drivers, and low-latency tweaks, plus one-line app enablement (Steam, MangoHud, emulators, and more) from the [tweaks](https://github.com/IceDOS/tweaks), [hardware](https://github.com/IceDOS/hardware), and [apps](https://github.com/IceDOS/apps) module repos.
 - **📝 One file to rule it all** — your whole machine is described in `config.toml`. Turn features on by name; you don't hand-write system code for the common cases.
 - **↩️ Undo anything** — every rebuild is saved, and `icedos configuration rollback` restores the last working system **and** the `config.toml` that built it, in one command *(generations + config snapshots)*.
-- **⚡ No waiting for compiles** — packages download pre-built from the IceDOS server instead of building on your machine *(self-hosted binary cache)*. On by default.
+- **⚡ No waiting for compiles** — packages download pre-built from the IceDOS server instead of building on your machine *(self-hosted binary cache)*. Opt-in.
 - **🩺 Built-in health check** — `icedos status` inspects your system and tells you, in plain language, what to fix.
 - **🔎 Discover every setting** — `icedos configuration search --options` fuzzy-searches everything you can change and hands you a ready-to-paste snippet.
 - **✅ Typo-proof settings** — options are validated with error messages that name the exact setting and file, catching mistakes before a full rebuild *(path-aware validation)*.
@@ -164,7 +164,7 @@ The rest of this document uses a few Nix words. Here's what each means, once:
 | **Generation** | One saved version of your whole system. Every rebuild makes a new one; older ones stay bootable (they show up in the boot menu) — that's how "undo" works. |
 | **Rebuild / switch** | Turning `config.toml` into a running system. `icedos rebuild` builds the new generation and switches to it. |
 | **Flake** | The format Nix uses to pin exact versions of everything, so your system is reproducible. IceDOS generates it for you. |
-| **Binary cache / substituter** | A server of pre-built packages, so you download instead of compiling. IceDOS ships one, enabled by default. |
+| **Binary cache / substituter** | A server of pre-built packages, so you download instead of compiling. IceDOS ships one, opt-in (`icedos.system.cache.enable`). |
 | **home-manager** | The part that manages your *user* stuff (dotfiles, per-user apps), configured from the same `config.toml`. |
 | **Channel** | A version/branch of the package collection (e.g. `nixos-unstable` = newest; a release like `nixos-25.11` = steadier). |
 | **Overlay** | A rule that changes where a package comes from (e.g. pull `mesa` from a newer channel). |
@@ -255,6 +255,13 @@ Everything under `icedos` is IceDOS's own, checked settings. The top-level group
 | `icedos.<category>.*` | Options exposed by the module repos you load, grouped by category — e.g. `icedos.applications.*` (apps like `btop`, `steam`), `icedos.hardware.*`, `icedos.desktop.*`, `icedos.tweaks.*`. Which categories exist depends on which repos you enable. |
 
 Per-option details live in each module's sibling `config.toml`, and are searchable with `icedos configuration search --options`.
+
+For example, the IceDOS binary cache is **opt-in** — turn it on to download pre-built packages from the IceDOS server instead of compiling locally:
+
+```toml
+[icedos.system.cache]
+enable = true
+```
 
 ### Channels & overlays
 
@@ -547,6 +554,15 @@ nixos-generate-config --show-hardware-config | sudo tee /etc/nixos/hardware-conf
 ### I'm running low on disk
 
 `icedos gc` reclaims space (old generations + store garbage). Automatic weekly cleanup is on by default (`icedos.system.gc`).
+
+### Why is my rebuild suddenly compiling a lot?
+
+The IceDOS binary cache is **opt-in** (`icedos.system.cache.enable`) — earlier IceDOS versions enabled it by default. If you upgraded from one of those and your next rebuild started compiling packages that used to download, that's why: the default flipped, and your existing system simply doesn't have the cache enabled anymore. Re-enable it in `config.toml`:
+
+```toml
+[icedos.system.cache]
+enable = true
+```
 
 ### How do I set a password?
 
