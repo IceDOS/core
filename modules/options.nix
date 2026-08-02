@@ -185,7 +185,15 @@ in
         ssh = mkBoolOption { default = false; };
 
         sudo = {
-          passwordFeedback = mkBoolOption { default = true; };
+          passwordFeedback = mkBoolOption {
+            default = true;
+            description = ''
+              Show asterisks when typing the sudo password (`Defaults pwfeedback`).
+              On by default for UX — blank input reads as a frozen tty — at the
+              cost of disclosing password length to shoulder-surfers / tty
+              readers. Set to false to harden.
+            '';
+          };
           rs = mkBoolOption { default = true; };
         };
 
