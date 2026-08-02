@@ -235,6 +235,13 @@ fi
 # genflake takes its paths from ICEDOS_ROOT/ICEDOS_STATE_DIR/ICEDOS_CONFIG_ROOT.
 export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
 
+# Hold an exclusive flock on the build dir's `.lock` for the whole build so
+# the automatic nh-clean temp-dir sweep skips it while it is in flight. The
+# lock is released automatically when this process exits or dies, so a dir
+# left behind by a crashed build is still cleaned up on the next gc.
+exec 9>"$ICEDOS_BUILD_DIR/.lock"
+flock -n 9 || echo "warning: could not lock $ICEDOS_BUILD_DIR/.lock; a gc sweep may delete this build dir" >&2
+
 rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
 echo "building from path $ICEDOS_BUILD_DIR..."
 cd $ICEDOS_BUILD_DIR

@@ -59,6 +59,7 @@
                   nixfmt
                   rsync
                   toml2json
+                  util-linux
                 ]
               }:$PATH"
 

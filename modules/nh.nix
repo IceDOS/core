@@ -30,6 +30,7 @@ let
   inherit (pkgs) writeShellScript writeShellScriptBin;
 
   bc = "${pkgs.bc}/bin/bc";
+  flock = "${pkgs.util-linux}/bin/flock";
 
   inherit (config.icedos.system) gc;
   inherit (gc)
@@ -65,11 +66,31 @@ let
         esac
       done
 
-      tempBuildDirs=$(find /tmp -type d -name "icedos-build*" 2>/dev/null)
+      declare -a tempBuildDirs=()
+      while IFS= read -r -d $'\0' dir; do
+        tempBuildDirs+=("$dir")
+      done < <(find /tmp -type d -name 'icedos-build*' -print0 2>/dev/null)
+
+      # A build dir held by an active build has a `.lock` file that build.sh
+      # keeps flocked for the whole build. Releasing happens automatically on
+      # process exit/crash, so a stale dir is deletable; only a live build is
+      # skipped. A dir without `.lock` (e.g. left by an older build.sh) is
+      # treated as stale and deletable. Unreadable dirs (another user's
+      # build; `mktemp -d` uses mode 0700) are skipped as not ours.
+      declare -a buildDirs=()
+      declare -a inFlightDirs=()
+      for dir in "''${tempBuildDirs[@]}"; do
+        if [ ! -r "$dir" ] || [ ! -x "$dir" ] || { [ -e "$dir/.lock" ] && ! ${flock} -n "$dir/.lock" true 2>/dev/null; }; then
+          inFlightDirs+=("$dir")
+        else
+          buildDirs+=("$dir")
+        fi
+      done
+
       totalSize=0
       buildPathsCount=0
 
-      for dir in $tempBuildDirs; do
+      for dir in "''${buildDirs[@]}"; do
         sizeKb=$(du -sk "$dir" | cut -f1)
         sizeMb=$(echo "scale=2; $sizeKb / 1024" | ${bc})
         totalSize=$(echo "scale=2; $totalSize + $sizeMb" | ${bc})
@@ -79,20 +100,23 @@ let
       formattedTotal=$(printf "%.2f" "$totalSize")
       _summary_line="''$buildPathsCount build path''$([ $buildPathsCount != 1 ] && echo s) deleted, ''${formattedTotal} MiB freed"
 
-      if [ "$_phase" != remove ] && [ "$buildPathsCount" -gt 0 ]; then
-        echo -e "${dimBlueString "/tmp/nix-shell-*/icedos-build"}"
-        for dir in $tempBuildDirs; do
+      if [ "$_phase" != remove ] && ( [ "$buildPathsCount" -gt 0 ] || [ "''${#inFlightDirs[@]}" -gt 0 ] ); then
+        echo -e "${dimBlueString "/tmp/icedos-build*"}"
+        for dir in "''${buildDirs[@]}"; do
           if [ -n "$DRY" ]; then
             echo -e "- ${dimRedString "would DEL"} $dir"
           else
             echo -e "- ${dimRedString "DEL"} $dir"
           fi
         done
+        for dir in "''${inFlightDirs[@]}"; do
+          echo -e "- ${dimYellowString "skip"} $dir (build in flight or not ours)"
+        done
         echo
       fi
 
       if [ "$_phase" != preview ] && [ "$buildPathsCount" -gt 0 ]; then
-        for dir in $tempBuildDirs; do
+        for dir in "''${buildDirs[@]}"; do
           if [ -z "$DRY" ]; then
             echo -e "${dimGreenString ">"} Removing $dir"
             rm -r "$dir"
