@@ -39,11 +39,14 @@ let
     # Map of repository baseUrl -> its config.toml `fetchOptionalDependencies`
     # flag, so a repo's setting applies to all of its modules, including ones
     # pulled in transitively as dependencies.
+
+    repositories = config.repositories or [];
+
     repoFetchOptional = builtins.listToAttrs (
       map (r: {
         name = (_parseFlakeUrl r.url).baseUrl;
         value = r.fetchOptionalDependencies or false;
-      }) config.repositories
+      }) repositories
     );
 
     # Map of repository baseUrl -> its config.toml `fetchDependencies` flag.
@@ -53,7 +56,7 @@ let
       map (r: {
         name = (_parseFlakeUrl r.url).baseUrl;
         value = r.fetchDependencies or true;
-      }) config.repositories
+      }) repositories
     );
 
     # Apply patches to a flake source and return a realised, context-free store
@@ -109,7 +112,7 @@ let
             name = "${repo.url}|${ip.module}|${ip.input}";
             value = ip.patches;
           }) (repo.inputPatches or [ ])
-        ) config.repositories
+        ) repositories
       )
     );
 
@@ -894,7 +897,7 @@ let
 
         # Resolve external dependencies from config repositories
         externalResult = resolveExternalDependencyRecursively {
-          newDeps = config.repositories;
+          newDeps = repositories;
           loadOverrides = true;
         };
 
