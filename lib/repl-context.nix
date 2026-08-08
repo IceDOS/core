@@ -34,12 +34,14 @@ let
 
   systems = flake.nixosConfigurations;
 
-  # genflake names the configuration after /etc/hostname; fall back to the sole
+  # genflake used to name the configuration after /etc/hostname; fall back to the sole
   # entry so a host renamed since the last rebuild still opens a REPL.
   hostname = replaceStrings [ "\n" ] [ "" ] (readFile "/etc/hostname");
 
   system =
-    if systems ? ${hostname} then
+    if systems ? "icedos" then
+      systems.icedos
+    else if systems ? ${hostname} then
       systems.${hostname}
     else if systems != { } then
       systems.${head (attrNames systems)}

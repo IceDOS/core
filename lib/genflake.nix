@@ -451,7 +451,7 @@ assert isFirstBuildGuard;
 
           inherit (icedosLib) getModules modulesFromConfig;
         in {
-          nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
+          nixosConfigurations.icedos = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
               inherit icedosLib inputs;
             };
