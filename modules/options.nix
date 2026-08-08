@@ -224,7 +224,16 @@ in
           email = mkStrOption { default = ""; };
         };
 
-        isFirstBuild = mkBoolOption { default = false; };
+        # Framework-owned, synthetic flag: whether this boot is the first one
+        # after install. Computed and baked by lib/genflake.nix at genflake and
+        # build stage (see `icedos.system.forceFirstBuild` for the user-facing
+        # toggle). Internal + readOnly with no default — the injected value is
+        # the single definition, and a default would count as a second one
+        # (nixpkgs readOnly rejects `defs'` length > 1).
+        isFirstBuild = mkBoolOption {
+          internal = true;
+          readOnly = true;
+        };
 
         # Inline /etc/nixos/hardware-configuration.nix into the system. On by
         # default so the machine's hardware essentials always apply; the gate

@@ -89,6 +89,20 @@ let
   };
 
   channels = icedos.system.channels or [ ];
+
+  # isFirstBuild is framework-owned (readOnly, no default — see
+  # modules/options.nix). A user-set value now aborts eval with nixpkgs'
+  # generic "read-only, but it's set multiple times"; catch it here (before
+  # evalModules) with a message pointing at the real toggle. Asserted from the
+  # exported attrset below, so both genflake entry points — the search index
+  # (`optionsDoc`/`userConfigRaw`) and the generated flake (`flakeFinal`) —
+  # abort on the same friendly error.
+  isFirstBuildGuard = validate.abort {
+    when = builtins.hasAttr "isFirstBuild" (icedos.system or { });
+    path = "icedos.system.isFirstBuild";
+    msg = "is framework-managed (readOnly); to force a first boot, set icedos.system.forceFirstBuild instead";
+  };
+
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
   # Whether to inline the host's /etc/nixos/hardware-configuration.nix into
@@ -204,6 +218,10 @@ let
         inherit icedosLib lib;
         inputs.icedos-config = ICEDOS_CONFIG_ROOT;
       })
+      # Inject the genflake-stage computation of isFirstBuild: it has no default
+      # (readOnly), so `toJSON evaluated` below would otherwise throw
+      # "used but not defined". Build-stage injection happens in `flakeFinal`.
+      { icedos.system.isFirstBuild = isFirstBuild; }
     ]
     ++ modulesFromConfig.options;
   };
@@ -385,6 +403,7 @@ let
   # export, so the webui sees the complete config set, not just config.toml.
   userConfigRaw = toJSON (import ./load-user-config.nix ICEDOS_CONFIG_ROOT);
 in
+assert isFirstBuildGuard;
 {
   inherit
     evaluatedConfig
@@ -444,7 +463,12 @@ in
                   inherit (icedosLib) mkStrOption;
                 in
                 {
+                  # readOnly: not declared in modules/options.nix, so a
+                  # config.toml-set value already aborts at genflake with
+                  # "option does not exist"; readOnly additionally guards
+                  # module-set values at build stage.
                   options.icedos.configurationLocation = mkStrOption {
+                    readOnly = true;
                     default = "${ICEDOS_STATE_DIR}";
                   };
                 }
