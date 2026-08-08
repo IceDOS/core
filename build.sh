@@ -253,5 +253,7 @@ if [[ "$action" == "build-vm" ]]; then
 fi
 
 if [ "$run_vm" == "1" ]; then
-  exec $(find "result/bin" -name "run-*-vm")
+  vm_hostname=$(nix eval --raw "path:$ICEDOS_BUILD_DIR#nixosConfigurations.icedos.config.system.name" 2>/dev/null) \
+    || { echo "error: could not evaluate VM hostname" >&2; exit 1; }
+  exec "result/bin/run-${vm_hostname}-vm"
 fi
