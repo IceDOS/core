@@ -104,7 +104,7 @@ Exposed to every module as **`icedosLib`**.
 |---|---|
 | `lib/options/helpers.nix` | The `mk*Option` family: `mkBoolOption`, `mkStrOption`, `mkStrListOption`, `mkNumberOption`, `mkEnumOption`, `mkIntBetweenOption`, `mkFloatBetweenOption`, `mkNullableOption`, `mkListOption`, `mkAttrsOfOption`, `mkSubmodule{,List,Attrs}Option`, `mkRecordOption`, `mkUsersOption`. |
 | `lib/options/validate.nix` | `validate.{int,float,enum,str,nonEmpty,list,requires,abort}` — rich, path-aware error messages. |
-| `lib/helpers.nix` | `getModules`, `scanModules`, `bash.prelude`, `bash.{blue,green,dim*}String`, `bash.requireConfigOwner` (permission guard for executing the baked `configurationLocation`; capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script), `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `generateAccent`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, flake-revision helpers. |
+| `lib/helpers.nix` | `getModules`, `scanModules`, `bash.prelude`, `bash.{blue,green,dim*}String`, `bash.requireConfigOwner` (permission guard for executing the baked `configurationLocation`; capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script), `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `generateAccent`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, `moduleInputName` (top-level generated-flake name of a module-declared input — the string-context twin of `_getModuleInputs`), flake-revision helpers. |
 | `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. Stamps every module's emitted NixOS config with `<repo>#<module>` provenance (`setDefaultModuleLocation`) so nixpkgs eval/type/conflict errors name the source module instead of an anonymous generated location. Extra-modules share this: an `icedos.nix` extra-module is labeled `config#<name>`; a plain `default.nix` extra-module is imported by path, so it already carries its real on-disk location. |
 | `lib/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
 | `lib/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
@@ -159,9 +159,13 @@ speedInBytes = true
 ```
 
 Optional module fields:
-- `inputs = { foo = { url = "…"; patches = [ … ]; override = true; }; };` — extra flake
-  inputs the module needs (merged into the generated state flake; `override` keeps the
-  input name stable instead of namespacing it).
+- `inputs = { foo = { url = "…"; patches = [ … ]; }; };` — extra flake
+  inputs the module needs (merged into the generated state flake). The generated
+  top-level input name is namespaced to the declaring module — computed by
+  `icedosLib.moduleInputName { repo; module; input; }` — but the input is exposed to
+  every enabled module's `outputs.nixosModules` under the bare declared name `foo`.
+  A legacy `override = true` key is accepted and ignored (naming is now always
+  namespaced).
 - `meta.dependencies = [ { url?; modules = [ … ]; } ];` and `meta.optionalDependencies`
   — other modules this one needs (pulled automatically).
 
@@ -292,6 +296,12 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 **TL;DR:** edit the repo source → wire it into the user's `config.toml` (point `overrideUrl`
 at your checkout, and enable/configure the module you touched) → run `icedos rebuild --build`
 **from wherever you are**. No `cd`, no `sudo`, no activation. You never switch — the user does.
+
+Core lib tests run as a flake check: `nix flake check` in the core repo evaluates
+`lib/options/tests.nix` and fails if any result is not "ok" (or the eval throws).
+Core's `flake.lock` is gitignored and generated on demand (it is a library flake
+consumed via flake inputs, and a committed lock would pin core's own inputs —
+`nixpkgs`, `cache-server` — for consumers without `follows`).
 
 > **First install:** On a fresh machine with no built system, `icedos` isn't on PATH yet.
 > Run `nix develop` in the config root to enter the dev shell, which provides a limited

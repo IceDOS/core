@@ -1,5 +1,7 @@
-# Eval-only smoke tests for core/lib/validate.nix.
-# Usage: nix-instantiate --eval --strict path/to/core/lib/options/validate.nix
+# Eval-only smoke tests for core/lib/validate.nix and core/lib/helpers.nix.
+# Usage (canonical): `nix flake check` in the core repo — the `checks.<system>.lib-tests`
+# derivation fails if any result value is not "ok".
+# Manual: nix-instantiate --eval --strict path/to/core/lib/options/tests.nix
 # Every key must evaluate to "ok". Any "FAIL:..." string or thrown error equals regression.
 
 {
@@ -9,11 +11,27 @@
 let
   icedosLib = {
     abortIf = condition: message: if condition then throw message else true;
+    # Track the real prefix so a constants.nix change fails the test instead of
+    # silently passing; the rest of icedosLib is lazy, so it never evaluates.
+    INPUTS_PREFIX = (import ../constants.nix { }).INPUTS_PREFIX;
+    generateAttrPath = throw "helpers.generateAttrPath is not stubbed in tests";
   };
 
   validate = (import ./validate.nix { inherit icedosLib lib; }).validate;
 
+  helpers = import ../helpers.nix {
+    inherit icedosLib lib;
+    self = "tests";
+  };
+
   expectOk = expr: if expr == true then "ok" else "FAIL: expected true, got ${builtins.toJSON expr}";
+
+  expectEq =
+    expected: expr:
+    if expr == expected then
+      "ok"
+    else
+      "FAIL: expected ${builtins.toJSON expected}, got ${builtins.toJSON expr}";
 
   expectThrow =
     expr:
@@ -220,5 +238,44 @@ in
       min = 0;
       max = 10;
     } "p" "/some/file.toml" 99
+  );
+
+  # moduleInputName — mirrors _getModuleInputs in lib/icedos.nix (single source of truth).
+  moduleInputNameJovian = expectEq "icedos-github_icedos_providers-jovian-jovian" (
+    helpers.moduleInputName {
+      repo = "github:icedos/providers";
+      module = "jovian";
+      input = "jovian";
+    }
+  );
+
+  moduleInputNameNur = expectEq "icedos-github_icedos_providers-nur-nur" (
+    helpers.moduleInputName {
+      repo = "github:icedos/providers";
+      module = "nur";
+      input = "nur";
+    }
+  );
+
+  # repo/module pass through mkInputName's URL-char sanitization; `input` is a Nix
+  # attr identifier in production and is appended verbatim.
+  moduleInputNameSanitizesUrlChars =
+    expectEq "icedos-https___example_com_blog_from_1-the_post-nixpkgs"
+      (
+        helpers.moduleInputName {
+          repo = "https://example.com/blog?from=1";
+          module = "the.post";
+          input = "nixpkgs";
+        }
+      );
+
+  # A patched module's inputs split into an unpatched node (named `<input>_source`)
+  # and a patched node — the `_source` variant mirrors _getModuleInputs' normalInput.
+  moduleInputNamePatchedSource = expectEq "icedos-github_icedos_providers-jovian-jovian_source" (
+    helpers.moduleInputName {
+      repo = "github:icedos/providers";
+      module = "jovian";
+      input = "jovian_source";
+    }
   );
 }

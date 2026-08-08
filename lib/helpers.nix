@@ -1239,8 +1239,29 @@ rec {
       concatStringsSep "-" ([ INPUTS_PREFIX ] ++ parts)
     );
 
-  inputIsOverride = { input }: (hasAttr "override" input) && input.override;
-  inputHasPatches = { input }: (hasAttr "patches" input) && builtins.length input.patches > 0;
+  # Compute the generated-flake input name for a module-declared flake input,
+  # mirroring `_getModuleInputs` in lib/icedos.nix exactly (single source of
+  # truth): `<icedos-<repo>_<module>>-<input>`. A module consuming another
+  # repo's input in a *string* context — e.g. a `follows` value like
+  # `follows = "${icedosLib.moduleInputName { repo = "github:icedos/providers";
+  # module = "jovian"; input = "jovian"; }}/nixpkgs"` — needs the exact
+  # top-level name. Inside `outputs.nixosModules` the masked input set already
+  # exposes the input under the bare declared name, so this is only required
+  # where the name must be spelled out literally.
+  moduleInputName =
+    {
+      repo,
+      module,
+      input,
+    }:
+    "${
+      mkInputName {
+        parts = [
+          repo
+          module
+        ];
+      }
+    }-${input}";
 
   # Detect git-transport flake URLs (git+ssh://, git+https://, git+file://, git://, …).
   # These encode rev as a query parameter (?rev=<hash>), not a path segment.

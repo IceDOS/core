@@ -30,8 +30,8 @@ let
     filterByAttrs
     findFirst
     flatMap
-    inputIsOverride
     mkInputName
+    moduleInputName
     stringStartsWith
     ;
 
@@ -40,7 +40,7 @@ let
     # flag, so a repo's setting applies to all of its modules, including ones
     # pulled in transitively as dependencies.
 
-    repositories = config.repositories or [];
+    repositories = config.repositories or [ ];
 
     repoFetchOptional = builtins.listToAttrs (
       map (r: {
@@ -254,7 +254,9 @@ let
       ) (filter shouldIncludeAsInput modules);
 
     # Extract input dependencies from modules and create properly namespaced input declarations
-    # Handles override inputs separately to preserve their names
+    # Input names come from `icedosLib.moduleInputName` (single source of truth), so a consumer
+    # computing a module input's top-level name for a string context (e.g. `follows`) gets the
+    # exact same name the generated flake uses.
     _getModuleInputs =
       modules:
       let
@@ -272,8 +274,6 @@ let
           map (
             i:
             let
-              isOverride = inputIsOverride { input = inputs.${i}; };
-
               # Author patches (Nix path literals in the module, already store
               # paths) + consumer patches (config.toml strings declared via
               # `[[icedos.repositories.inputPatches]]`, resolved here). Both feed
@@ -294,7 +294,14 @@ let
 
               normalInput = rec {
                 _originalName = if hasPatches then "${i}_source" else i;
-                name = if isOverride then _originalName else "${moduleIdentifier}-${_originalName}";
+                name = moduleInputName {
+                  repo = _repoInfo.url;
+                  module = meta.name;
+                  input = _originalName;
+                };
+                # "override" is deprecated (naming is now always namespaced) but
+                # kept stripped so repos pinned at older revs don't leak the key
+                # into the generated flake input and fail opaquely.
                 value = removeAttrs inputs.${i} [
                   "override"
                   "patches"
@@ -329,7 +336,11 @@ let
 
               patchedInput = rec {
                 _originalName = i;
-                name = if isOverride then _originalName else "${moduleIdentifier}-${_originalName}";
+                name = moduleInputName {
+                  repo = _repoInfo.url;
+                  module = meta.name;
+                  input = _originalName;
+                };
                 value =
                   (removeAttrs inputs.${i} [
                     "override"

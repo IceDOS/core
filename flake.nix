@@ -115,5 +115,46 @@
             '';
           };
         };
+
+      # Eval-only lib tests (`lib/options/tests.nix`) as a flake check. Any result
+      # value other than "ok" fails the derivation.
+      checks =
+        let
+          inherit (nixpkgs) lib;
+        in
+        lib.genAttrs lib.systems.flakeExposed (
+          system:
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+
+            # tryEval each result so a test that throws lands in the readable
+            # failure list instead of aborting `nix flake check` with an eval trace.
+            results = lib.mapAttrs (
+              name: value:
+              let
+                r = builtins.tryEval value;
+              in
+              if r.success then r.value else "FAIL: ${name} threw during evaluation"
+            ) (import ./lib/options/tests.nix { inherit (pkgs) lib; });
+
+            failures = lib.filterAttrs (_: value: value != "ok") results;
+          in
+          {
+            lib-tests = pkgs.runCommand "icedos-lib-tests" { } (
+              if failures == { } then
+                "echo 'lib tests: all ok'\ntouch $out"
+              else
+                lib.concatStringsSep "\n" (
+                  [
+                    "echo 'lib tests FAILED:' >&2"
+                  ]
+                  ++ (lib.mapAttrsToList (
+                    name: value: "echo ${lib.escapeShellArg "  ${name}: ${value}"} >&2"
+                  ) failures)
+                  ++ [ "exit 1" ]
+                )
+            );
+          }
+        );
     };
 }
