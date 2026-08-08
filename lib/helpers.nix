@@ -13,6 +13,7 @@ let
     pathExists
     readFile
     replaceStrings
+    seq
     ;
 
   inherit (icedosLib) generateAttrPath;
@@ -41,6 +42,7 @@ let
     ;
 
   inherit (icedosLib)
+    abortIf
     ICEDOS_STAGE
     ICEDOS_STATE_DIR
     INPUTS_PREFIX
@@ -65,6 +67,54 @@ rec {
     in
     map (dir: path + "/${dir}") (builtins.filter dirHasDefault dirs)
     ++ map (file: path + "/${file}") files;
+
+  # Whether an IceDOS module is part of this config. Replaces probing fake
+  # option paths for recognition (e.g. `(config.icedos.desktop.kde.dynamic-workspaces or null) != null`).
+  # Resolution order:
+  #   - `url` given     -> check `loadedModules.${url}` contains every entry
+  #     of `modules` (or `name`).
+  #   - `repoUrl` given -> check `loadedModules.${repoUrl}` (the calling
+  #     module's own repo, threaded through `_extractNixosModules`).
+  #   - neither         -> scan every repo's loaded list for every entry.
+  # A malformed call aborts: pass `name`, or a non-empty `modules` list — an
+  # empty `modules = []` would make the membership check vacuously true.
+  # DE detection: a DE repo is present iff it is configured, which is exactly
+  # `hasModule { inherit config; url = "github:icedos/<de>"; modules = [ "default" ]; }`
+  # — every DE repo always loads its `default` module when configured. The
+  # DE-specific consumers of this pattern (session targets, accent resolution)
+  # live in the desktop repo's repo-root `lib.nix` (contributed via that repo's
+  # `default` module `lib` field); keep `hasModule` itself generic and
+  # repo-agnostic.
+  hasModule =
+    {
+      config,
+      name ? null,
+      url ? null,
+      repoUrl ? null,
+      modules ? null,
+    }:
+    let
+      inherit (config.icedos.system) loadedModules;
+      # A malformed call is a bug: `modules = []` makes `lib.all` vacuously
+      # true (silently reporting the module "present"), and omitting BOTH
+      # `name` and `modules` asks for nothing. `seq` forces the abort even when
+      # `loadedModules == {}` would otherwise short-circuit the scan below.
+      names =
+        seq
+          (abortIf (
+            modules == [ ] || (name == null && modules == null)
+          ) "hasModule: pass a module name or a non-empty modules list")
+          (if modules != null then modules else [ name ]);
+      inUrl = u: lib.all (n: lib.elem n (loadedModules.${u} or [ ])) names;
+    in
+    seq names (
+      if url != null then
+        inUrl url
+      else if repoUrl != null then
+        inUrl repoUrl
+      else
+        lib.any inUrl (builtins.attrNames loadedModules)
+    );
 
   # Runtime bash helpers shared between Nix-embedded scripts (via the
   # auto-prepended `prelude` from toolset.nix:41) and standalone .sh files
@@ -883,107 +933,12 @@ rec {
           ${concatMapStrings fileLeafComplete fileLeaves}${concatMapStrings valueLeafComplete valueLeaves}'';
     };
 
-  # Authoritative libadwaita named-accent → hex map. Mirrors GNOME 47+
-  # `org/gnome/desktop/interface.accent-color` enum and libadwaita's
-  # `_palette.scss`. Bare hex (no `#`) so callers can pick the form.
-  libadwaitaAccentHex = {
-    blue = "3584e4";
-    green = "3a944a";
-    orange = "ed5b00";
-    pink = "d56199";
-    purple = "9141ac";
-    red = "e62d42";
-    slate = "6f8396";
-    teal = "2190a4";
-    yellow = "c88800";
-  };
-
-  # Single source of truth for `icedos.desktop.accentColor` resolution.
-  # Accepts a libadwaita name, a base16 slot (`base08`..`base0F`, only
-  # meaningful when stylix is on), or a hex (`RRGGBB` / `#RRGGBB`).
-  # Empty → "purple". Returns:
-  #   { hex; hexNoHash; name; slot; warning; gnomeOn; stylixOn; }
-  # `warning` is non-null when GNOME is on but the input is not a libadwaita
-  # named accent — `org/gnome/desktop/interface.accent-color` is a string
-  # enum, so a slot/hex input causes the GNOME shell to render a fallback
-  # name while libadwaita apps render the user's hex.
-  generateAccent =
-    config:
-    let
-      inherit (lib)
-        elem
-        hasAttr
-        removePrefix
-        toLower
-        ;
-
-      desktopCfg = config.icedos.desktop;
-      raw = desktopCfg.accentColor;
-
-      gnomeOn = hasAttr "gnome" desktopCfg;
-      stylixOn = config.stylix.enable or false;
-
-      namedAccents = attrNames libadwaitaAccentHex;
-
-      # base16 slot inverse — only used when input is a slot and we still
-      # need a libadwaita name (e.g. for the GNOME dconf write under stylix).
-      # Mirrors the bundled `adwaita` handler in
-      # desktop/modules/stylix/lib.nix.
-      defaultSlotToName = {
-        base08 = "red";
-        base09 = "orange";
-        base0A = "yellow";
-        base0B = "green";
-        base0C = "teal";
-        base0D = "blue";
-        base0E = "purple";
-        base0F = "slate";
-      };
-
-      isHex = s: builtins.match "#?[0-9a-fA-F]{6}" s != null;
-      isName = s: elem (toLower s) namedAccents;
-      isSlot = s: builtins.match "base0[89A-Fa-f]" s != null;
-
-      input = if raw == "" then "purple" else raw;
-
-      name =
-        if isName input then
-          toLower input
-        else if isSlot input then
-          defaultSlotToName.${input} or "blue"
-        else
-          "blue";
-
-      hexNoHash =
-        if isHex input then
-          removePrefix "#" input
-        else if isSlot input && stylixOn then
-          config.lib.stylix.colors.${input}
-        else
-          libadwaitaAccentHex.${name};
-
-      hex = "#${hexNoHash}";
-
-      slot = if isSlot input then input else null;
-
-      warning =
-        if gnomeOn && !(isName input) then
-          "icedos.desktop.accentColor: GNOME is enabled but `${input}` is not a libadwaita named accent. The GNOME shell will use `${name}`; libadwaita apps and other consumers will use `${hex}`. Set accentColor to one of ${concatStringsSep ", " namedAccents} to keep them in sync."
-        else
-          null;
-    in
-    {
-      inherit
-        hex
-        hexNoHash
-        name
-        slot
-        warning
-        gnomeOn
-        stylixOn
-        ;
-    };
-
+  # Authoritative libadwaita named-accent → hex map and the
+  # `icedos.desktop.accentColor` resolver (`generateAccent`), plus the
+  # `desktop`/`systemd` namespaces built on them, moved to the desktop repo's
+  # repo-root `lib.nix` (see desktop/lib.nix), contributed via that repo's
+  # `default` module `lib` field. They are DE-dependent, so they
+  # belong with the DEs, not in core.
   users = {
     getNormal =
       { users }:
@@ -1018,34 +973,6 @@ rec {
         (fromHexString (substring 2 2 h))
         (fromHexString (substring 4 2 h))
       ];
-  };
-
-  desktop = {
-    # Build a GNOME `org.gnome.desktop.wm.preferences/button-layout` string
-    # from per-button visibility flags. Fed to GNOME directly and to Zed's
-    # `title_bar.button_layout` (which parses the same format via
-    # `WindowButtonLayout::parse` in `crates/gpui/src/platform.rs`).
-    # Empty button list yields `"appmenu:"`, hiding all three.
-    mkButtonLayoutString =
-      {
-        minimizeButton,
-        maximizeButton,
-        ...
-      }:
-      let
-        # Close is always present (no opt-out): semantically required, and
-        # several compositors (COSMIC) ignore hide-close anyway.
-        buttons = concatStringsSep "," (
-          optional minimizeButton "minimize" ++ optional maximizeButton "maximize" ++ [ "close" ]
-        );
-      in
-      "appmenu:${buttons}";
-
-    # Returns the active accent color as a 6-char hex string (no `#`),
-    # used by per-WM modules to colour focused-window borders /
-    # active-hint indicators. Wraps `generateAccent` so all consumers
-    # share the same name/slot/hex resolution rules.
-    accentHex = config: (generateAccent config).hexNoHash;
   };
 
   pkgs = rec {
@@ -1158,24 +1085,6 @@ rec {
       + optionalString (icon != null) ''
         ln -s $out/${icon} $out/share/applications/${icon}
       '';
-  };
-
-  systemd = {
-    # Returns the *-session.target names for whichever icedos.desktop.*
-    # DEs are present on this host, derived from the full `config.icedos`
-    # attrset (the `cfg` modules already destructure to). Use for
-    # systemd.user.services' `Unit.After` (after prepending
-    # `graphical-session.target`) and `Install.WantedBy`. Adding a new DE
-    # means appending one line here, not editing every consumer.
-    desktopSessionTargets =
-      cfg:
-      let
-        present = name: hasAttr "desktop" cfg && hasAttr name cfg.desktop;
-      in
-      optional (present "cosmic") "cosmic-session.target"
-      ++ optional (present "gnome") "gnome-session.target"
-      ++ optional (present "hyprland") "hyprland-session.target"
-      ++ optional (present "kde") "plasma-workspace-wayland.target";
   };
 
   injectIfExists =
