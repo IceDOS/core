@@ -445,6 +445,7 @@ assert isFirstBuildGuard;
           icedosLib = import "''${inputs.icedos-core}/lib" {
             inherit lib pkgs inputs;
             config = icedos;
+            enableLogging = ${boolToString icedosLib.ENABLE_LOGGING};
             self = toString inputs.icedos-core;
           };
 

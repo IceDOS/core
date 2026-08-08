@@ -9,5 +9,5 @@ rec {
     value: cb: if ENABLE_LOGGING then trace "${ICEDOS_STAGE}: ${toJSON (cb value)}" value else value;
 
   logValue = value: log value (_: value);
-  logAttrKeys = value: log value (attrNames value);
+  logAttrKeys = value: log value (_: attrNames value);
 }
