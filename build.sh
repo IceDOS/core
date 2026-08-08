@@ -246,12 +246,19 @@ rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$ICEDOS_BUILD_DIR"
 echo "building from path $ICEDOS_BUILD_DIR..."
 cd $ICEDOS_BUILD_DIR
 
-nh os $action --no-update-lock-file path:. "${nhBuildArgs[@]}" --hostname "$(cat /etc/hostname)" -- $trace "${globalBuildArgs[@]}"
+nh os $action --no-update-lock-file path:. "${nhBuildArgs[@]}" --hostname icedos -- $trace "${globalBuildArgs[@]}"
 
 if [[ "$action" == "build-vm" ]]; then
   echo "VM configuration stored in $PWD/result"
 fi
 
 if [ "$run_vm" == "1" ]; then
-  exec "result/bin/run-$(cat /etc/hostname)-vm"
+  shopt -s nullglob
+  vm_scripts=(result/bin/run-*-vm)
+  shopt -u nullglob
+  case ${#vm_scripts[@]} in
+    0) echo "error: no VM script found in $PWD/result/bin" >&2; exit 1 ;;
+    1) exec "${vm_scripts[0]}" ;;
+    *) echo "error: expected exactly one VM script, got: ${vm_scripts[*]}" >&2; exit 1 ;;
+  esac
 fi

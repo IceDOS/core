@@ -15,7 +15,6 @@ let
     concatStringsSep
     elem
     evalModules
-    fileContents
     filter
     flatten
     generators
@@ -451,7 +450,7 @@ assert isFirstBuildGuard;
 
           inherit (icedosLib) getModules modulesFromConfig;
         in {
-          nixosConfigurations."${fileContents "/etc/hostname"}" = nixpkgs.lib.nixosSystem rec {
+          nixosConfigurations.icedos = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
               inherit icedosLib inputs;
             };

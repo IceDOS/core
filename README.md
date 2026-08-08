@@ -451,7 +451,7 @@ With no flags this is a `switch`: it builds your configuration and activates it 
 | *(none)* | `switch`: build and activate now. | Day-to-day changes. |
 | `--boot` | `boot`: prepare the new generation for next reboot, don't activate now. | Safer rollout; kernel changes. |
 | `--build` | `build`: build but don't activate. | Check a config compiles before switching. |
-| `--build-vm` | Build a bootable test VM (`result/bin/run-<hostname>-vm`). | Try the config in a VM without touching the host. |
+| `--build-vm` | Build a bootable test VM (`result/bin/run-<name>-vm`, where `<name>` is the evaluated `config.system.name`, defaulting to `networking.hostName`). | Try the config in a VM without touching the host. |
 | `--run-vm` | Same as `--build-vm`, then launch the VM. | Quick interactive VM test. |
 
 #### Update flags — *what to refresh first*

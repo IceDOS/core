@@ -22,8 +22,6 @@ let
     attrNames
     getFlake
     head
-    readFile
-    replaceStrings
     ;
 
   # `path:` keeps this a plain path flakeref: the state dir lives inside the
@@ -34,14 +32,10 @@ let
 
   systems = flake.nixosConfigurations;
 
-  # genflake names the configuration after /etc/hostname; fall back to the sole
-  # entry so a host renamed since the last rebuild still opens a REPL.
-  hostname = replaceStrings [ "\n" ] [ "" ] (readFile "/etc/hostname");
-
+  # genflake emits exactly one nixosConfiguration per generated flake, so the
+  # sole entry is deterministic — no need to know its name.
   system =
-    if systems ? ${hostname} then
-      systems.${hostname}
-    else if systems != { } then
+    if systems != { } then
       systems.${head (attrNames systems)}
     else
       throw "no nixosConfigurations in '${stateDir}'; run 'icedos rebuild' first";

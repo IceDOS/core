@@ -10,8 +10,8 @@
 # explicit-application form `{ stateDir = "..."; packagePath = "'"$PATH_ARG"'"; }`
 # — that interpolated `$PATH_ARG` into the expression text.
 #
-# Reuses repl-context.nix so the getFlake/hostname/icedosLib instantiation
-# logic is never duplicated between repl, nix_eval (MCP) and pkgs build.
+# Reuses repl-context.nix so the getFlake/icedosLib instantiation logic is
+# never duplicated between repl, nix_eval (MCP) and pkgs build.
 {
   stateDir,
   packagePath,
