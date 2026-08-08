@@ -109,8 +109,8 @@ Exposed to every module as **`icedosLib`**.
 | `lib/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
 | `lib/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
 | `lib/common.nix` | `abortIf`, `filterByAttrs`, `findFirst`, `flatMap`, `generateAttrPath`, … |
-| `lib/constants.nix` | `ICEDOS_*` env/stage constants, `INPUTS_PREFIX`. |
-| `lib/logger.nix` | `log`/`logValue` — active when `ICEDOS_LOGGING=1`. |
+| `lib/constants.nix` | `ICEDOS_*` env/stage constants, `INPUTS_PREFIX`, `ENABLE_LOGGING` (either `ICEDOS_LOGGING=1` in the env **or** the `enableLogging` flag baked into the generated flake's lib import at genflake time — so `--logs` stays active for the whole nixos build even though the env var doesn't reach it). |
+| `lib/logger.nix` | `log`/`logValue`/`logAttrKeys` — active when `ENABLE_LOGGING` is set. |
 
 `abortIf cond msg` → throws `msg` when `cond` is true, otherwise returns `true`
 (so it chains with `&&` and `assert`). The real value goes in the `then` branch of
