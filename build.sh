@@ -253,7 +253,12 @@ if [[ "$action" == "build-vm" ]]; then
 fi
 
 if [ "$run_vm" == "1" ]; then
-  vm_hostname=$(nix eval --raw "path:$ICEDOS_BUILD_DIR#nixosConfigurations.icedos.config.system.name" 2>/dev/null) \
-    || { echo "error: could not evaluate VM hostname" >&2; exit 1; }
-  exec "result/bin/run-${vm_hostname}-vm"
+  shopt -s nullglob
+  vm_scripts=(result/bin/run-*-vm)
+  shopt -u nullglob
+  case ${#vm_scripts[@]} in
+    0) echo "error: no VM script found in $PWD/result/bin" >&2; exit 1 ;;
+    1) exec "${vm_scripts[0]}" ;;
+    *) echo "error: expected exactly one VM script, got: ${vm_scripts[*]}" >&2; exit 1 ;;
+  esac
 fi
