@@ -1,7 +1,8 @@
-# Eval-only smoke tests for core/lib/validate.nix and core/lib/helpers.nix.
+# Eval-only smoke tests for core/lib/options/validate.nix, core/lib/helpers.nix
+# (hasModule, moduleInputName) and core/lib/icedos.nix (_mergeModuleLibs).
 # Usage (canonical): `nix flake check` in the core repo — the `checks.<system>.lib-tests`
 # derivation fails if any result value is not "ok".
-# Manual: nix-instantiate --eval --strict path/to/core/lib/options/tests.nix
+# Manual: nix-instantiate --eval --strict --expr '(import ./lib/options/tests.nix) { }'
 # Every key must evaluate to "ok". Any "FAIL:..." string or thrown error equals regression.
 
 {
@@ -51,6 +52,53 @@ let
       # tryEval cannot inspect the thrown message, so we only confirm a throw.
       # The needle arg is documentation of the expected message fragment.
       "ok";
+
+  # --- icedosLib.hasModule (helpers.nix) --------------------------------
+  # Import helpers.nix with just the members hasModule actually forces stubbed;
+  # the abortIf/stringStartsWith stubs carry the real semantics.
+  hasModule =
+    (import ../helpers.nix {
+      inherit lib;
+      self = "";
+      icedosLib = {
+        generateAttrPath = throw "stub: generateAttrPath";
+        abortIf = condition: message: if condition then throw message else true;
+        ICEDOS_STAGE = "";
+        ICEDOS_STATE_DIR = "";
+        INPUTS_PREFIX = "";
+        stringStartsWith = prefix: str: lib.hasPrefix prefix str;
+      };
+    }).hasModule;
+
+  # --- _mergeModuleLibs (icedos.nix) -------------------------------------
+  # The merge folds module `lib` field contributions onto the base lib. Import
+  # icedos.nix with a stubbed base lib and force only `_mergeModuleLibs` — the
+  # resolution machinery is a lazy rec member, so the rest never evaluates.
+  merge =
+    (import ../icedos.nix {
+      inherit lib;
+      config = { };
+      inputs = { };
+      pkgs = { };
+      icedosLib = {
+        foo = "baseFoo";
+      };
+    })._mergeModuleLibs;
+
+  mod = url: name: contrib: {
+    _repoInfo = { inherit url; };
+    meta = { inherit name; };
+    lib = contrib;
+  };
+
+  fakeConfig = loaded: { icedos.system.loadedModules = loaded; };
+  loaded = {
+    "github:icedos/apps" = [
+      "btop"
+      "steam"
+    ];
+    "github:icedos/desktop" = [ "default" ];
+  };
 in
 {
   intHappy = expectOk (
@@ -278,4 +326,106 @@ in
       input = "jovian_source";
     }
   );
+  # --- hasModule (helpers.nix) & _mergeModuleLibs (icedos.nix) test cases ---
+  # --- hasModule test cases ---------------------------------------------
+
+  # name present in any repo -> true
+  hasModuleNamePresent = expectOk (hasModule {
+    config = fakeConfig loaded;
+    name = "steam";
+  });
+  # name absent everywhere -> false (NOT an abort)
+  hasModuleNameAbsent = expectOk (
+    !(hasModule {
+      config = fakeConfig loaded;
+      name = "ghost";
+    })
+  );
+  # url branch: matching repo + present name -> true
+  hasModuleUrlMatch = expectOk (hasModule {
+    config = fakeConfig loaded;
+    url = "github:icedos/apps";
+    name = "btop";
+  });
+  # url branch: name not in that repo -> false (it is in another repo)
+  hasModuleUrlWrongRepo = expectOk (
+    !(hasModule {
+      config = fakeConfig loaded;
+      url = "github:icedos/desktop";
+      name = "steam";
+    })
+  );
+  # url branch: unknown repo -> false
+  hasModuleUrlNoSuchRepo = expectOk (
+    !(hasModule {
+      config = fakeConfig loaded;
+      url = "github:icedos/ghost";
+      name = "btop";
+    })
+  );
+  # repoUrl branch -> true
+  hasModuleRepoUrlMatch = expectOk (hasModule {
+    config = fakeConfig loaded;
+    repoUrl = "github:icedos/desktop";
+    modules = [ "default" ];
+  });
+  # modules branch: all present -> true
+  hasModuleModulesAll = expectOk (hasModule {
+    config = fakeConfig loaded;
+    modules = [
+      "btop"
+      "steam"
+    ];
+  });
+  # modules branch: one missing -> false
+  hasModuleModulesPartial = expectOk (
+    !(hasModule {
+      config = fakeConfig loaded;
+      modules = [
+        "btop"
+        "ghost"
+      ];
+    })
+  );
+  # empty loadedModules + valid call -> false, not an abort (the vacuous-truth hole)
+  hasModuleEmptyLoadedValid = expectOk (
+    !(hasModule {
+      config = fakeConfig { };
+      name = "btop";
+    })
+  );
+  # empty modules list -> abort (vacuous-truth guard)
+  hasModuleEmptyModulesAbort = expectThrow (hasModule {
+    config = fakeConfig loaded;
+    modules = [ ];
+  });
+  # neither name nor modules -> abort
+  hasModuleNeitherAbort = expectThrow (hasModule {
+    config = fakeConfig loaded;
+  });
+  # empty loadedModules + malformed call -> still aborts (seq forces the guard)
+  hasModuleEmptyLoadedMalformed = expectThrow (hasModule {
+    config = fakeConfig { };
+  });
+
+  # disjoint contributions fold in cleanly
+  mergeHappy = expectOk (
+    (merge [
+      (mod "github:icedos/a" "m1" { alpha = 1; })
+      (mod "github:icedos/b" "m2" { beta = 2; })
+    ]).beta == 2
+  );
+  # a contribution name colliding with the base lib -> named throw
+  mergeCollidesBase = expectThrowMatch (merge [
+    (mod "github:icedos/a" "m1" { foo = "shadow"; })
+  ]) "Duplicate icedosLib name 'foo'";
+  # a name colliding across two contributions -> named throw
+  mergeCollidesAcross = expectThrowMatch (merge [
+    (mod "github:icedos/a" "m1" { bar = 1; })
+    (mod "github:icedos/b" "m2" { bar = 2; })
+  ]) "Duplicate icedosLib name 'bar'";
+  # a non-attrset `lib` field -> friendly throw (never `attrNames` on a string)
+  mergeNotAttrs = expectThrowMatch (merge [
+    (mod "github:icedos/a" "m1" "not-an-attrset")
+  ]) "must be an attrset";
 }

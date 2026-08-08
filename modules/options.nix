@@ -244,6 +244,22 @@ in
         packages = mkStrListOption { default = [ ]; };
         permittedInsecurePackages = mkStrListOption { default = [ ]; };
 
+        # The fully-resolved set of loaded IceDOS modules: repo base url ->
+        # module names (explicitly enabled + transitive deps, synthesized
+        # `default` included). Derived from the raw icedos config by
+        # `modulesFromConfig` and injected read-only at genflake/build time —
+        # see `icedosLib.hasModule`. Not user-settable.
+        loadedModules = mkAttrsOfOption {
+          internal = true;
+          # No `default`: a `default` on a readOnly option counts as a definition,
+          # so readOnly + default + the injected value throws "read-only, but it's
+          # set multiple times" (unlike `isFirstBuild` above, which is only
+          # internal-by-convention, not readOnly). No-default is deliberate — a
+          # missed injection should fail loud ("used but not defined") rather than
+          # silently default to `{}` and make `icedosLib.hasModule` report nothing.
+          readOnly = true;
+        } (types.listOf types.str);
+
         # Pull selected packages from another channel/flake into the active pkgs
         # set as an overlay. Each entry must set either `channel` (an existing
         # `[[icedos.system.channels]]` name) or `url` (a flake URL — registered

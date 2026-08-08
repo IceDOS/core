@@ -9,7 +9,10 @@
 
 let
   inherit (builtins)
+    attrNames
+    foldl'
     hasAttr
+    head
     pathExists
     ;
 
@@ -116,6 +119,62 @@ let
       )
     );
 
+    # --- module `lib` contributions --------------------------------------
+    # Any `icedos.nix` module may extend `icedosLib` by shipping a top-level
+    # `lib = { ... }` field — a repo module (e.g. `desktop/modules/default`
+    # contributing the desktop/DE helpers) or a config-root extra module (the
+    # user's local extension point, replacing the old repo/config-root
+    # `lib.nix` auto-discovery). Core merges every contribution via
+    # `_mergeModuleLibs` into the module-facing lib (see the generated flake's
+    # `specialArgs` and its `icedosLib` output, plus repl-context).
+
+    # Fold module `lib` field contributions into the base lib. Every record in
+    # `mods` is a phase-1 import (base `finalIcedosLib`), so a contribution
+    # sees ONLY the base lib — identical to the old repo/config-root `lib.nix`
+    # imports; passing the merged value would make the merge's construction
+    # depend on the very imports it builds, so contributions are
+    # self-reference-free by construction. Repo-to-repo composition happens at
+    # the MODULE layer, where the full merged lib is already visible. Fails
+    # loud on a non-attrset `lib` field or any name collision — against the
+    # core name set or another module — so a helper can't silently shadow
+    # another. The seed is the base `finalIcedosLib`, which also carries the
+    # resolution machinery (`modulesFromConfig`, `_mergeModuleLibs`,
+    # `fetchModulesRepository`, …) — a contribution must not force those
+    # members: `modulesFromConfig.closureLib` IS the merged result, so forcing
+    # it from a contribution (or deep-forcing the merged lib, which reaches
+    # `closureLib.modulesFromConfig.closureLib`) is the one self-reference
+    # that never terminates. Self-reference-freedom holds for the helper names
+    # a contribution uses, not for the machinery.
+    _mergeModuleLibs =
+      mods:
+      foldl' (
+        acc: m:
+        let
+          contribution = m.lib or { };
+          dupes = filter (n: elem n (attrNames contribution)) (attrNames acc);
+        in
+        if !(builtins.isAttrs contribution) then
+          throw "icedosLib contribution from module '${m._repoInfo.url}#${m.meta.name}' must be an attrset (lib = { ... }), got ${builtins.typeOf contribution}"
+        else if dupes == [ ] then
+          acc // contribution
+        else
+          throw "Duplicate icedosLib name '${head dupes}' across icedosLib contributions (base lib + module '${m._repoInfo.url}#${m.meta.name}')"
+      ) finalIcedosLib mods;
+
+    # The module-facing `icedosLib` is the base lib merged with every module's
+    # `lib` field contribution. The two-phase resolution in `modulesFromConfig`
+    # computes `closureLib` — `_mergeModuleLibs` over the fully-resolved
+    # closure (`deduped` repo modules + phase-1 extra modules) — and
+    # re-imports module files and extra modules with it, so a repo pulled in
+    # as a dependency (e.g. desktop, a required dep of every DE repo) still
+    # contributes its helpers. `specialArgs` reuses that value, so the whole
+    # module system sees one merged lib. `_mergeModuleLibs` is a plain lazy
+    # member of this rec — never forced by `attrNames` — so the probe in
+    # lib/default.nix (`attrNames (import icedos.nix (icedosLibInputs //
+    # { icedosLib = {}; }))`) keeps succeeding: forcing the key set never
+    # forces the merge, and `icedos.nix`'s own `inherit (icedosLib)` (with
+    # `{}`) only needs the static names.
+
     # Fetch a modules repository, resolving the URL and loading its icedos modules
     # Handles overrides, flake resolution, and module file loading
     fetchModulesRepository =
@@ -212,6 +271,8 @@ let
         # Patched repos are emitted as a locked `path:` input pointing at the
         # realised patched tree; unpatched repos keep their upstream url.
         fetchUrl = if hasPatches then "path:${patchedPath}" else baseUrl;
+        # Realised repo tree: the (possibly patched) flake's store path and
+        # narHash. Forcing `outPath`/`narHash` never touches `icedosModules`.
         inherit (moduleFlake) narHash;
         files = flatten modules;
       }
@@ -442,6 +503,10 @@ let
           map (lib.setDefaultModuleLocation location) (
             outputs.nixosModules {
               inputs = maskedInputs;
+              # The calling module's own repo base url, so `icedosLib.hasModule`
+              # (with `repoUrl`) can resolve same-repo sibling modules without
+              # hardcoding the url at every call site.
+              repoUrl = _repoInfo.url;
             }
           );
       in
@@ -528,7 +593,10 @@ let
         existingPatches;
 
     # Load module files from a repository and ensure a default module exists
-    # Returns list of modules with _repoInfo attached to each
+    # Returns list of modules with _repoInfo attached to each. Phase-1 import:
+    # module files see the BASE `finalIcedosLib` here — resolution only forces
+    # `meta`; the closure-aware merge is applied later when `modulesFromConfig`
+    # re-imports each file's outputs via `_sourceFile`.
     _loadModulesFromRepo =
       repo:
       let
@@ -756,18 +824,29 @@ let
       };
 
     # Import an extra module file and attach repository info
-    # Extra modules are stored locally in the config directory
+    # Extra modules are stored locally in the config directory. The file is
+    # imported with `config` + nixpkgs `lib` + `icedosLibValue` — the same
+    # argument set a repo module file gets in phase 1 (`_loadModulesFromRepo`),
+    # so an extra module can use nixpkgs `lib` at its top level (e.g. a
+    # `lib = import ./lib.nix { inherit icedosLib lib; };` contribution).
+    # `icedosLibValue` is the lib passed to the file — the base lib in phase 1
+    # (contributions + meta), the closure-aware merge
+    # (`modulesFromConfig.closureLib`) in phase 2 (outputs).
     _importExtraModule =
       {
         filePath,
         narHash,
         extraModulesPath,
+        icedosLibValue ? finalIcedosLib,
       }:
       let
         inherit (builtins) unsafeDiscardStringContext;
         inherit (lib) removePrefix;
 
-        imported = import filePath { icedosLib = finalIcedosLib; };
+        imported = import filePath {
+          inherit config lib;
+          icedosLib = icedosLibValue;
+        };
         relPath = removePrefix "${extraModulesPath}/" filePath;
         fallbackName = unsafeDiscardStringContext (dirOf relPath);
       in
@@ -786,10 +865,15 @@ let
     # Load all IceDOS-style extra modules (icedos.nix) from every configured
     # extra-module directory (config.system.extraModules, default `modules`).
     # Missing directories contribute nothing; returns [] when none exist.
+    # `icedosLibValue` is threaded into every file import: the base lib in
+    # phase 1 (`extraModulesP1` — contributions + meta), `closureLib` in
+    # phase 2 (`extraModulesP2` — outputs). `config` and nixpkgs `lib` are
+    # always threaded too (see `_importExtraModule`).
     _loadExtraModules =
       {
         configFlake,
         narHash,
+        icedosLibValue ? finalIcedosLib,
       }:
       let
         dirs = config.system.extraModules or [ "modules" ];
@@ -806,7 +890,12 @@ let
               (
                 filePath:
                 _importExtraModule {
-                  inherit filePath narHash extraModulesPath;
+                  inherit
+                    filePath
+                    narHash
+                    extraModulesPath
+                    icedosLibValue
+                    ;
                 }
               )
               (
@@ -843,6 +932,7 @@ let
         inherit (lib)
           concatStringsSep
           flatten
+          mapAttrs
           optional
           unique
           ;
@@ -929,25 +1019,82 @@ let
           )
         );
 
-        # Get outputs from external modules
-        externalOutputs = getExternalModuleOutputs deduped;
-
-        # Get config flake and load extra modules
+        # The closure-aware merged lib: base `finalIcedosLib` plus every
+        # module's top-level `lib` field contribution over the FULLY-RESOLVED
+        # closure — every deduped repo module plus every phase-1 extra module.
+        # A repo pulled in as a dependency (e.g. desktop, required by every DE
+        # repo) still contributes its helpers through its (always-loaded)
+        # `default` module. Phase-1 imports force only `meta` and the `lib`
+        # field with the BASE lib, so contributions see the same view the old
+        # repo/config-root `lib.nix` imports saw.
         configFlake = _getConfigFlake;
         inherit (configFlake) narHash;
-        extraModules = _loadExtraModules { inherit configFlake narHash; };
+
+        # Phase-1 extra-module load: `icedos.nix` extra modules imported with
+        # the BASE lib, so their `lib` field contributions (and `meta`) exist
+        # before any merged value is computed. Only `meta` and the `lib` field
+        # are forced here; `outputs` is re-imported with the merged lib in
+        # phase 2 below.
+        extraModulesP1 = _loadExtraModules {
+          inherit configFlake narHash;
+        };
+
+        closureLib = _mergeModuleLibs (deduped ++ flatten extraModulesP1);
+
+        # Phase-2 re-import: every external module file is imported AGAIN with
+        # the closure-aware lib, so options/outputs (forced here, not during
+        # resolution) see the helpers of transitive repos too. Repo-synthesized
+        # `default` records (no `_sourceFile`, no `outputs`/`options` — see
+        # `_loadModulesFromRepo`) pass through untouched; `getExternalModuleOutputs`
+        # drops them via its `options`/`outputs` filters, exactly as today.
+        externalOutputs = getExternalModuleOutputs (
+          map (
+            m:
+            if m ? _sourceFile then
+              (import m._sourceFile {
+                inherit config lib;
+                icedosLib = closureLib;
+              })
+              // {
+                inherit (m) _repoInfo _sourceFile;
+              }
+            else
+              m
+          ) deduped
+        );
+
+        # Phase-2 extra-module load: re-import every extra module file with
+        # the closure-aware lib so its `outputs` see the merged helpers. The
+        # `lib` field stays lazy here (`getExternalModuleOutputs` never forces
+        # it), so a contribution is evaluated exactly once, against the base
+        # lib in phase 1.
+        extraModulesP2 = _loadExtraModules {
+          inherit configFlake narHash;
+          icedosLibValue = closureLib;
+        };
 
         # Get outputs from extra modules
-        extraOutputs = getExternalModuleOutputs (flatten extraModules);
+        extraOutputs = getExternalModuleOutputs (flatten extraModulesP2);
+
+        # Fully-resolved loaded module set: repo base url -> [names].
+        # Explicit + transitive deps, synthesized `default` included (it is
+        # always requested by `_filterNewModules`). Extra-modules (repo key
+        # "config", so a user's extra module can `hasModule { inherit config
+        # repoUrl; }` against its own repo) are included too. Injected into the
+        # module system as the read-only `icedos.system.loadedModules` option
+        # and consumed by `icedosLib.hasModule`.
+        loadedModules = mapAttrs (_: mods: map (m: m.meta.name) mods) (
+          lib.groupBy (m: m._repoInfo.url) (deduped ++ flatten extraModulesP2)
+        );
 
         # Combine nixos modules from both external and extra sources
         nixosModules = params: (externalOutputs.nixosModules params) ++ (extraOutputs.nixosModules params);
 
         # Final combined outputs
         outputs = externalOutputs // {
-          inherit nixosModules;
+          inherit nixosModules loadedModules closureLib;
           inputs = externalOutputs.inputs ++ extraOutputs.inputs;
-          outputs = externalOutputs.outputs ++ extraOutputs.outputs;
+          options = externalOutputs.options ++ extraOutputs.options;
           nixosModulesText = externalOutputs.nixosModulesText ++ extraOutputs.nixosModulesText;
         };
       in

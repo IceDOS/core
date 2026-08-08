@@ -47,23 +47,25 @@ let
   # opposed to `config`, which is what the running system was built from. Same
   # split `icedos configuration diff` reports on.
   declared = (import "${inputs.icedos-core}/lib/load-user-config.nix" configRoot).icedos;
-
-  # Mirrors genflake.nix's build-stage instantiation exactly, including the real
-  # `inputs`: without them every member that resolves a module repo throws.
-  icedosLib = import "${inputs.icedos-core}/lib" {
-    inherit lib pkgs inputs;
-    config = declared;
-    self = toString inputs.icedos-core;
-  };
 in
 {
   inherit
     declared
-    icedosLib
     inputs
     lib
     pkgs
     ;
+
+  # The module-facing lib, as the generated flake exported it: base icedosLib
+  # merged with every module's top-level `lib` field contribution, computed by
+  # `modulesFromConfig` over the built closure and shared with
+  # `specialArgs.icedosLib` within the one flake evaluation — so `icedos repl`
+  # and the MCP `nix_eval` tool see exactly what a module sees (the same
+  # merged value the module system used, not a recomputed fold over the
+  # working tree).
+  icedosLib =
+    flake.icedosLib
+      or (throw "no 'icedosLib' output in '${stateDir}'; run 'icedos rebuild' to regenerate the state flake");
 
   inherit (system) config options;
 }

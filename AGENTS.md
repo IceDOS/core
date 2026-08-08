@@ -104,8 +104,8 @@ Exposed to every module as **`icedosLib`**.
 |---|---|
 | `lib/options/helpers.nix` | The `mk*Option` family: `mkBoolOption`, `mkStrOption`, `mkStrListOption`, `mkNumberOption`, `mkEnumOption`, `mkIntBetweenOption`, `mkFloatBetweenOption`, `mkNullableOption`, `mkListOption`, `mkAttrsOfOption`, `mkSubmodule{,List,Attrs}Option`, `mkRecordOption`, `mkUsersOption`. |
 | `lib/options/validate.nix` | `validate.{int,float,enum,str,nonEmpty,list,requires,abort}` — rich, path-aware error messages. |
-| `lib/helpers.nix` | `getModules`, `scanModules`, `bash.prelude`, `bash.{blue,green,dim*}String`, `bash.requireConfigOwner` (permission guard for executing the baked `configurationLocation`; capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script), `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `generateAccent`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, `moduleInputName` (top-level generated-flake name of a module-declared input — the string-context twin of `_getModuleInputs`), flake-revision helpers. |
-| `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. Stamps every module's emitted NixOS config with `<repo>#<module>` provenance (`setDefaultModuleLocation`) so nixpkgs eval/type/conflict errors name the source module instead of an anonymous generated location. Extra-modules share this: an `icedos.nix` extra-module is labeled `config#<name>`; a plain `default.nix` extra-module is imported by path, so it already carries its real on-disk location. |
+| `lib/helpers.nix` | `getModules`, `scanModules`, `hasModule`, `moduleInputName` (top-level generated-flake name of a module-declared input — the string-context twin of `_getModuleInputs`), `bash.prelude`, `bash.{blue,green,dim*}String`, `bash.requireConfigOwner` (permission guard for executing the baked `configurationLocation`; capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script), `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, flake-revision helpers. `hasModule` aborts on a malformed call (no `name` and no `modules`, or an empty `modules = []`) — always pass a `name` or a non-empty `modules` list. |
+| `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. Stamps every module's emitted NixOS config with `<repo>#<module>` provenance (`setDefaultModuleLocation`) so nixpkgs eval/type/conflict errors name the source module instead of an anonymous generated location. `modulesFromConfig` also exports `loadedModules` (repo url → module names, the fully-resolved set) which `genflake.nix` injects into the module system as the read-only `icedos.system.loadedModules`. Extra-modules share this: an `icedos.nix` extra-module is labeled `config#<name>`; a plain `default.nix` extra-module is imported by path, so it already carries its real on-disk location. **Module `lib` field contributions:** any `icedos.nix` module — a configured repo's module or a config-root extra module — may extend `icedosLib` with a top-level `lib` field, usually `lib = import ./lib.nix { inherit icedosLib lib; };`. Core folds every contribution into the module-facing lib via `_mergeModuleLibs` (guarded: non-attrset contribution or a duplicate name = a named error). The merge is **two-phase**: during dependency resolution module files are imported with the **base** lib (phase 1 — only `meta` + contributions are forced); once the closure is known, `modulesFromConfig` computes `closureLib = _mergeModuleLibs (deduped ++ extraModulesP1)` over the **fully-resolved closure** and re-imports each module file's outputs (`externalOutputs`) plus the extra modules (`extraModulesP2`) with that merged lib (phase 2). The generated flake's `outputs.icedosLib` **and** `specialArgs.icedosLib` both reuse `modulesFromConfig.closureLib`, so module files and the module system share one merged lib within a single flake evaluation; `repl-context.nix` reads `flake.icedosLib`. A repo pulled in as a dependency — e.g. desktop, a **required** dep of every DE repo — still contributes its helpers because its always-loaded `default` module carries the `lib` field. A contribution file must live inside the kept set of `genflake.nix`'s `configRootKeep`/`configRootKeepDirs` (extra-module/config dirs, declared patches — a `builtins.path` keep-list, **not** git tracking): genflake imports config live, the build stage from the filtered snapshot, so an import that escapes the kept set evaluates at genflake and then fails at build with a bare missing-path error. Upgrade note: the old magic auto-discovery of a config-root `lib.nix` is gone — a user extends `icedosLib` from their own config by adding a `lib` field to one of their extra modules instead. Tradeoffs (inherent): each external module file is imported twice per stage (meta + contributions in phase 1, outputs in phase 2); the merge is evaluated at genflake stage, build-stage `specialArgs`, and repl (fresh per-stage evaluations, but `flake.icedosLib` shares one value with `specialArgs`). The bare `icedosLib` name stays a static set — the merge is a lazy member, so the `default.nix` probe (`attrNames (import icedos.nix …)`) never forces it. A contribution sees only the base lib (passing the merged lib would recurse); repo-to-repo composition happens at the module layer. |
 | `lib/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
 | `lib/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
 | `lib/common.nix` | `abortIf`, `filterByAttrs`, `findFirst`, `flatMap`, `generateAttrPath`, … |
@@ -137,8 +137,12 @@ Canonical example — `apps/modules/btop/icedos.nix` (abridged):
       speedInBytes    = mkBoolOption    { default = speedInBytes; };
     };
 
-  # 2. IMPLEMENTATION — a real NixOS module (gets config/lib/pkgs).
-  outputs.nixosModules = { ... }: [
+  # 2. IMPLEMENTATION — a real NixOS module (gets config/lib/pkgs). The whole
+  #    `outputs.nixosModules` function is called with the module's repo base url
+  #    as `repoUrl` — use it for `icedosLib.hasModule { inherit config repoUrl; name = "…"; }`
+  #    to recognise a same-repo sibling module (and `hasModule { inherit config;
+  #    url = "github:icedos/<repo>"; … }` for a cross-repo one).
+  outputs.nixosModules = { repoUrl, ... }: [
     ({ config, lib, pkgs, ... }:
       let inherit (config.icedos.applications.btop) colorTheme; in
       { environment.systemPackages = [ /* … */ ]; })
@@ -199,6 +203,18 @@ no `meta.name`) — they declare `options`/`config` straight up and are loaded b
   with it. The repo's `default` module is always active, so its `dependencies` /
   `optionalDependencies` load even when **not** listed (gated by `fetchDependencies` /
   `fetchOptionalDependencies`), not by the `modules` list.
+- **Reference contributed `icedosLib` helpers only inside `outputs.nixosModules`
+  bodies.** Module files are imported twice: phase 1 (dependency resolution)
+  passes the **base** `icedosLib` and forces only `meta`; phase 2 re-imports the
+  file with the closure-aware merged lib and forces `outputs`. A helper from a
+  repo's `lib.nix` (e.g. `icedosLib.desktop.*`) is therefore only guaranteed to
+  resolve inside `outputs.nixosModules` — not in `meta` or in file-top-level
+  code forced at import. Core-base helpers are fine anywhere.
+- **`icedosLib.hasModule` needs the real NixOS module `config`** — it reads
+  `config.icedos.system.loadedModules`. Call it inside an `outputs.nixosModules`
+  body with the module-system `config`, never against the raw TOML-derived
+  config a module file's top level/meta receives at import (it has no
+  `icedos.system.loadedModules`).
 - **Per-user options must always be materialised with `genDefaults`** — see
   *Per-user (`users`) options* below. The populate belongs in the always-loaded module
   that owns the path, not in an optional feature module.

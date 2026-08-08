@@ -60,6 +60,19 @@ let
     "config.toml"
   ];
 
+  # Directory prefixes (config-root relative) kept in the filtered config
+  # flake. `extraModulesDirs` / `extraConfigsDirs` drive both the filter and
+  # the actual module/config imports.
+  #
+  # Keep-list constraint: anything an extra-module file (or a `lib` field it
+  # imports, e.g. a module-adjacent `lib.nix`) requires must live inside the
+  # kept set above — genflake imports the config root live, the build stage
+  # from the filtered snapshot, so an import that escapes the kept set
+  # evaluates at genflake and then fails at build with a bare missing-path
+  # error. An extra module's contribution file belongs under one of the
+  # extra-module dirs (e.g. `modules/<name>/lib.nix`), which is kept.
+  configRootKeepDirs = extraModulesDirs ++ extraConfigsDirs;
+
   # Patch files declared by `[[icedos.repositories]]` `patches`. They must
   # survive into the filtered config flake so the build stage can read them
   # from `inputs.icedos-config`: build-stage eval is pure and cannot reach the
@@ -81,9 +94,7 @@ let
         relativePath = removePrefix "${ICEDOS_CONFIG_ROOT}/" path;
       in
       (elem relativePath configRootKeep)
-      || (any (d: relativePath == d || hasPrefix "${d}/" relativePath) (
-        extraModulesDirs ++ extraConfigsDirs
-      ))
+      || (any (d: relativePath == d || hasPrefix "${d}/" relativePath) configRootKeepDirs)
       || (keepPatch relativePath);
   };
 
@@ -221,6 +232,13 @@ let
       # (readOnly), so `toJSON evaluated` below would otherwise throw
       # "used but not defined". Build-stage injection happens in `flakeFinal`.
       { icedos.system.isFirstBuild = isFirstBuild; }
+
+      # Derived, read-only view of the loaded module set. Computed from the raw
+      # icedos config by modulesFromConfig (no dependency on the evaluated
+      # config), so injecting it here cannot create a circular evaluation.
+      {
+        icedos.system.loadedModules = modulesFromConfig.loadedModules;
+      }
     ]
     ++ modulesFromConfig.options;
   };
@@ -450,9 +468,23 @@ assert isFirstBuildGuard;
 
           inherit (icedosLib) getModules modulesFromConfig;
         in {
+          # The module-facing lib as a first-class flake output: the exact
+          # value `specialArgs.icedosLib` shares (one `modulesFromConfig`
+          # evaluation), so repl-context / MCP `nix_eval` read the same merged
+          # lib the module system used.
+          icedosLib = modulesFromConfig.closureLib;
+
           nixosConfigurations.icedos = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
-              inherit icedosLib inputs;
+              # Modules see the merged lib: base + every module's top-level
+              # `lib` field contribution, merged over the FULLY-RESOLVED
+              # closure. Reuses `modulesFromConfig.closureLib` — the exact
+              # value the phase-2 module-file/extra-module re-imports were
+              # made with — so the module system and the module files share
+              # one merged lib and no second `_mergeModuleLibs` fold happens
+              # here. The genflake-side uses below keep the base `icedosLib`.
+              icedosLib = modulesFromConfig.closureLib;
+              inherit inputs;
             };
 
             modules = [
@@ -477,6 +509,14 @@ assert isFirstBuildGuard;
               # Remove nixos manual package
               {
                 documentation.nixos.enable = false;
+              }
+
+              # Loaded module set (derived, read-only): repo base url -> names.
+              # Computed by modulesFromConfig from the raw icedos config, so no
+              # circular dependency on the evaluated config. Backs
+              # `icedosLib.hasModule`.
+              {
+                icedos.system.loadedModules = modulesFromConfig.loadedModules;
               }
 
               {
