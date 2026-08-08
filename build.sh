@@ -253,5 +253,5 @@ if [[ "$action" == "build-vm" ]]; then
 fi
 
 if [ "$run_vm" == "1" ]; then
-  exec "result/bin/run-$(cat /etc/hostname)-vm"
+  exec $(find "result/bin" -name "run-*-vm")
 fi
