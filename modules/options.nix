@@ -205,6 +205,24 @@ in
           url = mkStrOption { };
         }; # e.g. https://github.com/NixOS/nixpkgs/branches/active
 
+        # Arbitrary extra flake inputs registered in the generated state flake
+        # under a user-chosen short `name`, exposed to every module's masked
+        # `inputs` under that bare name, and optionally loaded as NixOS modules
+        # via `modulesToLoad` (dotted output paths, e.g. `nixosModules.default`
+        # or `nixosModules.default.impermanence`). `inputs` maps the extra
+        # flake's own input names to `follows` targets of the generated flake
+        # (e.g. `{ nixpkgs.follows = "nixpkgs"; }`). Empty `modulesToLoad` =
+        # input-only. Name must not collide with a channel, an overlay input,
+        # a module-declared input, or the framework-reserved set
+        # (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`,
+        # `icedos-state`) — all become top-level flake inputs.
+        extraFlakes = mkSubmoduleListOption { default = [ ]; } {
+          name = mkStrOption { };
+          url = mkStrOption { };
+          inputs = mkAttrsOfOption { default = { }; } (types.attrsOf types.str);
+          modulesToLoad = mkStrListOption { default = [ ]; };
+        };
+
         # User-supplied module directories (config-root relative). Each is scanned
         # for modules (subfolders with default.nix / icedos.nix, or loose *.nix)
         # and imported. Read from config.toml only (bootstrap path).

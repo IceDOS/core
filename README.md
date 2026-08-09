@@ -290,6 +290,25 @@ packages = [ "mesa" ]
 > **ℹ️ Note**
 > Neither a channel nor an overlay installs anything by itself. A channel only makes a source *reachable* (as `<channel>.<package>`); an overlay only *swaps* a package's default source. They matter once the package is actually used — as a system package (`icedos.system.packages`), a user package (`icedos.users.<name>.packages`), or by a module. Reference a channel package by its `<channel>.<package>` name (e.g. `stable.obs-studio`); an overlaid package keeps its plain name (e.g. `obs-studio`) and is swapped everywhere it's already used, including indirect pulls like `mesa` from the graphics stack.
 
+### Extra flakes
+
+Register an **arbitrary flake** as a top-level input of the generated state flake with `[[icedos.system.extraFlakes]]`. Its `name` becomes the input name (exposed to every module's masked `inputs` under that bare name); `modulesToLoad` loads dotted output paths as NixOS modules:
+
+```toml
+[[icedos.system.extraFlakes]]
+name = "impermanence"
+url = "github:nix-community/impermanence"
+modulesToLoad = ["nixosModules.impermanence"]   # `inputs.impermanence` → imported as a module
+
+# input-only (no modulesToLoad), with `follows` passthrough to the generated flake
+[[icedos.system.extraFlakes]]
+name = "flake-utils"
+url = "github:numtide/flake-utils"
+inputs = { nixpkgs.follows = "nixpkgs" }
+```
+
+A `name` must not collide with a module-declared input, a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — all of those become top-level inputs too, and a duplicate would silently overwrite.
+
 ### Hardware configuration
 
 Your machine's `/etc/nixos/hardware-configuration.nix` is loaded into the system automatically, so the essentials (filesystems, kernel modules, microcode) always apply and the machine stays bootable. This is `icedos.system.loadHardwareConfiguration`, **`true` by default**:

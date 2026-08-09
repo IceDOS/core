@@ -115,6 +115,46 @@ let
     in
     realLib;
 
+  # Same full import as `fullIcedos`, but with a caller-supplied raw config so
+  # tests can drive the rec-level `extraFlakes` members
+  # (`extraFlakeInputs`, `_validateExtraFlakes`, `extraFlakeModules`, masked
+  # exposure via `getExternalModuleOutputs`) with data — without ever forcing
+  # `modulesFromConfig` (which would force `_getConfigFlake` →
+  # `fetchTree { path = ICEDOS_CONFIG_ROOT; }` with the env unset here).
+  mkIcedos =
+    config:
+    import ../default.nix {
+      inherit lib config;
+      inputs = { };
+      pkgs = { };
+      enableLogging = false;
+      self = "tests";
+    };
+
+  # One extra flake configured (input + module load) and one input-only.
+  efIcedos = mkIcedos {
+    system.extraFlakes = [
+      {
+        name = "jovian";
+        url = "github:jovian-experiments/jovian-nixos";
+        inputs = {
+          nixpkgs = {
+            follows = "nixpkgs";
+          };
+        };
+        modulesToLoad = [ "nixosModules.default" ];
+      }
+    ];
+  };
+  efBare = mkIcedos {
+    system.extraFlakes = [
+      {
+        name = "jovian";
+        url = "u";
+      }
+    ];
+  };
+
   opaqueOrKey = icedos._opaqueOrKey;
   dedupe = icedos._dedupeNixosModules;
 
@@ -867,6 +907,353 @@ in
       );
     in
     builtins.length result == 2 && builtins.elem "A" result && builtins.elem "B" result
+  );
+
+  # ── icedos.system.extraFlakes ─────────────────────────────────────────────
+  # Rec-level members, driven directly on `mkIcedos` (no `modulesFromConfig`
+  # forcing — that would hit `_getConfigFlake` → `fetchTree` with no config
+  # root here).
+
+  # Flake-input emission: `{ url; inputs; }` value (modulesToLoad stripped),
+  # so `inputs.<x>.follows` passthrough survives into the generated flake.
+  efInputs = expectEq [
+    {
+      name = "jovian";
+      value = {
+        url = "github:jovian-experiments/jovian-nixos";
+        inputs = {
+          nixpkgs = {
+            follows = "nixpkgs";
+          };
+        };
+      };
+    }
+  ] ((mkIcedos { }).extraFlakeInputs (efIcedos.extraFlakes));
+  # An entry without `inputs` emits a bare `{ url; }`.
+  efInputsBare =
+    expectEq
+      [
+        {
+          name = "x";
+          value = {
+            url = "y";
+          };
+        }
+      ]
+      (
+        (mkIcedos { }).extraFlakeInputs [
+          {
+            name = "x";
+            url = "y";
+          }
+        ]
+      );
+  # Masked-input entries carry the bare name in both fields (the
+  # `_createMaskedInputs` contract).
+  efMasked = expectEq [
+    {
+      _originalName = "jovian";
+      name = "jovian";
+    }
+  ] ((mkIcedos { }).extraFlakeMaskedInputs efIcedos.extraFlakes);
+  # Happy paths: empty list and a fully-valid entry.
+  efValid = expectOk ((mkIcedos { })._validateExtraFlakes [ ]);
+  efValidEntry = expectOk ((mkIcedos { })._validateExtraFlakes efIcedos.extraFlakes);
+  # Validation rejects: reserved name, duplicate names, bad name regex, empty
+  # url, unknown key, empty modulesToLoad path.
+  efReserved = expectThrow (
+    (mkIcedos { })._validateExtraFlakes [
+      {
+        name = "nixpkgs";
+        url = "x";
+      }
+    ]
+  );
+  efDuplicate = expectThrow (
+    (mkIcedos { })._validateExtraFlakes [
+      {
+        name = "a";
+        url = "x";
+      }
+      {
+        name = "a";
+        url = "y";
+      }
+    ]
+  );
+  efBadRegex = expectThrow (
+    (mkIcedos { })._validateExtraFlakes [
+      {
+        name = "1bad";
+        url = "x";
+      }
+    ]
+  );
+  efEmptyUrl = expectThrow (
+    (mkIcedos { })._validateExtraFlakes [
+      {
+        name = "ok";
+        url = "";
+      }
+    ]
+  );
+  efUnknownKey = expectThrow (
+    (mkIcedos { })._validateExtraFlakes [
+      {
+        name = "ok";
+        url = "x";
+        bogus = 1;
+      }
+    ]
+  );
+  efEmptyPath = expectThrow (
+    (mkIcedos { })._validateExtraFlakes [
+      {
+        name = "ok";
+        url = "x";
+        modulesToLoad = [ "" ];
+      }
+    ]
+  );
+
+  # modulesToLoad selection: dotted-path walk, single provenance shim.
+  efLoad =
+    expectEq
+      [
+        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[0].modulesToLoad[0]" shared)
+      ]
+      (
+        efIcedos.extraFlakeModules {
+          inputs = {
+            jovian = {
+              nixosModules = {
+                default = shared;
+              };
+            };
+          };
+        }
+      );
+  # Multi-path / multi-entry: indices resolve independently.
+  efLoadMulti =
+    expectEq
+      [
+        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[0].modulesToLoad[0]" {
+          config.entries = [ "A" ];
+        })
+        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[0].modulesToLoad[1]" {
+          config.entries = [ "B" ];
+        })
+        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[1].modulesToLoad[0]" {
+          config.entries = [ "C" ];
+        })
+      ]
+      (
+        (mkIcedos {
+          system.extraFlakes = [
+            {
+              name = "a";
+              url = "u";
+              modulesToLoad = [
+                "out.a"
+                "out.b"
+              ];
+            }
+            {
+              name = "b";
+              url = "v";
+              modulesToLoad = [ "out.c" ];
+            }
+          ];
+        }).extraFlakeModules
+          {
+            inputs = {
+              a = {
+                out = {
+                  a = {
+                    config.entries = [ "A" ];
+                  };
+                  b = {
+                    config.entries = [ "B" ];
+                  };
+                };
+              };
+              b = {
+                out = {
+                  c = {
+                    config.entries = [ "C" ];
+                  };
+                };
+              };
+            };
+          }
+      );
+  # Missing input, missing segment, and null output all abort loudly. The
+  # selections are lazy inside the provenance shim, so `deepSeq` forces them so
+  # the throw lands inside `expectThrow`'s tryEval.
+  efMissingInput = expectThrow (
+    builtins.deepSeq (efIcedos.extraFlakeModules {
+      inputs = { };
+    }) true
+  );
+  efMissingSegment = expectThrow (
+    builtins.deepSeq (efIcedos.extraFlakeModules {
+      inputs = {
+        jovian = { };
+      };
+    }) true
+  );
+  efNullOutput = expectThrow (
+    builtins.deepSeq (efIcedos.extraFlakeModules {
+      inputs = {
+        jovian = {
+          nixosModules = {
+            default = null;
+          };
+        };
+      };
+    }) true
+  );
+
+  # Masked-input exposure: a module referencing `inputs.jovian.…` resolves
+  # against the registered extra flake. The fake module forces the masked input,
+  # so `_extractNixosModules`'s validation + collision checks actually run.
+  efMaskedExposure = expectEq [ "S" ] (
+    e2eEntries (
+      (efBare.getExternalModuleOutputs [
+        (
+          (mod "path:src" "uses-jovian" null)
+          // {
+            outputs.nixosModules = { inputs, ... }: [ { imports = [ inputs.jovian.nixosModules.default ]; } ];
+          }
+        )
+      ]).nixosModules
+        {
+          inputs = {
+            jovian = {
+              nixosModules = {
+                default = shared;
+              };
+            };
+          };
+        }
+    )
+  );
+
+  # Collision: a module-declared input whose bare name matches an extraFlake
+  # name aborts (forced via the masked input the fake module reads).
+  # The collision throw lives inside a lazily-emitted module, so `deepSeq`
+  # forces the emitted value to land it inside `expectThrow`'s tryEval.
+  efCollision = expectThrow (
+    builtins.deepSeq (
+      (efBare.getExternalModuleOutputs [
+        (
+          (mod "path:src" "collide" null)
+          // {
+            inputs = {
+              jovian = {
+                url = "v";
+              };
+            };
+            outputs.nixosModules = { inputs, ... }: [
+              { imports = [ (inputs.jovian.nixosModules or { }).default ]; }
+            ];
+          }
+        )
+      ]).nixosModules
+      {
+        inputs = { };
+      }
+    ) true
+  );
+
+  # The shared name-collision helper `_extraFlakeNameCollisions` backs both the
+  # masked-input guard (bare + namespaced) and `modulesFromConfig`'s repo-input
+  # guard, so driving it directly covers the latter's logic.
+  efNameCollisionsHelper = expectEq [ "jovian" ] (
+    (mkIcedos {
+      system.extraFlakes = [
+        {
+          name = "jovian";
+          url = "path:/dev/null";
+        }
+      ];
+    })._extraFlakeNameCollisions
+      [
+        "nur"
+        "jovian"
+        "home-manager"
+      ]
+  );
+
+  # Collision with the NAMESPACED module-input name (an extraFlake named exactly
+  # `icedos-<repo>-<module>-<input>` would otherwise silently overwrite the
+  # module's generated top-level input in `listToAttrs`).
+  efCollisionNamespaced =
+    let
+      collisionIcedos = mkIcedos {
+        system.extraFlakes = [
+          {
+            name = helpers.moduleInputName {
+              repo = "path:src";
+              module = "cmod";
+              input = "jovian";
+            };
+            url = "path:/dev/null";
+          }
+        ];
+      };
+    in
+    expectThrow (
+      builtins.deepSeq (
+        (collisionIcedos.getExternalModuleOutputs [
+          (
+            (mod "path:src" "cmod" null)
+            // {
+              inputs = {
+                jovian = {
+                  url = "v";
+                };
+              };
+              outputs.nixosModules = { inputs, ... }: [
+                { imports = [ (inputs.jovian.nixosModules or { }).default ]; }
+              ];
+            }
+          )
+        ]).nixosModules
+        {
+          inputs = { };
+        }
+      ) true
+    );
+
+  # Single-load dedup across a module emission and a `modulesToLoad` selection
+  # (mirrors `modulesFromConfig.nixosModules`: external ++ extra ++
+  # extraFlakeModules, deduped once).
+  efCrossSourceDedup = expectEq [ "S" ] (
+    e2eEntries (
+      dedupe (
+        (efIcedos.getExternalModuleOutputs [
+          (
+            (mod "path:src" "dup-a" null)
+            // {
+              outputs.nixosModules = _: [ shared ];
+            }
+          )
+        ]).nixosModules
+          {
+            inputs = { };
+          }
+        ++ efIcedos.extraFlakeModules {
+          inputs = {
+            jovian = {
+              nixosModules = {
+                default = shared;
+              };
+            };
+          };
+        }
+      )
+    )
   );
 
   # --- end-to-end hardening (review regressions) ---------------------------
