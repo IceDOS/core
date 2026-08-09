@@ -168,6 +168,30 @@ let
     value = { inherit (e) url; };
   }) (filter isOverlayUrlMode overlayChannels);
 
+  # `[[icedos.system.extraFlakes]]` `name` values become top-level flake inputs,
+  # so they must not collide with genflake's own generated input names, channel
+  # names, or overlay input names — a duplicate key would silently overwrite in
+  # `listToAttrs` below. (The `icedos.system.extraFlakes` option doc carries the
+  # same rule; this fires at genflake for the generated-flake path. Masked-input
+  # collisions with module-declared inputs are caught by `_extractNixosModules`.)
+  extraFlakeNameGuard = validate.abort {
+    when = (lib.intersectLists (
+      map (f: f.name or "") (icedos.system.extraFlakes or [ ])
+    ) (
+      (map (c: c.name or "") channels)
+      ++ (map (e: e.name) overlayInputs)
+      ++ [
+        "nixpkgs"
+        "home-manager"
+        "icedos-config"
+        "icedos-core"
+        "icedos-state"
+      ]
+    )) != [ ];
+    path = "icedos.system.extraFlakes";
+    msg = "name collides with a [[icedos.system.channels]] name, an overlay input name, or a genflake-reserved input name";
+  };
+
   nixpkgsInput = {
     name = "nixpkgs";
 
@@ -421,6 +445,7 @@ let
   userConfigRaw = toJSON (import ./load-user-config.nix ICEDOS_CONFIG_ROOT);
 in
 assert isFirstBuildGuard;
+assert extraFlakeNameGuard;
 {
   inherit
     evaluatedConfig

@@ -14,6 +14,7 @@ let
     hasAttr
     head
     pathExists
+    seq
     ;
 
   inherit (lib)
@@ -644,6 +645,140 @@ let
       in
       step [ ] [ ] modules;
 
+    # --- icedos.system.extraFlakes -----------------------------------------
+    # Arbitrary extra flake inputs: registered in the generated state flake
+    # under a user-chosen short `name`, exposed to every module's masked
+    # `inputs` under that bare name, and optionally loaded as NixOS modules
+    # via `modulesToLoad` (dotted output paths, e.g. `nixosModules.default`).
+    # See `modules/options.nix` for the option schema.
+
+    extraFlakes = config.system.extraFlakes or [ ];
+
+    # Entry-level + cross-entry validation, run on every forcing path (genflake
+    # `modulesFromConfig.inputs`, build-stage `nixosModules` /
+    # `_extractNixosModules`). Returns true so it chains with `seq`/`&&`. The
+    # scalar-tolerating name/url checks run first, so a stray scalar entry
+    # (e.g. a TOML typo) aborts with a friendly message before the
+    # attrset-only checks.
+    _validateExtraFlakes =
+      flakes:
+      abortIf
+        (builtins.any (
+          f:
+          !(builtins.isString (f.name or ""))
+          || builtins.match "^[a-zA-Z][a-zA-Z0-9_-]*$" (f.name or "") == null
+        ) flakes)
+        "icedos.system.extraFlakes: every entry's `name` must be non-empty and match ^[a-zA-Z][a-zA-Z0-9_-]*$"
+      && abortIf (builtins.any (
+        f: !(builtins.isString (f.url or "")) || (f.url or "") == ""
+      ) flakes) "icedos.system.extraFlakes: every entry must set a non-empty `url`"
+      && abortIf (builtins.any (
+        f:
+        builtins.any (
+          k:
+          !(builtins.elem k [
+            "name"
+            "url"
+            "inputs"
+            "modulesToLoad"
+          ])
+        ) (attrNames f)
+      ) flakes) "icedos.system.extraFlakes: entries may only set `name`, `url`, `inputs`, `modulesToLoad`"
+      && abortIf (builtins.any (
+        f: builtins.any (p: p == "") (f.modulesToLoad or [ ])
+      ) flakes) "icedos.system.extraFlakes: every `modulesToLoad` path must be non-empty"
+      &&
+        abortIf
+          (builtins.any (
+            n:
+            builtins.elem n [
+              "nixpkgs"
+              "home-manager"
+              "self"
+              "icedos-config"
+              "icedos-core"
+              "icedos-state"
+            ]
+          ) (map (f: f.name) flakes))
+          "icedos.system.extraFlakes: name is reserved (nixpkgs, home-manager, self, icedos-config, icedos-core, icedos-state)"
+      && abortIf (
+        builtins.length (lib.unique (map (f: f.name) flakes)) != builtins.length flakes
+      ) "icedos.system.extraFlakes: `name` values must be unique";
+
+    # Declared input names colliding with an extraFlake `name`. Shared by the
+    # two guards that protect the generated flake's top-level input namespace:
+    # the masked-input guard in `_extractNixosModules` (both a module input's
+    # bare `_originalName` and its namespaced `icedos-<repo>-<module>-<input>`
+    # name are flake-input keys, so an extraFlake may shadow neither) and the
+    # repo-input guard in `modulesFromConfig`. Kept pure so tests can drive it.
+    _extraFlakeNameCollisions =
+      declaredNames: lib.intersectLists declaredNames (map (f: f.name) extraFlakes);
+
+    # Flake-input declarations (name + value) for the generated state flake.
+    # `value` keeps `url` + `inputs` (the homeManagerInput shape), so arbitrary
+    # `inputs.<x>.follows` passthrough survives into the locked flake.
+    extraFlakeInputs =
+      flakes:
+      map (f: {
+        name = f.name;
+        value = removeAttrs f [
+          "name"
+          "modulesToLoad"
+        ];
+      }) flakes;
+
+    # Masked-input entries exposing each extra flake to module `outputs` under
+    # its bare `name` — the `_originalName`/`name` shape `_getModuleInputs`
+    # produces, consumed by `_createMaskedInputs`.
+    extraFlakeMaskedInputs =
+      flakes:
+      map (f: {
+        _originalName = f.name;
+        name = f.name;
+      }) flakes;
+
+    # Resolve a dotted `modulesToLoad` path against an extra flake input's
+    # outputs (`inputs.<name>.<segments...>`). Aborts with a friendly message
+    # when the input is absent, a segment is missing, or the selected output is
+    # missing or null (a NixOS module cannot be null anyway).
+    _selectExtraFlakeOutput =
+      flakeName: path: inputs:
+      let
+        segments = lib.splitString "." path;
+        input = seq (abortIf (!(inputs ? ${flakeName}))
+          "icedos.system.extraFlakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
+        ) inputs.${flakeName};
+        walk =
+          node: seg:
+          seq (abortIf (!(node ? ${seg}))
+            "icedos.system.extraFlakes: output path '${path}' on flake input '${flakeName}' is missing segment '${seg}'"
+          ) node.${seg};
+        selected = foldl' walk input segments;
+        nullGuard = abortIf (
+          selected == null
+        ) "icedos.system.extraFlakes: output '${path}' on flake input '${flakeName}' is missing or null";
+      in
+      seq nullGuard selected;
+
+    # Load every extra flake's selected outputs as NixOS modules. Each selection
+    # is wrapped in a single `setDefaultModuleLocation` shim — the same shape
+    # `_extractNixosModules` emits — so `_dedupeNixosModules` can unwrap and key
+    # it, and a `modulesToLoad` value a module also emits loads exactly once.
+    extraFlakeModules =
+      params:
+      seq (_validateExtraFlakes extraFlakes) (
+        flatten (
+          lib.imap0 (
+            i: f:
+            lib.imap0 (
+              j: path:
+              lib.setDefaultModuleLocation "icedos.system.extraFlakes[${toString i}].modulesToLoad[${toString j}]"
+                (_selectExtraFlakeOutput f.name path params.inputs)
+            ) (f.modulesToLoad or [ ])
+          ) extraFlakes
+        )
+      );
+
     # Process output modules into nixos modules with proper input masking
     # Each module's outputs are evaluated with its appropriate input set
     _extractNixosModules =
@@ -654,7 +789,26 @@ let
       let
         inherit (lib) flatten;
 
-        moduleInputs = _getModuleInputs modules;
+        # Module-declared inputs (namespaced) plus every extra flake (bare
+        # `name`) — both feed `_createMaskedInputs`, so a module sees an extra
+        # flake under `inputs.<name>` exactly like its own declared inputs.
+        # A module-declared name equal to an extraFlake name would silently
+        # overwrite in the masked set (bare) or in the generated flake's
+        # top-level inputs (namespaced), so abort (per-subset, catching
+        # collisions with external and extra modules alike since both share
+        # this path).
+        moduleDeclaredInputs = _getModuleInputs modules;
+        colliding = _extraFlakeNameCollisions (
+          lib.unique (
+            (map (i: i._originalName) moduleDeclaredInputs) ++ (map (i: i.name) moduleDeclaredInputs)
+          )
+        );
+
+        moduleInputs = seq (_validateExtraFlakes extraFlakes) (
+          seq (abortIf (colliding != [ ]) (
+            "module-declared input name(s) ${builtins.concatStringsSep ", " colliding} collide with an icedos.system.extraFlakes name — rename the module input or the extraFlake"
+          )) (moduleDeclaredInputs ++ extraFlakeMaskedInputs extraFlakes)
+        );
 
         processModuleOutputs =
           { inputs, ... }:
@@ -1273,18 +1427,43 @@ let
           lib.groupBy (m: m._repoInfo.url) (deduped ++ flatten extraModulesP2)
         );
 
-        # Combine nixos modules from both external and extra sources. Each
-        # source dedups internally (`_extractNixosModules`); dedupe again
-        # across the split so the same identical module value emitted by one
-        # external and one extra module loads only once.
+        # Combine nixos modules from both external and extra sources plus the
+        # extra-flake selections. Each source dedups internally
+        # (`_extractNixosModules`); dedupe again across the split so the same
+        # identical module value emitted by one external and one extra module —
+        # or by a module and a `modulesToLoad` selection — loads only once.
         nixosModules =
           params:
-          _dedupeNixosModules ((externalOutputs.nixosModules params) ++ (extraOutputs.nixosModules params));
+          _dedupeNixosModules (
+            (externalOutputs.nixosModules params)
+            ++ (extraOutputs.nixosModules params)
+            ++ (extraFlakeModules params)
+          );
+
+        # An extraFlake name must not shadow a repo-derived input name
+        # (`icedos-<sanitized-url>`) — both end up as top-level flake inputs,
+        # and a duplicate key would silently overwrite in `listToAttrs`.
+        # Namespaced module-declared inputs are checked per-subset in
+        # `_extractNixosModules` (via the shared `_extraFlakeNameCollisions`);
+        # repo inputs are computed here from the resolved closure (external +
+        # extra modules).
+        extraFlakeNameGuard = abortIf (
+          _extraFlakeNameCollisions (map (i: i.name) (_modulesToInputs (deduped ++ flatten extraModulesP2)))
+          != [ ]
+        ) "an icedos.system.extraFlakes name collides with a repository input name — rename the extraFlake";
 
         # Final combined outputs
         outputs = externalOutputs // {
           inherit nixosModules loadedModules closureLib;
-          inputs = externalOutputs.inputs ++ extraOutputs.inputs;
+          # Extra-flake input declarations reach the generated flake through
+          # `modulesFromConfig.inputs`; forcing them here (seq) runs extraFlake
+          # validation and the repo-name guard at genflake stage.
+          inputs =
+            externalOutputs.inputs
+            ++ extraOutputs.inputs
+            ++ (seq (_validateExtraFlakes extraFlakes) (
+              seq extraFlakeNameGuard (extraFlakeInputs extraFlakes)
+            ));
           options = externalOutputs.options ++ extraOutputs.options;
           nixosModulesText = externalOutputs.nixosModulesText ++ extraOutputs.nixosModulesText;
         };
