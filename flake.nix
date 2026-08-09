@@ -116,7 +116,7 @@
           };
         };
 
-      # Eval-only lib tests (`lib/options/tests.nix`) as a flake check. Any result
+      # Eval-only lib tests (`lib/tests/tests.nix`) as a flake check. Any result
       # value other than "ok" fails the derivation.
       checks =
         let
@@ -135,7 +135,7 @@
                 r = builtins.tryEval value;
               in
               if r.success then r.value else "FAIL: ${name} threw during evaluation"
-            ) (import ./lib/options/tests.nix { inherit (pkgs) lib; });
+            ) (import ./lib/tests/tests.nix { inherit (pkgs) lib; });
 
             failures = lib.filterAttrs (_: value: value != "ok") results;
           in

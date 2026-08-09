@@ -464,6 +464,186 @@ let
         }
       ) (filterByAttrs [ "options" ] modules);
 
+    # Compute a structural dedup key for a NixOS module *value*, or `null` when
+    # the value is opaque and must never be deduplicated. A function is opaque
+    # (two syntactically-identical closures may capture different scopes and
+    # there is no way to compare them); opacity bubbles up, so a list/attrset
+    # containing any function yields `null` — two module values are only ever
+    # merged when they are provably identical. A derivation is opaque too —
+    # keying never forces it (`v.type` alone is inspected; `drvPath` is
+    # *not*): a derivation is a cyclic attrset (`d.all = [ d.out ]`,
+    # `d.out = d`) that deep-traversal would recurse forever on, and forcing
+    # `drvPath` can eagerly instantiate or trigger IFD for packages the module
+    # system would never build. Any attrset carrying `_type` (the module
+    # system's property wrappers — `mkIf`, `mkMerge`, `mkForce`, `mkDefault`,
+    # option types, …) is opaque too: those are exactly the values whose
+    # branches the module system may never force (`mkIf false` content is
+    # dropped without forcing), so keying must not descend into them. Depth is
+    # capped so any other self-referential value degrades to opaque instead of
+    # `max-call-depth exceeded`. The whole computation runs under `tryEval`,
+    # which degrades values that `throw` or `assert` when forced to opaque
+    # rather than aborting the system evaluation — never-dedup is always the
+    # safe fallback. `tryEval` does NOT catch `abort`, a missing attribute, a
+    # type error, or infinite recursion; the depth cap bounds recursion, and
+    # the `_type`/derivation guards keep keying out of the module system's
+    # conditional branches. The remaining exposure is strictness: keying IS
+    # strict over function-free, `_type`-free, derivation-free payloads,
+    # including a definition for an option a real build would never force (an
+    # option no module reads — a `mkIf`-wrapped branch is `_type`-guarded, but
+    # a plain definition under an unread option is not). An uncatchable error
+    # hidden there surfaces at build-stage eval instead of never; it is a real
+    # config bug either way, and the module system would hit it too once the
+    # option was read. Nix's `==` on strings also ignores string context, so a
+    # payload carrying a store-path reference (context) could key equal to an
+    # otherwise-identical bare literal — contrived, but dedup only ever keeps
+    # the first occurrence, so if the context-free literal loads first, the
+    # copy that carried the store reference is silently dropped.
+    # Every keyed value is tagged with its `kind` (list/attrs/path/str/bool/
+    # int/float/null), so structurally different shapes can never compare
+    # equal: `{ }` ≠ `[ ]`, a path ≠ a plain string, `42` ≠ `42.0` (Nix treats
+    # `int == float` as equal). `==` on the result mirrors value equality
+    # within each kind, for the keyable subset of Nix. `setDefaultModuleLocation`
+    # shims are NOT unwrapped here — callers do that first
+    # (`_dedupeNixosModules`), otherwise two shims with different `_file`
+    # strings would never compare equal.
+    _opaqueOrKey =
+      value:
+      let
+        maxDepth = 50;
+
+        go =
+          depth: v:
+          if depth > maxDepth then
+            null
+          else if builtins.isFunction v then
+            null
+          else if builtins.isAttrs v && v ? _type then
+            null
+          else if builtins.isAttrs v && v ? type && v.type == "derivation" then
+            null
+          else if builtins.isList v then
+            let
+              keys = map (go (depth + 1)) v;
+            in
+            if builtins.any (k: k == null) keys then
+              null
+            else
+              {
+                kind = "list";
+                inherit keys;
+              }
+          else if builtins.isAttrs v then
+            let
+              keys = map (name: {
+                inherit name;
+                key = go (depth + 1) v.${name};
+              }) (builtins.attrNames v);
+            in
+            if builtins.any (e: e.key == null) keys then
+              null
+            else
+              {
+                kind = "attrs";
+                inherit keys;
+              }
+          else if builtins.isPath v then
+            {
+              kind = "path";
+              value = toString v;
+            }
+          else if builtins.isString v then
+            {
+              kind = "str";
+              value = v;
+            }
+          else if builtins.isBool v then
+            {
+              kind = "bool";
+              value = v;
+            }
+          else if builtins.isInt v then
+            {
+              kind = "int";
+              value = v;
+            }
+          else if builtins.isFloat v then
+            {
+              kind = "float";
+              value = v;
+            }
+          else if v == null then
+            {
+              kind = "null";
+            }
+          else
+            null;
+
+        result = builtins.tryEval (go 0 value);
+      in
+      if result.success then result.value else null;
+
+    # Deduplicate a flat list of NixOS module values. Every module emitted by an
+    # IceDOS module arrives wrapped in a `setDefaultModuleLocation` shim
+    # (`{ _file = "<repo>#<module>"; imports = [ m ]; }`), so nixpkgs keys each
+    # module by its own `_file`/position and never dedups them — two IceDOS
+    # modules emitting the SAME module value (e.g. a shared pure-attrset module,
+    # or a common `inputs.<x>.nixosModules.default` that is a path) load it
+    # twice. Unwrap the shim, key the payload with `_opaqueOrKey`, and keep the
+    # FIRST occurrence of each structurally-identical value (the surviving shim
+    # keeps its `_file`, so provenance errors still name the declarer that was
+    # kept). Functions, derivations, `_type` wrappers, and anything containing
+    # one are opaque and never merged — this includes any payload that DECLARES
+    # options, since `lib.mkOption` produces `{ _type = "option"; … }`: duplicate
+    # option declarations still fail loudly ("The option `x' is already
+    # declared"), which is correct, never masked by dedup. The common path case
+    # (`inputs.jovian.nixosModules.default` = a directory) is already
+    # deduplicated by nixpkgs' own identical-path handling; this closes the
+    # identical-attrset-config-value gap. Only the `nixosModules` output is
+    # deduplicated — `modulesFromConfig.options` (the option-doc index) is
+    # intentionally left as-is.
+    _dedupeNixosModules =
+      modules:
+      let
+        unwrap =
+          m:
+          if
+            m ? _file
+            && (builtins.isString m._file || builtins.isPath m._file)
+            && m ? imports
+            && builtins.isList m.imports
+            && builtins.length m.imports == 1
+            # Only a *pure* `setDefaultModuleLocation` shim (`{ _file;
+            # imports = [ m ]; }`) is unwrapped. A value shaped `{ _file = …;
+            # imports = [ x ]; config = …; }` is a real module with its own
+            # body, not a shim — unwrapping would key on `x` alone and silently
+            # drop its `config` on collision.
+            &&
+              builtins.attrNames m == [
+                "_file"
+                "imports"
+              ]
+          then
+            builtins.head m.imports
+          else
+            m;
+
+        step =
+          seen: acc: mods:
+          if mods == [ ] then
+            acc
+          else
+            let
+              m = builtins.head mods;
+              key = _opaqueOrKey (unwrap m);
+              rest = builtins.tail mods;
+            in
+            if key != null && builtins.any (k: k == key) seen then
+              step seen acc rest
+            else
+              step (if key == null then seen else seen ++ [ key ]) (acc ++ [ m ]) rest;
+      in
+      step [ ] [ ] modules;
+
     # Process output modules into nixos modules with proper input masking
     # Each module's outputs are evaluated with its appropriate input set
     _extractNixosModules =
@@ -510,8 +690,14 @@ let
             }
           );
       in
-      flatten (
-        map (processModuleOutputs { inherit inputs; }) (filterByAttrs [ "outputs" "nixosModules" ] modules)
+      # Dedupe within this module set: two modules emitting the same module
+      # value (function-free) would otherwise load it twice — nixpkgs keys
+      # modules by `_file`/position, so identical values in two
+      # `setDefaultModuleLocation` shims never dedup.
+      _dedupeNixosModules (
+        flatten (
+          map (processModuleOutputs { inherit inputs; }) (filterByAttrs [ "outputs" "nixosModules" ] modules)
+        )
       );
 
     # Main function to extract all outputs from external modules
@@ -1087,8 +1273,13 @@ let
           lib.groupBy (m: m._repoInfo.url) (deduped ++ flatten extraModulesP2)
         );
 
-        # Combine nixos modules from both external and extra sources
-        nixosModules = params: (externalOutputs.nixosModules params) ++ (extraOutputs.nixosModules params);
+        # Combine nixos modules from both external and extra sources. Each
+        # source dedups internally (`_extractNixosModules`); dedupe again
+        # across the split so the same identical module value emitted by one
+        # external and one extra module loads only once.
+        nixosModules =
+          params:
+          _dedupeNixosModules ((externalOutputs.nixosModules params) ++ (extraOutputs.nixosModules params));
 
         # Final combined outputs
         outputs = externalOutputs // {
