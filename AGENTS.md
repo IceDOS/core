@@ -107,6 +107,7 @@ Exposed to every module as **`icedosLib`**.
 | `lib/helpers.nix` | `getModules`, `scanModules`, `hasModule`, `moduleInputName` (top-level generated-flake name of a module-declared input — the string-context twin of `_getModuleInputs`), `bash.prelude`, `bash.{blue,green,dim*}String`, `bash.requireConfigOwner` (permission guard for executing the baked `configurationLocation`; capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script), `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, flake-revision helpers. `hasModule` aborts on a malformed call (no `name` and no `modules`, or an empty `modules = []`) — always pass a `name` or a non-empty `modules` list. |
 | `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. Stamps every module's emitted NixOS config with `<repo>#<module>` provenance (`setDefaultModuleLocation`) so nixpkgs eval/type/conflict errors name the source module instead of an anonymous generated location. Emitted module values are deduplicated (`_dedupeNixosModules`): each arrives wrapped in a `setDefaultModuleLocation` shim (`{ _file; imports = [ m ]; }`), and nixpkgs keys modules by `_file`/position, so two IceDOS modules emitting the SAME value would load it twice — core unwraps the shim (only pure `{ _file; imports = [ m ]; }` shims), keys the payload with `_opaqueOrKey` (a structural key, every shape tagged by `kind` (list/attrs/path/str/bool/int/float/null) so `{ }`≠`[ ]`, a path≠a plain string, and `42`≠`42.0`; functions, derivations, and `_type`-bearing property wrappers — `mkIf`/`mkMerge`/`mkForce`/option types — and anything containing them are opaque `null` and never merged; derivations are detected via `type` alone and never forced, since a derivation is cyclic and `drvPath` access can trigger instantiation, and `_type` wrappers are never descended into because the module system drops their unforced branches (`mkIf false`); depth-capped so any other cyclic value degrades to opaque instead of `max-call-depth exceeded`; and wrapped in `tryEval`, which degrades values that `throw`/`assert` when forced — an `abort`, missing attribute, or type error still propagates), and keeps the first occurrence per key at both the per-source flatten (`_extractNixosModules`) and the final external+extra combine (`modulesFromConfig.nixosModules`). Only the `nixosModules` output is deduplicated — `modulesFromConfig.options` (the option-doc index) is intentionally left as-is, and option-declaring payloads are opaque (`lib.mkOption` produces `{ _type = "option"; … }`), so duplicate option declarations still fail loudly rather than being silently merged. The common `inputs.<x>.nixosModules.default` case (a path) was already handled by nixpkgs' own identical-path dedup; this closes the identical-attrset-config-value gap (e.g. a shared function-free module emitted by two modules, or a future `nixosModules.default` that is a pure attrset). `modulesFromConfig` also exports `loadedModules` (repo url → module names, the fully-resolved set) which `genflake.nix` injects into the module system as the read-only `icedos.system.loadedModules`. Extra-modules share this: an `icedos.nix` extra-module is labeled `config#<name>`; a plain `default.nix` extra-module is imported by path, so it already carries its real on-disk location. **Module `lib` field contributions:** any `icedos.nix` module — a configured repo's module or a config-root extra module — may extend `icedosLib` with a top-level `lib` field, usually `lib = import ./lib.nix { inherit icedosLib lib; };`. Core folds every contribution into the module-facing lib via `_mergeModuleLibs` (guarded: non-attrset contribution or a duplicate name = a named error). The merge is **two-phase**: during dependency resolution module files are imported with the **base** lib (phase 1 — only `meta` + contributions are forced); once the closure is known, `modulesFromConfig` computes `closureLib = _mergeModuleLibs (deduped ++ extraModulesP1)` over the **fully-resolved closure** and re-imports each module file's outputs (`externalOutputs`) plus the extra modules (`extraModulesP2`) with that merged lib (phase 2). The generated flake's `outputs.icedosLib` **and** `specialArgs.icedosLib` both reuse `modulesFromConfig.closureLib`, so module files and the module system share one merged lib within a single flake evaluation; `repl-context.nix` reads `flake.icedosLib`. A repo pulled in as a dependency — e.g. desktop, a **required** dep of every DE repo — still contributes its helpers because its always-loaded `default` module carries the `lib` field. A contribution file must live inside the kept set of `genflake.nix`'s `configRootKeep`/`configRootKeepDirs` (extra-module/config dirs, declared patches — a `builtins.path` keep-list, **not** git tracking): genflake imports config live, the build stage from the filtered snapshot, so an import that escapes the kept set evaluates at genflake and then fails at build with a bare missing-path error. Upgrade note: the old magic auto-discovery of a config-root `lib.nix` is gone — a user extends `icedosLib` from their own config by adding a `lib` field to one of their extra modules instead. Tradeoffs (inherent): each external module file is imported twice per stage (meta + contributions in phase 1, outputs in phase 2); the merge is evaluated at genflake stage, build-stage `specialArgs`, and repl (fresh per-stage evaluations, but `flake.icedosLib` shares one value with `specialArgs`). The bare `icedosLib` name stays a static set — the merge is a lazy member, so the `default.nix` probe (`attrNames (import icedos.nix …)`) never forces it. A contribution sees only the base lib (passing the merged lib would recurse); repo-to-repo composition happens at the module layer. |
 | `lib/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
+| `lib/extra-options.nix` | `extraOptions.{marker,declare,inject}` — translates a user's `[extraOptions]` TOML table into real NixOS option declarations + genflake-stage value injection (see §6). |
 | `lib/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
 | `lib/common.nix` | `abortIf`, `filterByAttrs`, `findFirst`, `flatMap`, `generateAttrPath`, … |
 | `lib/constants.nix` | `ICEDOS_*` env/stage constants, `INPUTS_PREFIX`, `ENABLE_LOGGING` (either `ICEDOS_LOGGING=1` in the env **or** the `enableLogging` flag baked into the generated flake's lib import at genflake time — so `--logs` stays active for the whole nixos build even though the env var doesn't reach it). |
@@ -304,6 +305,79 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
   stable names (`inputs.<channel>`, `inputs.self`) regardless of how the repo was fetched.
 - Channels/overlays: `[[icedos.system.channels]]` and
   `[[icedos.system.overlays.fromChannel]]` add extra nixpkgs instances/overlays.
+
+### Declaring user options from TOML: `[extraOptions]`
+
+A user can declare their **own** typed NixOS options without writing a Nix module —
+purely from `config.toml` / `configs/*.toml`. `lib/extra-options.nix` translates the
+`[extraOptions]` table into real option declarations:
+
+- A node **with a `type` key** is a **leaf** — one declared option at its full dotted
+  path from the config root. Meta keys: `type`, `default`, `description`, plus the
+  type's own constraints (`min`/`max`, `choices`, `minLength`/`maxLength`/`regex`).
+- A node **without `type`** is a **namespace** — every key must be another table.
+- `[extraOptions.icedos.applications.myapp]` declares `options.icedos.applications.myapp`;
+  `[extraOptions.services.myapp]` declares `options.services.myapp`. Non-`icedos.*`
+  paths are allowed and merge with nixpkgs / IceDOS options, but redeclaring an
+  existing option path is a loud nixpkgs "already declared" error in practice: every
+  custom option carries a `description`, and nixpkgs rejects two declarations that
+  both set `default`/`description`/`example`/`apply` regardless of type compatibility.
+  An option without a schema `default` follows the standard nixpkgs contract: resolve
+  the user value if set, else "was accessed but has no value defined" when read
+  (rendered as null in the search index) — except `list`/`attrs`/`record`, below.
+
+Values reach the running system by the same routes as ordinary config — `icedos.*`
+options through the per-file `config.icedos` imports in `modules/options.nix`, and
+non-`icedos.*` options through the raw NixOS passthrough. At the **genflake stage** that
+passthrough is absent, so `inject` re-applies the declared non-`icedos.*` values per-path
+(`config.<path> = <raw value>` read from the merged user config) — that's what makes the
+search index show real values instead of null. Options are stamped with `extraOptions`
+marker in their `declarations`, which genflake's optionsDoc keep-filter matches on
+(`isExtraOption`) to include non-`icedos.*` custom options in the index. The
+`extraOptions` table itself is excluded from the raw NixOS passthrough (it holds
+schema, not values).
+
+`evaluatedConfig` (a `toJSON` of the whole genflake-stage eval) is not tryEval-rescuable
+and would throw if forced on a no-default custom option the user never sets — nothing
+in-tree forces it (build.sh only consumes `optionsDoc`/`modulesDoc`/`userConfigRaw`, and
+the index's `renderValue` tryEvals each option individually), so that stays latent.
+
+Example (`configs/*.toml`):
+
+```toml
+[extraOptions.services.myapp]        # namespace
+  [extraOptions.services.myapp.enable]
+    type = "bool"
+    default = true
+    description = "Enable myapp"
+
+[services.myapp]                      # value, set like any other config
+enable = false
+```
+
+Supported `type`s mirror the `mk*Option` family: scalars `bool`, `string`,
+`nonEmptyString`, `lines`, `number` (int or float), `int`, `float`; `enum` (with
+`choices`); lists `stringList`, `numberList`, `intList`, `floatList`, or a generic
+`list`; `attrs` (map of a leaf type); and `record` (arbitrary nested schema, like a
+submodule). `list`/`attrs` require an `item` descriptor (a bare scalar name such as
+`"string"`, or a descriptor table with its own `type`/constraints/`enum`/`record`);
+`record` requires a `fields` table of typed descriptors. Unset `list`/`attrs` leaves
+with no schema default resolve to `[]`/`{}` (nixpkgs' `type.emptyValue` —
+`mergeDefinitions`' `else if type.emptyValue ? value then type.emptyValue.value`)
+instead of erroring; an unset `record` resolves to `{}` whose no-default fields then
+throw individually. The `emptyValue` branch requires a 2026-era nixpkgs (core's
+flake.lock; the 25.11-era `nix-instantiate --find-file nixpkgs` root channel lacks it
+and would throw) — the tests pin the modern behavior. A bad schema `default` **and** a
+bad injected user value both fail loudly at genflake with a rich, path-aware error:
+constraint-carrying types (string/number/int/float/enum) go through their
+`validate.*` validator, every other type through `leafType.check` (covers bool /
+list / attrs shapes nixpkgs would otherwise only check lazily when the option is
+read). Composite values are checked **one level deep** at that point too:
+`list`/`*List` elements and `attrs` values against their `item` type, and `record`
+values against their declared `fields` (undeclared fields are rejected) — so a bad
+element/field surfaces at genflake, not at build time. Nested `item`/`field`
+sub-structures beyond that first level are still validated lazily by nixpkgs when
+the option is read.
 
 ## 7. Testing a change — the agent workflow
 

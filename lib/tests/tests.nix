@@ -21,6 +21,46 @@ let
 
   validate = (import ../options/validate.nix { inherit icedosLib lib; }).validate;
 
+  # extraOptions (extra-options.nix) with the real abortIf/validate stubs.
+  extraOptions =
+    (import ../extra-options.nix {
+      inherit lib;
+      icedosLib = {
+        abortIf = icedosLib.abortIf;
+        validate = validate;
+      };
+    }).extraOptions;
+
+  extraSchema = {
+    services.myapp = {
+      enable = {
+        type = "bool";
+      };
+      port = {
+        type = "int";
+        default = 8080;
+      };
+      name = {
+        type = "string";
+        minLength = 2;
+        default = "app";
+      };
+    };
+  };
+
+  extraUserConfig = {
+    services.myapp = {
+      enable = true;
+      port = 9000;
+    };
+  };
+
+  extraEval =
+    modules:
+    (lib.evalModules {
+      modules = [ e2eBase ] ++ modules;
+    }).config;
+
   helpers = import ../helpers.nix {
     inherit icedosLib lib;
     self = "tests";
@@ -1337,4 +1377,499 @@ in
     # Both kept (4 entries) — a buggy unwrap would collapse to one module (2).
     builtins.length result == 4 && builtins.elem "S" result && builtins.elem "I" result
   );
+
+  # --- extraOptions (extra-options.nix) ----------------------------------
+  # Defaults from the schema materialise without any injected value.
+  extraDefault = expectEq 8080 (extraEval [ (extraOptions.declare extraSchema) ]).services.myapp.port;
+
+  # `inject` re-applies user-set values per-path (the build-stage raw passthrough
+  # analog at genflake stage).
+  extraInjectValue = expectEq 9000 (
+    (extraEval (
+      [
+        (extraOptions.declare extraSchema)
+      ]
+      ++ (extraOptions.inject extraSchema extraUserConfig)
+    )).services.myapp.port
+  );
+
+  extraInjectAll = expectOk (
+    let
+      cfg = extraEval (
+        [
+          (extraOptions.declare extraSchema)
+        ]
+        ++ (extraOptions.inject extraSchema extraUserConfig)
+      );
+    in
+    cfg.services.myapp.enable == true
+    && cfg.services.myapp.port == 9000
+    && cfg.services.myapp.name == "app"
+  );
+
+  # A leaf WITHOUT a schema `default` is declared WITHOUT one: nixpkgs then
+  # resolves the user value if set, else reports "was accessed but has no value defined" — it must
+  # NOT synthesise `default = null`, which would fail the type check for every
+  # unset typed option.
+  extraNoDefaultOmitsDefault = expectOk (
+    let
+      opt =
+        (lib.evalModules {
+          modules = [
+            (extraOptions.declare {
+              x.port = {
+                type = "int";
+              };
+            })
+          ];
+        }).options.x.port;
+    in
+    !(opt ? default)
+  );
+
+  # No-default leaf + user value (via inject): resolves to the value, not an error.
+  extraNoDefaultResolves = expectEq 9000 (
+    let
+      schema = {
+        x.port = {
+          type = "int";
+        };
+      };
+    in
+    (extraEval ([ (extraOptions.declare schema) ] ++ (extraOptions.inject schema { x.port = 9000; })))
+    .x.port
+  );
+
+  # A wrong-typed injected value fails EAGERLY at inject time (genflake), not
+  # silently until something reads the option: shape check via `leafType.check`.
+  extraInjectBadShapeThrows = expectThrowMatch (
+    let
+      schema = {
+        x.plugins = {
+          type = "stringList";
+        };
+      };
+    in
+    extraEval ([ (extraOptions.declare schema) ] ++ (extraOptions.inject schema { x.plugins = 42; }))
+  ) "x.plugins";
+
+  # … and a wrong value for a constrained scalar keeps its rich validator
+  # message (constraint violation, not the generic shape fallback).
+  extraInjectBadScalarThrows = expectThrowMatch (
+    let
+      schema = {
+        x.port = {
+          type = "int";
+          min = 1;
+          max = 65535;
+        };
+      };
+    in
+    extraEval ([ (extraOptions.declare schema) ] ++ (extraOptions.inject schema { x.port = 999999; }))
+  ) "x.port";
+
+  # An unset no-default leaf is "was accessed but has no value defined" (a throw), not a silent null.
+  extraNoDefaultUnsetThrows = expectThrow (
+    (extraEval [
+      (extraOptions.declare {
+        x.port = {
+          type = "int";
+        };
+      })
+    ]).x.port
+  );
+
+  # … but unset no-default `list`/`attrs` leaves resolve via nixpkgs'
+  # `type.emptyValue` (mergeDefinitions: `else if type.emptyValue ? value then
+  # type.emptyValue.value`) instead of erroring — the documented convenience for
+  # those types. Requires a 2026-era nixpkgs: the 25.11-era root channel's
+  # mergeDefinitions lacks the branch, so under `nix-instantiate <nixpkgs/lib>`
+  # these read as version skew, not a regression.
+  extraEmptyValueList = expectEq [ ] (
+    (extraEval [
+      (extraOptions.declare {
+        x.vals = {
+          type = "stringList";
+        };
+      })
+    ]).x.vals
+  );
+  extraEmptyValueAttrs = expectEq { } (
+    (extraEval [
+      (extraOptions.declare {
+        x.byName = {
+          type = "attrs";
+          item = "string";
+        };
+      })
+    ]).x.byName
+  );
+
+  # enum leaf: schema default applies, inject overrides it.
+  extraEnumEval = expectEq "b" (
+    let
+      schema = {
+        x.mode = {
+          type = "enum";
+          choices = [
+            "a"
+            "b"
+          ];
+          default = "a";
+        };
+      };
+    in
+    (extraEval ([ (extraOptions.declare schema) ] ++ (extraOptions.inject schema { x.mode = "b"; })))
+    .x.mode
+  );
+
+  # `attrs` map of a leaf type.
+  extraAttrsEval = expectEq { foo = "bar"; } (
+    let
+      schema = {
+        x.byName = {
+          type = "attrs";
+          item = "string";
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.byName = {
+          foo = "bar";
+        };
+      })
+    )).x.byName
+  );
+
+  # `list` with a constrained descriptor `item`.
+  extraListDescriptorEval = expectEq [ 1 2 ] (
+    let
+      schema = {
+        x.nums = {
+          type = "list";
+          item = {
+            type = "int";
+            min = 1;
+          };
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.nums = [
+          1
+          2
+        ];
+      })
+    )).x.nums
+  );
+
+  # floatList accepts ints — TOML parses whole numbers as ints, so the list
+  # variant must mirror the scalar `float` type (types.number, not types.float).
+  extraFloatListAcceptsInts = expectEq [ 1 2 3 ] (
+    let
+      schema = {
+        x.vals = {
+          type = "floatList";
+          default = [ ];
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.vals = [
+          1
+          2
+          3
+        ];
+      })
+    )).x.vals
+  );
+
+  # The validate.* checks attached to constrained types fire on bad user values.
+  extraValidationFires = expectThrow (
+    (extraEval [
+      (extraOptions.declare {
+        x.y = {
+          type = "int";
+          min = 0;
+          max = 10;
+        };
+      })
+      {
+        config.x.y = 99;
+      }
+    ]).x.y
+  );
+
+  # The declaring module is wrapped in the marker, so it lands in the option's
+  # `declarations` (this is what genflake's optionsDoc keep-filter matches).
+  extraMarkerInDeclarations = expectOk (
+    lib.elem extraOptions.marker (
+      (lib.evalModules {
+        modules = [ (extraOptions.declare extraSchema) ];
+      }).options.services.myapp.port.declarations or [ ]
+    )
+  );
+
+  # icedos.* paths are the per-file `config.icedos` imports' job, not inject's.
+  extraInjectSkipsIcedos = expectEq [ ] (
+    extraOptions.inject
+      {
+        icedos.applications.x.enable = {
+          type = "bool";
+        };
+      }
+      {
+        icedos.applications.x.enable = true;
+      }
+  );
+
+  # A `record` leaf: field defaults apply under a submodule type.
+  extraRecordDefault = expectOk (
+    let
+      cfg = extraEval [
+        (extraOptions.declare {
+          services.srv = {
+            type = "record";
+            fields = {
+              host = {
+                type = "string";
+                default = "localhost";
+              };
+              port = {
+                type = "int";
+                default = 8080;
+              };
+            };
+          };
+        })
+        {
+          config.services.srv = {
+            host = "0.0.0.0";
+          };
+        }
+      ];
+    in
+    cfg.services.srv.port == 8080 && cfg.services.srv.host == "0.0.0.0"
+  );
+
+  # A constrained `list` item type rejects non-conforming elements (deepSeq
+  # forces the lazily-checked elements so the throw lands in tryEval).
+  extraListBadItem = expectThrow (
+    builtins.deepSeq ((extraEval [
+      (extraOptions.declare {
+        x.nums = {
+          type = "list";
+          item = "int";
+        };
+      })
+      {
+        config.x.nums = [
+          1
+          "a"
+        ];
+      }
+    ]).x.nums
+    ) true
+  );
+
+  # Schema validation aborts loudly at `declare` time.
+  extraRootNotTable = expectThrow (extraOptions.declare 5);
+  extraRootTyped = expectThrow (extraOptions.declare { type = "bool"; });
+  extraUnknownType = expectThrow (
+    extraOptions.declare {
+      x.y = {
+        type = "bogus";
+      };
+    }
+  );
+  extraScalarNamespace = expectThrow (extraOptions.declare { x.y = 5; });
+  extraUnexpectedKey = expectThrow (
+    extraOptions.declare {
+      x.y = {
+        type = "bool";
+        bogus = 1;
+      };
+    }
+  );
+  extraEnumNoChoices = expectThrow (
+    extraOptions.declare {
+      x.y = {
+        type = "enum";
+      };
+    }
+  );
+  extraEnumBadDefault = expectThrow (
+    extraOptions.declare {
+      x.y = {
+        type = "enum";
+        choices = [ "a" ];
+        default = "b";
+      };
+    }
+  );
+  # A constraint-violating string default aborts when the option is evaluated
+  # (assert defaultOk in mkOptionValue) — deepSeq forces the module structure so
+  # the throw lands in tryEval.
+  extraBadStringDefault = expectThrow (
+    builtins.deepSeq (extraOptions.declare {
+      x.y = {
+        type = "string";
+        minLength = 5;
+        default = "ab";
+      };
+    }) true
+  );
+
+  # Empty schema: declare is a no-op module, inject produces nothing.
+  extraEmptyInject = expectEq [ ] (extraOptions.inject { } { });
+  extraEmptyDeclare = expectOk (
+    (lib.evalModules {
+      modules = [ (extraOptions.declare { }) ];
+    }).options.services or { } == { }
+  );
+
+  # Deep composite validation at inject time (genflake): a bad list element,
+  # a bad attrs value, and a bad/undeclared record field all throw eagerly.
+  extraListBadElemInject = expectThrow (
+    let
+      schema = {
+        x.nums = {
+          type = "list";
+          item = "int";
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.nums = [
+          1
+          "two"
+        ];
+      })
+    )).x.nums
+  );
+  extraAttrsBadValueInject = expectThrow (
+    let
+      schema = {
+        x.byName = {
+          type = "attrs";
+          item = "int";
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.byName = {
+          a = 1;
+          b = "no";
+        };
+      })
+    )).x.byName
+  );
+  extraRecordBadFieldInject = expectThrow (
+    let
+      schema = {
+        x.service = {
+          type = "record";
+          fields = {
+            name = {
+              type = "string";
+            };
+            port = {
+              type = "int";
+            };
+          };
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.service = {
+          name = "log";
+          port = "nope";
+        };
+      })
+    )).x.service
+  );
+  extraRecordUndeclaredFieldInject = expectThrow (
+    let
+      schema = {
+        x.service = {
+          type = "record";
+          fields = {
+            name = {
+              type = "string";
+            };
+          };
+        };
+      };
+    in
+    (extraEval (
+      [
+        (extraOptions.declare schema)
+      ]
+      ++ (extraOptions.inject schema {
+        x.service = {
+          name = "log";
+          bogus = 1;
+        };
+      })
+    )).x.service
+  );
+  # A well-formed deep value still flows through unchanged.
+  extraRecordGoodInject =
+    expectEq
+      {
+        name = "log";
+        port = 8080;
+      }
+      (
+        let
+          schema = {
+            x.service = {
+              type = "record";
+              fields = {
+                name = {
+                  type = "string";
+                };
+                port = {
+                  type = "int";
+                };
+              };
+            };
+          };
+        in
+        (extraEval (
+          [
+            (extraOptions.declare schema)
+          ]
+          ++ (extraOptions.inject schema {
+            x.service = {
+              name = "log";
+              port = 8080;
+            };
+          })
+        )).x.service
+      );
 }

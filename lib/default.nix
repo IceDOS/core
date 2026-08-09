@@ -43,6 +43,7 @@ loadLibs [
   ./logger.nix
   ./options/validate.nix
   ./options/helpers.nix
+  ./extra-options.nix
   ./helpers.nix
   ./icedos.nix
 ]

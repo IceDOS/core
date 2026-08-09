@@ -1,6 +1,7 @@
 let
   inherit (builtins) toJSON;
-  inherit (import ./load-user-config.nix ICEDOS_CONFIG_ROOT) icedos;
+  userConfig = import ./load-user-config.nix ICEDOS_CONFIG_ROOT;
+  inherit (userConfig) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
   pkgs = import <nixpkgs> { inherit system; };
@@ -46,6 +47,20 @@ let
     resolveExternalDependencyRecursively
     validate
     ;
+
+  # `[extraOptions]` (config.toml / configs/*.toml): a recursive table of
+  # user-declared, typed options. The schema lives under the `extraOptions`
+  # key; each declared option's VALUES live at their real paths in userConfig
+  # (e.g. `[extraOptions.services.myapp]` declares `options.services.myapp.*`,
+  # `[services.myapp]` sets them). `declare` turns the schema into a NixOS
+  # module declaring every option; `inject` re-applies the user-set non-icedos
+  # values per-path at the genflake stage (where the raw NixOS passthrough that
+  # carries them to the build stage does not run) so the search index shows real
+  # values instead of null. An absent schema degrades to `declare {}` (empty
+  # options) + `inject {} userConfig` (empty list) — no-op, no error.
+  extraSchema = userConfig.extraOptions or { };
+  extraOptionsDeclare = icedosLib.extraOptions.declare extraSchema;
+  extraOptionsInject = icedosLib.extraOptions.inject extraSchema userConfig;
 
   # User module/config directories (config-root relative), read raw here the
   # same way modules/options.nix declares their defaults. Drive the config-flake
@@ -175,19 +190,18 @@ let
   # same rule; this fires at genflake for the generated-flake path. Masked-input
   # collisions with module-declared inputs are caught by `_extractNixosModules`.)
   extraFlakeNameGuard = validate.abort {
-    when = (lib.intersectLists (
-      map (f: f.name or "") (icedos.system.extraFlakes or [ ])
-    ) (
-      (map (c: c.name or "") channels)
-      ++ (map (e: e.name) overlayInputs)
-      ++ [
-        "nixpkgs"
-        "home-manager"
-        "icedos-config"
-        "icedos-core"
-        "icedos-state"
-      ]
-    )) != [ ];
+    when =
+      (lib.intersectLists (map (f: f.name or "") (icedos.system.extraFlakes or [ ])) (
+        (map (c: c.name or "") channels)
+        ++ (map (e: e.name) overlayInputs)
+        ++ [
+          "nixpkgs"
+          "home-manager"
+          "icedos-config"
+          "icedos-core"
+          "icedos-state"
+        ]
+      )) != [ ];
     path = "icedos.system.extraFlakes";
     msg = "name collides with a [[icedos.system.channels]] name, an overlay input name, or a genflake-reserved input name";
   };
@@ -254,7 +268,7 @@ let
       })
       # Inject the genflake-stage computation of isFirstBuild: it has no default
       # (readOnly), so `toJSON evaluated` below would otherwise throw
-      # "used but not defined". Build-stage injection happens in `flakeFinal`.
+      # "was accessed but has no value defined". Build-stage injection happens in `flakeFinal`.
       { icedos.system.isFirstBuild = isFirstBuild; }
 
       # Derived, read-only view of the loaded module set. Computed from the raw
@@ -264,7 +278,12 @@ let
         icedos.system.loadedModules = modulesFromConfig.loadedModules;
       }
     ]
-    ++ modulesFromConfig.options;
+    ++ modulesFromConfig.options
+    # Declare every `[extraOptions]` option, and re-apply its non-icedos values
+    # per-path (the raw passthrough only runs at build stage, so without this the
+    # genflake-stage eval — optionsDoc / evaluatedConfig — would show null).
+    ++ [ extraOptionsDeclare ]
+    ++ extraOptionsInject;
   };
 
   evaluated = evaluatedModules.config;
@@ -303,9 +322,6 @@ let
       # submodule-list fields (users.<name>.*, repositories.*) aren't listed
       # individually; plain nested options (build-vm.memory, system.packages, …)
       # all are.
-      opts = filter (
-        o: (o.visible or true) && !(o.internal or false) && hasPrefix "icedos." (showOption o.loc)
-      ) (collect isOption evaluatedModules.options);
 
       # The option's effective value: user override if set, else the resolved
       # default. Read from `evaluated` (the merged `.config`), not the raw
@@ -349,15 +365,29 @@ let
           repoRelative (builtins.head decls)
         else
           null;
+
+      # A `[extraOptions]`-declared option: its declaring module is wrapped in
+      # `setDefaultModuleLocation` with the marker, which lands in every
+      # declared option's `declarations` list.
+      isExtraOption = o: lib.elem icedosLib.extraOptions.marker (o.declarations or [ ]);
     in
     toJSON (
-      map (o: {
-        name = showOption o.loc;
-        type = o.type.description or "";
-        description = renderDescription o;
-        value = renderValue o;
-        declaredAt = renderDeclaredAt o;
-      }) opts
+      map
+        (o: {
+          name = showOption o.loc;
+          type = o.type.description or "";
+          description = renderDescription o;
+          value = renderValue o;
+          declaredAt = renderDeclaredAt o;
+        })
+        (
+          filter (
+            o:
+            (o.visible or true)
+            && !(o.internal or false)
+            && (hasPrefix "icedos." (showOption o.loc) || isExtraOption o)
+          ) (collect isOption evaluatedModules.options)
+        )
     );
 
   # Full module graph for `icedos modules`: every module available in every repo
@@ -442,7 +472,7 @@ let
   # configs/*.toml (see lib/load-user-config.nix). Consumed by build.sh
   # (--export-search-index) to replace the old toml2json-of-config.toml
   # export, so the webui sees the complete config set, not just config.toml.
-  userConfigRaw = toJSON (import ./load-user-config.nix ICEDOS_CONFIG_ROOT);
+  userConfigRaw = toJSON userConfig;
 in
 assert isFirstBuildGuard;
 assert extraFlakeNameGuard;
@@ -492,6 +522,12 @@ assert extraFlakeNameGuard;
           };
 
           inherit (icedosLib) getModules modulesFromConfig;
+
+          # Build-stage re-declaration of `[extraOptions]` options. Re-derived
+          # here (not interpolated from the genflake value): the generated flake
+          # evaluates against the filtered config snapshot, and the schema must
+          # match what this stage reads.
+          extraOptionsDeclare = icedosLib.extraOptions.declare (userConfig.extraOptions or { });
         in {
           # The module-facing lib as a first-class flake output: the exact
           # value `specialArgs.icedosLib` shares (one `modulesFromConfig`
@@ -566,10 +602,14 @@ assert extraFlakeNameGuard;
               # config.toml / configs/*.toml *except* [icedos.*] is applied verbatim
               # as NixOS config. nixpkgs' module system types & validates each option —
               # IceDOS declares no schema. (home-manager is reachable the usual way,
-              # under [home-manager.users.<name>.*].)
+              # under [home-manager.users.<name>.*].) The `extraOptions` table is a
+              # declaration schema, not values, so it is excluded here (its options are
+              # declared by `extraOptionsDeclare` below).
               (lib.setDefaultModuleLocation "config.toml / configs/*.toml (raw NixOS passthrough)" {
-                config = builtins.removeAttrs userConfig [ "icedos" ];
+                config = builtins.removeAttrs userConfig [ "icedos" "extraOptions" ];
               })
+
+              extraOptionsDeclare
 
               home-manager.nixosModules.home-manager
 
