@@ -54,7 +54,7 @@ needed regardless. And **never run a plain `icedos rebuild`** (that is a `switch
 
 ```
 <config-root>/config.toml? (+ configs/*.toml)   (config.toml optional; root marked by flake.nix)
-        │  lib/load-user-config.nix   (parse TOML, strict-merge)
+        │  lib/config/load-user-config.nix   (parse TOML, strict-merge)
         ▼
 icedos.* options                       modules/options.nix declares the schema
         │  lib/genflake.nix            (evalModules → validate every value)
@@ -77,7 +77,7 @@ nh os <switch|boot|build|build-vm> path:.
   `["modules"]`) are imported the same way.
 - User config beyond `config.toml` is autoloaded from the `icedos.system.extraConfigs`
   dirs (default `["configs"]`): every `*.toml` (including hidden `.*.toml`) is enumerated
-  by `lib/config-files.nix` and strict-merged in, with `config.toml` as the base. Hidden
+  by `lib/config/config-files.nix` and strict-merged in, with `config.toml` as the base. Hidden
   `.*.toml` are a **gitignore-only** channel — their values are plaintext in the store (and
   rollback snapshots), so treat them as private, not secret. Both
   options are bootstrap paths — read from `config.toml` only (like `system.arch`), or their
@@ -104,11 +104,18 @@ Exposed to every module as **`icedosLib`**.
 |---|---|
 | `lib/options/helpers.nix` | The `mk*Option` family: `mkBoolOption`, `mkStrOption`, `mkStrListOption`, `mkNumberOption`, `mkEnumOption`, `mkIntBetweenOption`, `mkFloatBetweenOption`, `mkNullableOption`, `mkListOption`, `mkAttrsOfOption`, `mkSubmodule{,List,Attrs}Option`, `mkRecordOption`, `mkUsersOption`. |
 | `lib/options/validate.nix` | `validate.{int,float,enum,str,nonEmpty,list,requires,abort}` — rich, path-aware error messages. |
-| `lib/helpers.nix` | `getModules`, `scanModules`, `hasModule`, `moduleInputName` (top-level generated-flake name of a module-declared input — the string-context twin of `_getModuleInputs`), `bash.prelude`, `bash.{blue,green,dim*}String`, `bash.requireConfigOwner` (permission guard for executing the baked `configurationLocation`; capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script), `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}`, `users.{getNormal,genDefaults,mkGroupInjector}`, `pkgs.{mapper,mkConfig,overlaysFromChannel}`, `packaging.{extractAppImage,installDesktopEntry}`, `mkInputName`, flake-revision helpers. `hasModule` aborts on a malformed call (no `name` and no `modules`, or an empty `modules = []`) — always pass a `name` or a non-empty `modules` list. |
+| `lib/bash.nix` | `bash.{prelude,exportSystemPath,genHelpFlags,mkFlags,blueString,dimBlueString,greenString,dimGreenString,purpleString,dimPurpleString,redString,dimRedString,yellowString,dimYellowString,configSet,gcTimerCheckSnippet,requireConfigOwner}` — runtime shell helpers shared between Nix-embedded scripts and `prelude.sh` (color vars + the `*String` builders that emit `$(...)`-interpolated escape sequences — the **only** way the dispatcher/completions add color to command help text; `log_*`/`die`/`is_help_flag`; `bash.requireConfigOwner` is the permission guard for executing the baked `configurationLocation` — capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script). Also `injectIfExists` (emits `(<file>)` when a path exists — used by genflake for `/etc/nixos/extras.nix`). |
+| `lib/toolset.nix` | `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}` — the CLI dispatcher generator (used to build `icedos` itself and every subcommand attrset that has children) + the per-shell completion generators. |
+| `lib/users.nix` | `users.{getNormal,genDefaults,mkGroupInjector}`. |
+| `lib/color.nix` | `color.hexToRgbInts`. |
+| `lib/pkgs.nix` | `pkgs.{mapper,mkConfig,overlaysFromChannel}`. |
+| `lib/packaging.nix` | `packaging.{extractAppImage,installDesktopEntry}` — shell-snippet builders for `installPhase`/`postFixup` bodies in icedos `package.nix` files. |
+| `lib/scan.nix` | `getModules`, `scanModules`, `hasModule` — module discovery. `hasModule` aborts on a malformed call (no `name` and no `modules`, or an empty `modules = []`) — always pass a `name` or a non-empty `modules` list. |
+| `lib/inputs.nix` | `moduleInputName` (sub-flake-relative path of a module-declared input — `"<sub-flake>/<input>"` — the string-context twin of `_getModuleInputs`; a **breaking change** from the old top-level name), `moduleSubFlakeName`, `mkInputName`, flake-revision helpers (`_resolveFlakeRevisionLocked` — pure tail given a lock + node key — and `_resolveFlakeRevisionNested`/`_resolveFlakeRevisionNestedLocked` — two-hop lookup for a sub-flake input, the latter driven directly by the tests), `_parseFlakeUrl`, `_getModuleKey`, `freshInputs`. |
 | `lib/icedos.nix` | `fetchModulesRepository`, `resolveExternalDependencyRecursively`, `modulesFromConfig` — the external-repo/dependency engine + input masking. Stamps every module's emitted NixOS config with `<repo>#<module>` provenance (`setDefaultModuleLocation`) so nixpkgs eval/type/conflict errors name the source module instead of an anonymous generated location. Emitted module values are deduplicated (`_dedupeNixosModules`): each arrives wrapped in a `setDefaultModuleLocation` shim (`{ _file; imports = [ m ]; }`), and nixpkgs keys modules by `_file`/position, so two IceDOS modules emitting the SAME value would load it twice — core unwraps the shim (only pure `{ _file; imports = [ m ]; }` shims), keys the payload with `_opaqueOrKey` (a structural key, every shape tagged by `kind` (list/attrs/path/str/bool/int/float/null) so `{ }`≠`[ ]`, a path≠a plain string, and `42`≠`42.0`; functions, derivations, and `_type`-bearing property wrappers — `mkIf`/`mkMerge`/`mkForce`/option types — and anything containing them are opaque `null` and never merged; derivations are detected via `type` alone and never forced, since a derivation is cyclic and `drvPath` access can trigger instantiation, and `_type` wrappers are never descended into because the module system drops their unforced branches (`mkIf false`); depth-capped so any other cyclic value degrades to opaque instead of `max-call-depth exceeded`; and wrapped in `tryEval`, which degrades values that `throw`/`assert` when forced — an `abort`, missing attribute, or type error still propagates), and keeps the first occurrence per key at both the per-source flatten (`_extractNixosModules`) and the final external+extra combine (`modulesFromConfig.nixosModules`). Only the `nixosModules` output is deduplicated — `modulesFromConfig.options` (the option-doc index) is intentionally left as-is, and option-declaring payloads are opaque (`lib.mkOption` produces `{ _type = "option"; … }`), so duplicate option declarations still fail loudly rather than being silently merged. The common `inputs.<x>.nixosModules.default` case (a path) was already handled by nixpkgs' own identical-path dedup; this closes the identical-attrset-config-value gap (e.g. a shared function-free module emitted by two modules, or a future `nixosModules.default` that is a pure attrset). `modulesFromConfig` also exports `loadedModules` (repo url → module names, the fully-resolved set) which `genflake.nix` injects into the module system as the read-only `icedos.system.loadedModules`. Extra-modules share this: an `icedos.nix` extra-module is labeled `config#<name>`; a plain `default.nix` extra-module is imported by path, so it already carries its real on-disk location. **Module `lib` field contributions:** any `icedos.nix` module — a configured repo's module or a config-root extra module — may extend `icedosLib` with a top-level `lib` field, usually `lib = import ./lib.nix { inherit icedosLib lib; };`. Core folds every contribution into the module-facing lib via `_mergeModuleLibs` (guarded: non-attrset contribution or a duplicate name = a named error). The merge is **two-phase**: during dependency resolution module files are imported with the **base** lib (phase 1 — only `meta` + contributions are forced); once the closure is known, `modulesFromConfig` computes `closureLib = _mergeModuleLibs (deduped ++ extraModulesP1)` over the **fully-resolved closure** and re-imports each module file's outputs (`externalOutputs`) plus the extra modules (`extraModulesP2`) with that merged lib (phase 2). The generated flake's `outputs.icedosLib` **and** `specialArgs.icedosLib` both reuse `modulesFromConfig.closureLib`, so module files and the module system share one merged lib within a single flake evaluation; `repl-context.nix` reads `flake.icedosLib`. A repo pulled in as a dependency — e.g. desktop, a **required** dep of every DE repo — still contributes its helpers because its always-loaded `default` module carries the `lib` field. A contribution file must live inside the kept set of `genflake.nix`'s `configRootKeep`/`configRootKeepDirs` (extra-module/config dirs, declared patches — a `builtins.path` keep-list, **not** git tracking): genflake imports config live, the build stage from the filtered snapshot, so an import that escapes the kept set evaluates at genflake and then fails at build with a bare missing-path error. Upgrade note: the old magic auto-discovery of a config-root `lib.nix` is gone — a user extends `icedosLib` from their own config by adding a `lib` field to one of their extra modules instead. Tradeoffs (inherent): each external module file is imported twice per stage (meta + contributions in phase 1, outputs in phase 2); the merge is evaluated at genflake stage, build-stage `specialArgs`, and repl (fresh per-stage evaluations, but `flake.icedosLib` shares one value with `specialArgs`). The bare `icedosLib` name stays a static set — the merge is a lazy member, so the `default.nix` probe (`attrNames (import icedos.nix …)`) never forces it. A contribution sees only the base lib (passing the merged lib would recurse); repo-to-repo composition happens at the module layer. |
-| `lib/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
-| `lib/extra-options.nix` | `extraOptions.{marker,declare,inject}` — translates a user's `[extraOptions]` TOML table into real NixOS option declarations + genflake-stage value injection (see §6). |
-| `lib/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
+| `lib/config/load-user-config.nix` | Parse `config.toml` + every `configs/*.toml` (enumerated by `lib/config/config-files.nix`), strict-merge (duplicate scalar key across files = error; lists concatenated). Top-level `icedos` is schema-validated by `modules/options.nix`; **every other top-level table is applied as raw NixOS config** (see passthrough below). |
+| `lib/config/extra-options.nix` | `extraOptions.{marker,declare,inject}` — translates a user's `[extraOptions]` TOML table into real NixOS option declarations + genflake-stage value injection (see §6). |
+| `lib/config/config-files.nix` | Bare `configRoot: [{rel;content;}]` — the ordered, pre-parsed config set (`config.toml` + each enabled `configs/*.toml`), shared by `load-user-config.nix` and `modules/options.nix` so both load the identical set. Applies the per-file `enable = false` opt-out and strips the `enable` key. |
 | `lib/common.nix` | `abortIf`, `filterByAttrs`, `findFirst`, `flatMap`, `generateAttrPath`, … |
 | `lib/constants.nix` | `ICEDOS_*` env/stage constants, `INPUTS_PREFIX`, `ENABLE_LOGGING` (either `ICEDOS_LOGGING=1` in the env **or** the `enableLogging` flag baked into the generated flake's lib import at genflake time — so `--logs` stays active for the whole nixos build even though the env var doesn't reach it). |
 | `lib/logger.nix` | `log`/`logValue`/`logAttrKeys` — active when `ENABLE_LOGGING` is set. |
@@ -165,12 +172,39 @@ speedInBytes = true
 
 Optional module fields:
 - `inputs = { foo = { url = "…"; patches = [ … ]; }; };` — extra flake
-  inputs the module needs (merged into the generated state flake). The generated
-  top-level input name is namespaced to the declaring module — computed by
-  `icedosLib.moduleInputName { repo; module; input; }` — but the input is exposed to
-  every enabled module's `outputs.nixosModules` under the bare declared name `foo`.
-  A legacy `override = true` key is accepted and ignored (naming is now always
-  namespaced).
+  inputs the module needs. Each declaring module gets one thin **input-namespace
+  sub-flake** (`icedos-<repo>_<module>`, a **content-addressed** `/nix/store/<hash>-<name>-subflake`
+  flake.nix — no per-sub-flake files are written to disk; the sub-flake's text is
+  `pkgs.writeTextDir`'d + `builtins.path`'d at genflake time, so a decl change flips the
+  store path and a plain `nix flake lock` re-locks the sub root — and declared as a single
+  `path:` store input of the generated state flake); the module's declared inputs live inside it. The input's
+  sub-flake-relative path is computed by `icedosLib.moduleInputName { repo; module; input; }`
+  (`"<sub-flake>/<input>"` — the string-context twin of `_getModuleInputs`), and
+  each input is exposed to every enabled module's `outputs.nixosModules` under the
+  bare declared name `foo`. A module input's `follows` — at ANY depth: the
+  input's own `follows`, or anywhere in its `inputs` tree (a nested two-level
+  follows is legal flake syntax) — may only target an ambient top-level input
+  of the generated flake (nixpkgs, home-manager, icedos-config,
+  icedos-core, icedos-state, a configured channel, a url-mode overlay, an
+  extraFlake, or a sibling input of the same module);   cross-module `follows` —
+  e.g. built from `moduleInputName`, which now yields a sub-flake-relative path —
+  abort at genflake naming the declarer. An input that declares both `url` and
+  `follows` also aborts (nix rejects a flake input with both a flake reference
+  and a follows attribute, so the sub-flake could not lock); a url-less
+  follows-only input stays legal. Two modules declaring the same bare input
+  name with **different** urls also abort (naming both declarers); the same url but
+  **different** patch sets aborts too, since the two would realise different trees
+  and the masked set (`listToAttrs` keyed by the bare name) would silently pick one.
+  (Two byte-identical but separately-vendored patch files still count as different
+  patch sets — the store paths differ — so an author should share one patch file,
+  not copy it.) A legacy
+  `override = true` key is accepted and ignored (naming is now always namespaced).
+  **Shadowing:** a `follows` whose first segment is also a declared sibling input
+  of the same module resolves to that declared input, *not* the ambient one — e.g.
+  a module that declares its own `nixpkgs` input makes any `follows = "nixpkgs"`
+  on its other inputs pull in the module's `nixpkgs`, not the generated flake's
+  (a slot is not emitted for a name the module already declares, so the follows
+  targets the sibling inside the sub-flake).
 - `meta.dependencies = [ { url?; modules = [ … ]; } ];` and `meta.optionalDependencies`
   — other modules this one needs (pulled automatically).
 
@@ -241,7 +275,7 @@ the path must fill every normal user, in its `outputs.nixosModules` config:
 icedos.<path>.users = icedosLib.users.genDefaults { inherit (config.icedos) users; };
 ```
 
-`genDefaults` (`lib/helpers.nix`, `users.genDefaults`) writes `{ <normalUser> = {}; … }`
+`genDefaults` (`lib/users.nix`, `users.genDefaults`) writes `{ <normalUser> = {}; … }`
 for every `isNormalUser`, which triggers each submodule's own field defaults; explicit
 `[icedos.<path>.users.<name>]` TOML stanzas still merge on top (submodule attrs merge).
 **Without it**, a user must hand-write an empty per-user stanza just to get defaults, and
@@ -300,16 +334,35 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
 
 - `lib/icedos.nix:resolveExternalDependencyRecursively` walks each module's
   `meta.dependencies` so you only list what you directly want; deps come along.
-- A module's declared `inputs` become flake inputs of the generated state flake
-  (patched via `pkgs.applyPatches` if `patches` is set). **Input masking** gives modules
-  stable names (`inputs.<channel>`, `inputs.self`) regardless of how the repo was fetched.
+- A module's declared `inputs` live inside its per-module **input-namespace
+  sub-flake** (a **content-addressed** `/nix/store/<hash>-<name>-subflake/flake.nix` — the
+  sub-flake text is `pkgs.writeTextDir`'d + `builtins.path`'d at genflake time, never
+  written to disk under `.state/`, and declared as a single `path:` store input of the
+  generated state flake — rewired to
+  the parent's ambient inputs via `inputs.<sub>.inputs.<slot>.follows`; patched
+  inputs become a `path:` node for the realised tree plus an upstream `<input>_source`
+  node — see §5). `genflake.nix` emits the sub-flakes directly as the generated
+  `flake.nix`'s root `path:` inputs (no `subflakes.json` export — build.sh derives
+  sub-flake roots and their declared inputs from the resulting `flake.lock`), and
+  `--update-repos-inputs` refreshes
+  sub-flake inputs via `nix flake update "<sub>/<input>" --refresh`. All lock steps run
+  against a **detached** copy of the state flake — `build.sh` rsyncs `.state` into a temp
+  dir (`mktemp`) and copies only the resulting `flake.lock` back, because a git flake
+  refuses to lock/refresh untracked `path:` inputs (`nix` says "git add ..."): locking in
+  `.state` would force every new or changed module input to be staged/committed. Sub-flakes
+  are never written as files and never committed; a changed sub-flake materializes a new
+  content-addressed store path, so a plain `nix flake lock` picks up new/edited module
+  inputs (preserving unchanged nested pins). Their nested inputs are inlined into the parent
+  `flake.lock`, so only that one file needs syncing. **Input masking**
+  gives modules stable names (`inputs.<channel>`, `inputs.self`) regardless of how the
+  repo was fetched.
 - Channels/overlays: `[[icedos.system.channels]]` and
   `[[icedos.system.overlays.fromChannel]]` add extra nixpkgs instances/overlays.
 
 ### Declaring user options from TOML: `[extraOptions]`
 
 A user can declare their **own** typed NixOS options without writing a Nix module —
-purely from `config.toml` / `configs/*.toml`. `lib/extra-options.nix` translates the
+purely from `config.toml` / `configs/*.toml`. `lib/config/extra-options.nix` translates the
 `[extraOptions]` table into real option declarations:
 
 - A node **with a `type` key** is a **leaf** — one declared option at its full dotted
@@ -388,7 +441,7 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
 **from wherever you are**. No `cd`, no `sudo`, no activation. You never switch — the user does.
 
 Core lib tests run as a flake check: `nix flake check` in the core repo evaluates
-`lib/tests/tests.nix` and fails if any result is not "ok" (or the eval throws).
+`tests/tests.nix` and fails if any result is not "ok" (or the eval throws).
 Core's `flake.lock` is gitignored and generated on demand (it is a library flake
 consumed via flake inputs, and a committed lock would pin core's own inputs —
 `nixpkgs`, `cache-server` — for consumers without `follows`).
@@ -566,7 +619,7 @@ Environment a hook can rely on:
 | `ICEDOS_ROOT` | build app | the core store path. |
 | `ICEDOS_BUILD_DIR` | `build.sh` | temp build dir — set **after** `build.sh` starts, so **not** available in `preRebuild`/`preUpdate` (they run before it). |
 | `ICEDOS_HOOKS_ONLY=1` | `--update-hooks` only | tells `pre/postUpdate` that no HM activation follows, so they must complete standalone. |
-| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` | eval-internal | don't depend on these in runtime hooks. |
+| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` / `ICEDOS_UPDATE_MODULE_INPUTS` | eval-internal | don't depend on these in runtime hooks. |
 
 Order (`modules/rebuild.nix`): `--update-hooks` short-circuit (pre+postUpdate, then
 exit) → `preRebuild` → `preUpdate` (only with `--update`) → `build.sh` → `postUpdate`

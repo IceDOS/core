@@ -1,6 +1,6 @@
 let
   inherit (builtins) toJSON;
-  userConfig = import ./load-user-config.nix ICEDOS_CONFIG_ROOT;
+  userConfig = import ./config/load-user-config.nix ICEDOS_CONFIG_ROOT;
   inherit (userConfig) icedos;
 
   system = icedos.system.arch or "x86_64-linux";
@@ -48,24 +48,13 @@ let
     validate
     ;
 
-  # `[extraOptions]` (config.toml / configs/*.toml): a recursive table of
-  # user-declared, typed options. The schema lives under the `extraOptions`
-  # key; each declared option's VALUES live at their real paths in userConfig
-  # (e.g. `[extraOptions.services.myapp]` declares `options.services.myapp.*`,
-  # `[services.myapp]` sets them). `declare` turns the schema into a NixOS
-  # module declaring every option; `inject` re-applies the user-set non-icedos
-  # values per-path at the genflake stage (where the raw NixOS passthrough that
-  # carries them to the build stage does not run) so the search index shows real
-  # values instead of null. An absent schema degrades to `declare {}` (empty
-  # options) + `inject {} userConfig` (empty list) — no-op, no error.
+  # `[extraOptions]` declares user options; their VALUES live at their real paths.
+  # `inject` re-applies them here, where the build-stage passthrough doesn't run.
   extraSchema = userConfig.extraOptions or { };
   extraOptionsDeclare = icedosLib.extraOptions.declare extraSchema;
   extraOptionsInject = icedosLib.extraOptions.inject extraSchema userConfig;
 
-  # User module/config directories (config-root relative), read raw here the
-  # same way modules/options.nix declares their defaults. Drive the config-flake
-  # filter (below), the generated extra-module imports, and — for configs —
-  # lib/config-files.nix via load-user-config.nix / options.nix.
+  # Read raw (bootstrap path), mirroring the defaults in modules/options.nix.
   extraModulesDirs = icedos.system.extraModules or [ "modules" ];
   extraConfigsDirs = icedos.system.extraConfigs or [ "configs" ];
 
@@ -75,23 +64,12 @@ let
     "config.toml"
   ];
 
-  # Directory prefixes (config-root relative) kept in the filtered config
-  # flake. `extraModulesDirs` / `extraConfigsDirs` drive both the filter and
-  # the actual module/config imports.
-  #
-  # Keep-list constraint: anything an extra-module file (or a `lib` field it
-  # imports, e.g. a module-adjacent `lib.nix`) requires must live inside the
-  # kept set above — genflake imports the config root live, the build stage
-  # from the filtered snapshot, so an import that escapes the kept set
-  # evaluates at genflake and then fails at build with a bare missing-path
-  # error. An extra module's contribution file belongs under one of the
-  # extra-module dirs (e.g. `modules/<name>/lib.nix`), which is kept.
+  # Anything an extra module imports must live in the kept set: genflake reads the
+  # config root live, the build stage only this snapshot.
   configRootKeepDirs = extraModulesDirs ++ extraConfigsDirs;
 
-  # Patch files declared by `[[icedos.repositories]]` `patches`. They must
-  # survive into the filtered config flake so the build stage can read them
-  # from `inputs.icedos-config`: build-stage eval is pure and cannot reach the
-  # host config root the way the impure genflake eval can.
+  # Repo patch files must survive into the snapshot: build-stage eval is pure and
+  # cannot reach the host config root.
   repoPatchKeep = flatten (
     map (r: (r.patches or [ ]) ++ map (ip: ip.patches or [ ]) (r.inputPatches or [ ])) (
       icedos.repositories or [ ]
@@ -115,13 +93,8 @@ let
 
   channels = icedos.system.channels or [ ];
 
-  # isFirstBuild is framework-owned (readOnly, no default — see
-  # modules/options.nix). A user-set value now aborts eval with nixpkgs'
-  # generic "read-only, but it's set multiple times"; catch it here (before
-  # evalModules) with a message pointing at the real toggle. Asserted from the
-  # exported attrset below, so both genflake entry points — the search index
-  # (`optionsDoc`/`userConfigRaw`) and the generated flake (`flakeFinal`) —
-  # abort on the same friendly error.
+  # Catch a user-set `isFirstBuild` before evalModules turns it into nixpkgs'
+  # generic readOnly error, and point at `forceFirstBuild` instead.
   isFirstBuildGuard = validate.abort {
     when = builtins.hasAttr "isFirstBuild" (icedos.system or { });
     path = "icedos.system.isFirstBuild";
@@ -130,18 +103,12 @@ let
 
   isFirstBuild = !pathExists "/run/current-system/source" || (icedos.system.forceFirstBuild or false);
 
-  # Whether to inline the host's /etc/nixos/hardware-configuration.nix into
-  # the generated system. On by default so the machine's essentials
-  # (filesystems, kernel modules, microcode, …) always apply; read raw here
-  # since the injection decision happens at genflake stage. Mirrors the
-  # `icedos.system.loadHardwareConfiguration` option default in modules/options.nix.
+  # Inline /etc/nixos/hardware-configuration.nix; read raw because the injection
+  # decision happens here. Default mirrors modules/options.nix.
   loadHardwareConfiguration = icedos.system.loadHardwareConfiguration or true;
 
-  # `[[icedos.system.overlays.fromChannel]]` entries. Each must set either
-  # `channel` (existing `[[icedos.system.channels]]` name) or `url` (flake
-  # URL — registered as `icedos-overlay-<sanitized-url>`); `channel` wins
-  # when both are set. Validation aborts here with rich path messages so
-  # users see the offending entry, not a deep nix trace.
+  # Each entry sets `channel` or `url` (`channel` wins). Validated here so the
+  # user sees the offending entry, not a deep nix trace.
   overlayChannelsRaw = icedos.system.overlays.fromChannel or [ ];
 
   # Read raw TOML — missing fields default to "" / [] so validation messages
@@ -160,9 +127,8 @@ let
       msg = "must set either 'channel' (existing [[icedos.system.channels]] name) or 'url' (flake URL)";
     };
 
-  # Force every check; failures already threw. `if-then-raw` keeps the second
-  # branch unreachable but ties the validation result to the produced list.
-  # Entries with empty `packages` are silently dropped (no-op overlay).
+  # `if-then-raw` ties the (already-throwing) checks to the produced list.
+  # Entries with empty `packages` are dropped as no-ops.
   overlayChannels =
     let
       normalised = map overlayEntry overlayChannelsRaw;
@@ -183,17 +149,14 @@ let
     value = { inherit (e) url; };
   }) (filter isOverlayUrlMode overlayChannels);
 
-  # `[[icedos.system.extraFlakes]]` `name` values become top-level flake inputs,
-  # so they must not collide with genflake's own generated input names, channel
-  # names, or overlay input names — a duplicate key would silently overwrite in
-  # `listToAttrs` below. (The `icedos.system.extraFlakes` option doc carries the
-  # same rule; this fires at genflake for the generated-flake path. Masked-input
-  # collisions with module-declared inputs are caught by `_extractNixosModules`.)
+  # extraFlake names become root inputs, so a collision with a channel, overlay,
+  # sub-flake or reserved name would silently overwrite in `listToAttrs` below.
   extraFlakeNameGuard = validate.abort {
     when =
       (lib.intersectLists (map (f: f.name or "") (icedos.system.extraFlakes or [ ])) (
         (map (c: c.name or "") channels)
         ++ (map (e: e.name) overlayInputs)
+        ++ (builtins.attrNames modulesFromConfig.subFlakes)
         ++ [
           "nixpkgs"
           "home-manager"
@@ -203,7 +166,7 @@ let
         ]
       )) != [ ];
     path = "icedos.system.extraFlakes";
-    msg = "name collides with a [[icedos.system.channels]] name, an overlay input name, or a genflake-reserved input name";
+    msg = "name collides with a [[icedos.system.channels]] name, an overlay input name, a module sub-flake name, or a genflake-reserved input name";
   };
 
   nixpkgsInput = {
@@ -266,22 +229,17 @@ let
         inherit icedosLib lib;
         inputs.icedos-config = ICEDOS_CONFIG_ROOT;
       })
-      # Inject the genflake-stage computation of isFirstBuild: it has no default
-      # (readOnly), so `toJSON evaluated` below would otherwise throw
-      # "was accessed but has no value defined". Build-stage injection happens in `flakeFinal`.
+      # No default (readOnly), so `toJSON evaluated` would throw without this.
       { icedos.system.isFirstBuild = isFirstBuild; }
 
-      # Derived, read-only view of the loaded module set. Computed from the raw
-      # icedos config by modulesFromConfig (no dependency on the evaluated
-      # config), so injecting it here cannot create a circular evaluation.
+      # Computed from the RAW config, so injecting it here cannot recurse.
       {
         icedos.system.loadedModules = modulesFromConfig.loadedModules;
       }
     ]
     ++ modulesFromConfig.options
-    # Declare every `[extraOptions]` option, and re-apply its non-icedos values
-    # per-path (the raw passthrough only runs at build stage, so without this the
-    # genflake-stage eval — optionsDoc / evaluatedConfig — would show null).
+    # Without the re-apply the genflake-stage eval would show null (the raw
+    # passthrough only runs at build stage).
     ++ [ extraOptionsDeclare ]
     ++ extraOptionsInject;
   };
@@ -290,10 +248,8 @@ let
 
   evaluatedConfig = toJSON evaluated;
 
-  # Map an absolute declaration/source path to a stable repo-relative one.
-  # Production evals resolve paths into /nix/store/<hash>-source/…; dev (path:
-  # override) resolves them under the core root. Strip whichever applies so the
-  # emitted pointer is usable against a repo checkout — and identical in both modes.
+  # Absolute declaration path -> repo-relative, identical in store and dev-path
+  # evals, so the emitted pointer works against a checkout.
   repoRelative =
     p:
     let
@@ -308,27 +264,15 @@ let
     else
       s;
 
-  # Searchable index of every IceDOS option (path, type, description, current
-  # value) — consumed by `icedos configuration search`. Reuses the same evalModules
-  # as `evaluatedConfig`: type/description come from `.options`, the value from
-  # `.config` (`evaluated`).
+  # Option index for `icedos configuration search`: type/description from
+  # `.options`, current value from the merged `.config`.
   optionsDoc =
     let
-      # Walk the evaluated options tree with `collect isOption`, which treats
-      # each option as a leaf and never expands submodule internals. This is
-      # deliberate: `optionAttrSetToDocList` would recurse through
-      # `getSubOptions`, and `toolsetCommandType` (commands → commands → …) is
-      # infinitely self-recursive, overflowing the stack. The cost is that
-      # submodule-list fields (users.<name>.*, repositories.*) aren't listed
-      # individually; plain nested options (build-vm.memory, system.packages, …)
-      # all are.
+      # `collect isOption`, not `optionAttrSetToDocList`: the latter recurses into
+      # submodules, and `toolsetCommandType` is infinitely self-recursive.
 
-      # The option's effective value: user override if set, else the resolved
-      # default. Read from `evaluated` (the merged `.config`), not the raw
-      # `.options` default. `tryEval` guards `throw`/`assert`-based defaults;
-      # note it can NOT catch missing-attribute errors, so any default that
-      # forces an absent input must be made presence-safe at its source (see
-      # `cache.key` in modules/options.nix) or it aborts the whole index.
+      # `tryEval` guards throwing defaults but NOT missing attributes — a default
+      # forcing an absent input must be presence-safe at its source.
       renderValue =
         o:
         let
@@ -336,8 +280,7 @@ let
         in
         if r.success then r.value else null;
 
-      # Descriptions are plain strings on modern nixpkgs but may arrive as an
-      # `{ _type = "mdDoc"; text; }` literal — normalise to a bare string.
+      # Descriptions may arrive as an `{ _type = "mdDoc"; text; }` literal.
       renderDescription =
         o:
         let
@@ -345,8 +288,7 @@ let
         in
         if builtins.isAttrs d then (d.text or null) else d;
 
-      # Where the option is declared, as "<repo-relative-file>:<line>". Prefer
-      # declarationPositions (carries line); fall back to declarations (file only).
+      # "<file>:<line>"; `declarations` (file only) is the fallback.
       renderDeclaredAt =
         o:
         let
@@ -366,9 +308,7 @@ let
         else
           null;
 
-      # A `[extraOptions]`-declared option: its declaring module is wrapped in
-      # `setDefaultModuleLocation` with the marker, which lands in every
-      # declared option's `declarations` list.
+      # The marker lands in every `[extraOptions]`-declared option's `declarations`.
       isExtraOption = o: lib.elem icedosLib.extraOptions.marker (o.declarations or [ ]);
     in
     toJSON (
@@ -390,17 +330,13 @@ let
         )
     );
 
-  # Full module graph for `icedos modules`: every module available in every repo
-  # that contributes a loaded module — configured *and* transitive dependency
-  # repos — each flagged enabled (loaded) / explicit (user-listed) plus its
-  # dependency edges, so disabled siblings show up next to the enabled ones.
+  # Module graph for `icedos modules`: every module of every contributing repo,
+  # flagged enabled/explicit with its dependency edges.
   modulesDoc =
     let
       repos = icedos.repositories or [ ];
 
-      # The loaded set: explicitly-enabled modules + their resolved deps. Used
-      # to flag which catalog entries are active and to discover every repo in
-      # play — each module's _repoInfo already carries the full file list.
+      # Enabled modules + resolved deps; also how every repo in play is discovered.
       resolved = resolveExternalDependencyRecursively {
         newDeps = repos;
         loadOverrides = true;
@@ -409,10 +345,8 @@ let
       moduleKey = m: "${m._repoInfo.url}/${m.meta.name}";
       loadedKeys = map moduleKey resolved.modules;
 
-      # Every distinct fetched repo (deduped by url), configured *and* transitive.
-      # `_repoInfo.files` is the complete module list, so re-loading it surfaces
-      # disabled siblings (e.g. providers' jovian) with no extra fetch.
-      # Extra-modules (url = "config") carry no `files`.
+      # `_repoInfo.files` is the complete module list, so disabled siblings surface
+      # with no extra fetch. Extra modules (url = "config") carry no `files`.
       realRepoInfos = builtins.attrValues (
         listToAttrs (
           map (ri: {
@@ -449,9 +383,7 @@ let
           (m.meta.name == "default") || elem m.meta.name (explicitByRepo.${m._repoInfo.url} or [ ]);
       };
 
-      # Drop every `default` module: it's an always-on baseline aggregator (one
-      # per repo), not a user-selectable module — its deps still appear as their
-      # own entries.
+      # `default` is an always-on aggregator, not a user-selectable module.
       deduped = builtins.attrValues (
         listToAttrs (
           map (m: {
@@ -468,11 +400,11 @@ let
     allowPrettyValues = true;
   } flakeInputs;
 
-  # Full merged user config as JSON — config.toml + every enabled
-  # configs/*.toml (see lib/load-user-config.nix). Consumed by build.sh
-  # (--export-search-index) to replace the old toml2json-of-config.toml
-  # export, so the webui sees the complete config set, not just config.toml.
+  # The complete merged config set for the webui, not just config.toml.
   userConfigRaw = toJSON userConfig;
+
+  # Sub-flake texts leave this stage only as the root inputs' store paths; nothing
+  # else is exported (build.sh reads the resulting flake.lock).
 in
 assert isFirstBuildGuard;
 assert extraFlakeNameGuard;
@@ -511,7 +443,7 @@ assert extraFlakeNameGuard;
 
           inherit (pkgs) lib;
           inherit (builtins) pathExists;
-          userConfig = import "''${inputs.icedos-core}/lib/load-user-config.nix" "''${inputs.icedos-config}";
+          userConfig = import "''${inputs.icedos-core}/lib/config/load-user-config.nix" "''${inputs.icedos-config}";
           inherit (userConfig) icedos;
 
           icedosLib = import "''${inputs.icedos-core}/lib" {
@@ -523,27 +455,17 @@ assert extraFlakeNameGuard;
 
           inherit (icedosLib) getModules modulesFromConfig;
 
-          # Build-stage re-declaration of `[extraOptions]` options. Re-derived
-          # here (not interpolated from the genflake value): the generated flake
-          # evaluates against the filtered config snapshot, and the schema must
-          # match what this stage reads.
+          # Re-derived, not interpolated: this stage reads the filtered snapshot.
           extraOptionsDeclare = icedosLib.extraOptions.declare (userConfig.extraOptions or { });
         in {
-          # The module-facing lib as a first-class flake output: the exact
-          # value `specialArgs.icedosLib` shares (one `modulesFromConfig`
-          # evaluation), so repl-context / MCP `nix_eval` read the same merged
-          # lib the module system used.
+          # The same value `specialArgs.icedosLib` gets, so repl-context and MCP
+          # `nix_eval` read the lib the module system actually used.
           icedosLib = modulesFromConfig.closureLib;
 
           nixosConfigurations.icedos = nixpkgs.lib.nixosSystem rec {
             specialArgs = {
-              # Modules see the merged lib: base + every module's top-level
-              # `lib` field contribution, merged over the FULLY-RESOLVED
-              # closure. Reuses `modulesFromConfig.closureLib` — the exact
-              # value the phase-2 module-file/extra-module re-imports were
-              # made with — so the module system and the module files share
-              # one merged lib and no second `_mergeModuleLibs` fold happens
-              # here. The genflake-side uses below keep the base `icedosLib`.
+              # Reused (not re-merged), so module files and the module system share
+              # one lib. Genflake-side uses below keep the base `icedosLib`.
               icedosLib = modulesFromConfig.closureLib;
               inherit inputs;
             };
@@ -556,10 +478,8 @@ assert extraFlakeNameGuard;
                   inherit (icedosLib) mkStrOption;
                 in
                 {
-                  # readOnly: not declared in modules/options.nix, so a
-                  # config.toml-set value already aborts at genflake with
-                  # "option does not exist"; readOnly additionally guards
-                  # module-set values at build stage.
+                  # config.toml values already abort at genflake ("option does not
+                  # exist"); readOnly guards module-set values at build stage.
                   options.icedos.configurationLocation = mkStrOption {
                     readOnly = true;
                     default = "${ICEDOS_STATE_DIR}";
@@ -572,10 +492,8 @@ assert extraFlakeNameGuard;
                 documentation.nixos.enable = false;
               }
 
-              # Loaded module set (derived, read-only): repo base url -> names.
-              # Computed by modulesFromConfig from the raw icedos config, so no
-              # circular dependency on the evaluated config. Backs
-              # `icedosLib.hasModule`.
+              # repo url -> names, computed from the RAW config (no circularity).
+              # Backs `icedosLib.hasModule`.
               {
                 icedos.system.loadedModules = modulesFromConfig.loadedModules;
               }
@@ -584,9 +502,7 @@ assert extraFlakeNameGuard;
                 imports = getModules "''${inputs.icedos-core}/modules";
               }
 
-              # Extra modules and stateVersion. Each configured extra-module
-              # directory (default `modules`) is scanned and imported; missing
-              # ones are skipped.
+              # Extra modules and stateVersion; missing dirs are skipped.
               {
                 imports = lib.flatten (map (
                   d:
@@ -598,13 +514,8 @@ assert extraFlakeNameGuard;
                 config.system.stateVersion = "${icedos.system.version}";
               }
 
-              # Raw NixOS config passthrough: every top-level table in
-              # config.toml / configs/*.toml *except* [icedos.*] is applied verbatim
-              # as NixOS config. nixpkgs' module system types & validates each option —
-              # IceDOS declares no schema. (home-manager is reachable the usual way,
-              # under [home-manager.users.<name>.*].) The `extraOptions` table is a
-              # declaration schema, not values, so it is excluded here (its options are
-              # declared by `extraOptionsDeclare` below).
+              # Every top-level table except [icedos.*] is applied verbatim as NixOS
+              # config; `extraOptions` is a schema, not values, so it is excluded.
               (lib.setDefaultModuleLocation "config.toml / configs/*.toml (raw NixOS passthrough)" {
                 config = builtins.removeAttrs userConfig [ "icedos" "extraOptions" ];
               })
@@ -645,12 +556,8 @@ assert extraFlakeNameGuard;
                 ''
                   (
                     { config, lib, ... }: {
-                      # `lib.mkBefore` keeps these overlays at the head of
-                      # `nixpkgs.overlays` so they swap the package source
-                      # *before* downstream patch overlays (e.g. cosmic
-                      # patches) run via `prev.<pkg>.overrideAttrs`. Without
-                      # it the swap clobbers patches that already landed on
-                      # the base derivation.
+                      # Head of the list, so the source swap runs BEFORE downstream
+                      # `overrideAttrs` patch overlays it would otherwise clobber.
                       nixpkgs.overlays = lib.mkBefore (icedosLib.pkgs.overlaysFromChannel config.icedos ${target} [ ${pkgList} ]);
                     }
                   )

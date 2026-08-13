@@ -20,15 +20,12 @@ let
       }) (filter (n: pred n set.${n}) (attrNames set))
     );
 
-  # Ordered, pre-parsed config files: config.toml (global base) then every
-  # enabled configs/*.toml (see lib/config-files.nix, which also applies the
-  # per-file `enable` toggle and strips it). Shared with modules/options.nix so
-  # the two consumers can never disagree about which files are loaded.
+  # Shared with modules/options.nix, so the two can never disagree about which
+  # files are loaded.
   configFiles = import ./config-files.nix configRoot;
 
-  # Deep-merge b into a: attrs recurse, lists concatenate, and defining the same
-  # scalar key in two different files is a hard error. `bRel` names the file b
-  # came from so the collision is actionable.
+  # Attrs recurse, lists concatenate, the same scalar key in two files is a hard
+  # error naming both.
   mergeStrict =
     bRel: path: a: b:
     let

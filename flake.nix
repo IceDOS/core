@@ -24,9 +24,7 @@
           inherit (builtins) isString pathExists;
           isFlake = value: (value._type or null) == "flake";
 
-          # config.toml is optional — a config root may be defined entirely by
-          # configs/*.toml and/or modules/. The flake itself (flake.nix) is the
-          # marker that identifies the root.
+          # config.toml is optional; flake.nix is what marks the config root.
           _configRoot =
             if ((isFlake configRoot) && (pathExists "${configRoot}/flake.nix")) then
               configRoot
@@ -36,7 +34,7 @@
           _stateDir =
             if (isString stateDir) then stateDir else (throw "The value of `stateDir` should be a string.");
 
-          inherit (import ./lib/load-user-config.nix _configRoot) icedos;
+          inherit (import ./lib/config/load-user-config.nix _configRoot) icedos;
 
           system = icedos.system.arch or "x86_64-linux";
           pkgs = nixpkgs.legacyPackages.${system};
@@ -116,7 +114,7 @@
           };
         };
 
-      # Eval-only lib tests (`lib/tests/tests.nix`) as a flake check. Any result
+      # Eval-only lib tests (`tests/tests.nix`) as a flake check. Any result
       # value other than "ok" fails the derivation.
       checks =
         let
@@ -135,7 +133,7 @@
                 r = builtins.tryEval value;
               in
               if r.success then r.value else "FAIL: ${name} threw during evaluation"
-            ) (import ./lib/tests/tests.nix { inherit (pkgs) lib; });
+            ) (import ./tests/tests.nix { inherit (pkgs) lib; });
 
             failures = lib.filterAttrs (_: value: value != "ok") results;
           in

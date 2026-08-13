@@ -68,9 +68,8 @@ in
         [ -e "$link" ] || die "generation $TARGET not found"
         [ "$TARGET" = "$current_n" ] && die "generation $TARGET is already current"
 
-        # Resolve the config snapshot that built the target generation from the
-        # exact marker the rebuild script records at build time. Generations
-        # built before the marker existed have none — those roll back system-only.
+        # Resolved from the marker rebuild.sh records at build time; generations
+        # older than the marker roll back system-only.
         m="$(stat -c %Y "$link" 2>/dev/null)"
         ${walk}
         snap_file="${cacheDir}/generations/$TARGET"
@@ -81,9 +80,8 @@ in
         store="$(readlink -f "$link")"
         ker="$(readlink "$store/kernel" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 
-        # Preview one snapshot/working file pair (walk_config_set's callback
-        # signature), indented under the plan. A missing side shows as /dev/null
-        # so adds/removes are visible.
+        # walk_config_set callback: a missing side shows as /dev/null, so adds and
+        # removes are visible.
         show_pair() {
           local label="$1" snapf="$2" work="$3"
           [ -f "$work" ] || work=/dev/null
@@ -152,9 +150,8 @@ in
           else
             rm -f "${workingConfig}"
           fi
-          # Restore every config dir's *.toml set exactly (including hidden
-          # .*.toml): copy snapshot files over, then drop working configs the
-          # snapshot didn't carry.
+          # Restore each dir's *.toml set exactly: copy the snapshot in, then drop
+          # working files it didn't carry.
           shopt -s nullglob
           for d in "''${CONFIG_DIRS[@]}"; do
             mkdir -p "${configRoot}/$d"

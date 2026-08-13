@@ -106,18 +106,13 @@ done
 
 export NIX_CONFIG="experimental-features = flakes nix-command pipe-operators"
 
-# Lightweight index for `icedos configuration search` / `configuration validate`
-# (and the webui config editor): emit the option + module docs plus a JSON dump
-# of the user's config.toml, then exit. Runs before every mutating step below —
-# it evaluates lib/genflake.nix directly, so it needs neither the generated
-# flake nor a refreshed lock, and callers get a read-only check (the only writes
-# are the .cache/*.json index files themselves). No full system eval, no build.
+# Search/validate index for the CLI and webui. Evaluates genflake.nix directly —
+# no generated flake, no lock refresh, no build — and exits.
 if [ "$export_search_index" == "1" ]; then
   (
     cd "$ICEDOS_STATE_DIR"
     mkdir -p .cache
-    # One genflake eval producing both docs — evaluating the file per-doc would
-    # redo the whole config load + module resolution each time.
+    # One eval for both docs; per-doc evals would redo the whole module resolution.
     search_docs=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
       --file "$ICEDOS_ROOT/lib/genflake.nix" \
       --apply 'g: { inherit (g) optionsDoc modulesDoc; }')
@@ -127,11 +122,8 @@ if [ "$export_search_index" == "1" ]; then
     jsonfmt .cache/options-doc.json -w
     jsonfmt .cache/modules-doc.json -w
 
-    # Full merged user config as JSON (config.toml + every enabled
-    # configs/*.toml — see lib/load-user-config.nix). The webui editor reads
-    # this next to options-doc.json to tell which keys the user actually set
-    # and to recover submodule-list values (repositories, users) the options
-    # doc doesn't expand.
+    # The merged config set, so the webui editor can tell which keys the user set
+    # and recover submodule lists the options doc doesn't expand.
     user_config=$(ICEDOS_STAGE="genflake" nix eval --json $trace \
       --file "$ICEDOS_ROOT/lib/genflake.nix" \
       --apply 'g: g.userConfigRaw')
@@ -142,11 +134,8 @@ if [ "$export_search_index" == "1" ]; then
   exit 0
 fi
 
-# Refresh every `type: "path"` input in config/flake.lock so a local-
-# core override (inputs.icedos.url = "path:...") lands on every plain
-# rebuild without requiring --update-core. github / git inputs stay
-# pinned. Skipped when --update-core is set since the block below
-# does a full --refresh on all inputs anyway.
+# Refresh `path:` inputs so a local-core override lands without --update-core;
+# github/git stay pinned. Skipped under --update-core (full refresh below).
 if [ "$update_core" != "1" ] \
    && [ -n "$ICEDOS_CONFIG_ROOT" ] \
    && [ -f "$ICEDOS_CONFIG_ROOT/flake.lock" ]; then
@@ -170,25 +159,93 @@ if [ "$update_repos" == "1" ]; then
   refresh="--refresh"
 fi
 
-# Generate flake
-ICEDOS_UPDATE="$update_repos" ICEDOS_STAGE="genflake" nix eval $refresh $trace --file "$ICEDOS_ROOT/lib/genflake.nix" --raw flakeFinal >"$ICEDOS_STATE_DIR/$FLAKE"
+# Separate bake-suppression flags: a baked rev would pin the very input the
+# running update flag is about to bump. --update sets both.
+update_flag="$update_repos"
+update_module_inputs_flag="$update_repos_inputs"
+
+# Captured first, written second, so a failed eval leaves the previous
+# `.state/flake.nix` intact instead of truncating it.
+flake_final=$(ICEDOS_UPDATE="$update_flag" ICEDOS_UPDATE_MODULE_INPUTS="$update_module_inputs_flag" \
+  ICEDOS_STAGE="genflake" nix eval --raw $refresh $trace \
+  --file "$ICEDOS_ROOT/lib/genflake.nix" flakeFinal)
+printf '%s\n' "$flake_final" >"$ICEDOS_STATE_DIR/$FLAKE"
 nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
+# Sub-flakes exist only as store paths in the generated flake's root inputs, so
+# `flake.lock` is the single source of truth for which inputs belong to which.
+
+# Lock in a DETACHED copy: nix treats `.state` as a git flake, and a git flake
+# refuses to lock an untracked `path:` input. Only flake.lock is copied back.
+lock_dir="$(mktemp -d -t icedos-lock-XXXXXXX-0)"
+trap 'rm -rf "$lock_dir" 2>/dev/null || true' EXIT
+rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$lock_dir/"
+
+sync_lock() {
+  if [ -f "$lock_dir/flake.lock" ]; then
+    cp "$lock_dir/flake.lock" "$ICEDOS_STATE_DIR/flake.lock"
+  else
+    echo "warning: no flake.lock in detached lock dir — nothing to sync" >&2
+  fi
+}
+
+# Sub-flake roots: `path:` root inputs whose store path ends `-<name>-subflake`.
+# Keys come from `nodes.root.inputs` — nix suffixes colliding node names.
+subflakes_from_lock() {
+  jq -r '
+    . as $doc | $doc.nodes.root.inputs | to_entries[]
+    | .key as $k | .value as $key
+    | select(($key | type) == "string")
+    | select($doc.nodes[$key].locked.type == "path")
+    | select($doc.nodes[$key].locked.path | startswith("/nix/store/"))
+    | select($doc.nodes[$key].locked.path | endswith("-" + $k + "-subflake"))
+    | $k
+  ' "$1" 2>/dev/null
+}
+
+# Captured before the lock step creates one: prefetch needs a lock, but a first
+# build is exactly when the parallel prefetch is worth it.
+first_lock=0
+[ -f "$lock_dir/flake.lock" ] || first_lock=1
 
 (
   set -e
-  cd "$ICEDOS_STATE_DIR"
+  cd "$lock_dir"
 
-  if [ ! -f flake.lock ] || [ -n "$update_core$update_nixpkgs$update_repos$update_repos_inputs" ]; then
+  # A changed sub-flake has a new store path, so this re-locks that root alone —
+  # `nix flake update <sub>` would re-resolve its whole subtree to latest.
+  nix flake lock
+
+  # Store warming only; needs the lock above.
+  if [ "$first_lock" == "1" ] || [ -n "$update_core$update_nixpkgs$update_repos$update_repos_inputs" ]; then
     nix flake prefetch-inputs
   fi
 
-  # Refresh every `type: "path"` input on each build so local sibling-
-  # repo edits (e.g. overrideUrl = "path:..." in config.toml) land
-  # without requiring --update-repos. github / git inputs stay pinned
-  # to their lock entries so we don't pay a network roundtrip per
-  # rebuild.
-  for input in $(jq -r '.nodes | to_entries[] | select(.value.locked.type == "path") | .key' flake.lock 2>/dev/null); do
+  # Local `path:` roots (overrideUrl checkouts) refresh every build; github/git
+  # stay pinned. Store paths are skipped — updating one unpins its whole subtree.
+  for input in $(jq -r '. as $doc | $doc.nodes.root.inputs | to_entries[] | .key as $k | .value as $key | select(($key | type) == "string") | select($doc.nodes[$key].locked.type == "path") | $k' flake.lock 2>/dev/null); do
+    locked_path=$(jq -r --arg k "$input" '.nodes.root.inputs[$k] as $key | select(($key | type) == "string") | .nodes[$key].locked.path // ""' flake.lock)
+    case "$locked_path" in
+      /nix/store/*) continue ;;
+    esac
     nix flake update "$input" 2>/dev/null || true
+  done
+
+  # Same for local `path:` inputs NESTED in a sub-flake: a plain lock keeps their
+  # stale narHash (the url string never changed), so refresh them explicitly.
+  for sub in $(subflakes_from_lock flake.lock); do
+    for input in $(jq -r --arg sub "$sub" '
+      . as $doc
+      | $doc.nodes.root.inputs[$sub] as $key
+      | select(($key | type) == "string")
+      | $doc.nodes[$key].inputs | to_entries[]
+      | select(.value | type == "string")
+      | .key as $in | .value as $lk
+      | select($doc.nodes[$lk].locked.type == "path")
+      | select(($doc.nodes[$lk].locked.path | startswith("/nix/store/")) | not)
+      | $in
+    ' flake.lock 2>/dev/null); do
+      nix flake update "$sub/$input" 2>/dev/null || true
+    done
   done
 
   [ "$update_core" == "1" ] && nix flake update icedos-core --refresh 2>/dev/null || true
@@ -197,13 +254,18 @@ nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
 if [ "$update_all" == "1" ]; then
   (
     set -e
-    cd "$ICEDOS_STATE_DIR"
+    cd "$lock_dir"
     nix flake update --refresh
   )
 elif [ "$update_repos_inputs" == "1" ]; then
   (
     set -e
-    cd "$ICEDOS_STATE_DIR"
+    cd "$lock_dir"
+    # Repos first, then each module input nested in its sub-flake. Only STRING
+    # entries are real nodes — arrays are `follows`, and bumping one unpins nixpkgs.
+    mapfile -t subflakes < <(subflakes_from_lock flake.lock)
+    declare -A subflake_set
+    for sub in "${subflakes[@]}"; do subflake_set["$sub"]=1; done
     for input in $(jq -r '
       .nodes.root.inputs
       | to_entries[]
@@ -211,34 +273,63 @@ elif [ "$update_repos_inputs" == "1" ]; then
       | .key
       | select(startswith("icedos-"))
     ' flake.lock 2>/dev/null); do
-      nix flake update "$input" --refresh 2>/dev/null || true
+      # Not `printf | grep`: under pipefail, grep's early exit SIGPIPEs printf and
+      # the negation becomes a false positive.
+      if [ -z "${subflake_set[$input]:-}" ]; then
+        nix flake update "$input" --refresh 2>/dev/null || true
+      fi
+    done
+    for sub in "${subflakes[@]}"; do
+      for input in $(jq -r --arg sub "$sub" '.nodes.root.inputs[$sub] as $key | select(($key | type) == "string") | .nodes[$key].inputs | to_entries[] | select(.value | type == "string") | .key' flake.lock 2>/dev/null); do
+        nix flake update "$sub/$input" --refresh 2>/dev/null || true
+      done
     done
   )
 fi
 
-# Stop after the flake (and its lock) have been generated, without
-# building anything. Lets callers evaluate the generated flake (e.g. to
-# query per-package output paths) without realising the system closure.
+# Convergence: the genflake above ran with the bakes suppressed, so a PATCHED
+# input still embeds its pre-bump tree. Re-run with the fresh lock and re-lock.
+if [ "$update_repos_inputs" == "1" ] || [ "$update_all" == "1" ]; then
+  # Sync FIRST: genflake reads the lock from ICEDOS_STATE_DIR.
+  sync_lock
+  flake_final=$(ICEDOS_UPDATE="" ICEDOS_UPDATE_MODULE_INPUTS="" \
+    ICEDOS_STAGE="genflake" nix eval --raw $trace \
+    --file "$ICEDOS_ROOT/lib/genflake.nix" flakeFinal)
+  printf '%s\n' "$flake_final" >"$ICEDOS_STATE_DIR/$FLAKE"
+  nixfmt "$ICEDOS_STATE_DIR/$FLAKE"
+  # Re-lock the changed sub-flake roots; unchanged nodes keep their pins.
+  rsync -a --exclude=".cache" "$ICEDOS_STATE_DIR/" "$lock_dir/"
+  (
+    set -e
+    cd "$lock_dir"
+    nix flake lock
+  )
+fi
+
+# A failed lock step exits via the trap WITHOUT syncing, leaving `.state` on its
+# previous lock; the next run re-attempts.
+sync_lock
+
+# Lets callers evaluate the generated flake without realising the closure.
 if [ "$genflake_only" == "1" ]; then
   exit 0
 fi
 
 [ "$update_nixpkgs" == "1" ] && [ "$update_all" != "1" ] && (
   set -e
-  cd "$ICEDOS_STATE_DIR"
+  cd "$lock_dir"
   nix flake update nixpkgs
 )
+sync_lock
+rm -rf "$lock_dir"
+trap - EXIT
 
-# Created here, not earlier: every path that exits before the build
-# (--genflake-only, --export-search-index) would otherwise leave an empty temp
-# dir behind on each run. Nothing between the arg parse and here reads it —
-# genflake takes its paths from ICEDOS_ROOT/ICEDOS_STATE_DIR/ICEDOS_CONFIG_ROOT.
+# Created here, not earlier: every path that exits before the build would
+# otherwise leave an empty temp dir behind.
 export ICEDOS_BUILD_DIR="$(mktemp -d -t icedos-build-XXXXXXX-0)"
 
-# Hold an exclusive flock on the build dir's `.lock` for the whole build so
-# the automatic nh-clean temp-dir sweep skips it while it is in flight. The
-# lock is released automatically when this process exits or dies, so a dir
-# left behind by a crashed build is still cleaned up on the next gc.
+# Held for the whole build so the nh-clean sweep skips this dir; released on
+# exit, so a crashed build's dir is still collected next gc.
 exec 9>"$ICEDOS_BUILD_DIR/.lock"
 flock -n 9 || echo "warning: could not lock $ICEDOS_BUILD_DIR/.lock; a gc sweep may delete this build dir" >&2
 

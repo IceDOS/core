@@ -25,11 +25,8 @@ in
 
         ${walk}
 
-        # Latest config snapshot (see rebuild.nix snapshot_config_set): the folder
-        # carries the .config-set marker plus config.toml (optional) + every
-        # extraConfigs dir for the rebuild where the set last changed. Glob is
-        # lexically sorted → chronological for date -Is names, so the last match
-        # is the most recent.
+        # Latest snapshot: date -Is names sort lexically, so the last glob match is
+        # the most recent.
         shopt -s nullglob
         latest=""
         for d in "${cacheDir}"/*/; do
@@ -41,9 +38,8 @@ in
 
         l1="$(basename "$latest") (last build)"
 
-        # Diff one snapshot/working pair; prints a unified diff and flags
-        # `differs` on mismatch. A missing side shows as /dev/null so files
-        # added or removed since the last build are visible.
+        # Diff one snapshot/working pair. A missing side shows as /dev/null, so
+        # adds and removes are visible.
         differs=0
         diff_pair() {
           local label="$1" snap="$2" work="$3"

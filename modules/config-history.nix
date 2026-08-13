@@ -59,10 +59,8 @@ in
         [ "$JSON" -eq 1 ] && [ -n "$TARGET" ] &&
           die "--json cannot be combined with a generation"
 
-        # Snapshot state for generation $1, as recorded by rebuild.nix:
-        #   present — the pointer and the snapshot folder both exist
-        #   pruned  — a snapshot was recorded but is gone from the cache (gc'd)
-        #   none    — no snapshot was ever recorded for this generation
+        # present = pointer + folder exist; pruned = recorded but gc'd;
+        # none = never recorded.
         snapshot_state() {
           local gen="$1" ptr snap
           ptr="${cacheDir}/generations/$gen"

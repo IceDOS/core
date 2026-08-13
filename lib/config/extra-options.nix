@@ -1,36 +1,5 @@
-# Translate the user-written `[extraOptions]` TOML table into a NixOS module
-# that declares those options — letting a user define their own typed options
-# purely from config.toml / configs/*.toml, with no Nix module to write.
-#
-# The `[extraOptions]` table is a recursive tree:
-#   * a node with a `type` key is a TYPED LEAF — one declared option. Every
-#     other key must be a known meta key (`default`, `description`, and the
-#     type's own constraints).
-#   * a node without `type` is a NAMESPACE — a pure grouping segment; every key
-#     is a child path segment (another table), never a scalar value.
-# Option paths are full dotted paths from the config root, so
-# `[extraOptions.icedos.applications.myapp]` with a leaf `enable` declares
-# `options.icedos.applications.myapp.enable`, and `[extraOptions.services.myapp]`
-# declares `options.services.myapp`. Non-icedos paths are allowed and merge with
-# nixpkgs / IceDOS options.
-#
-# Values reach the running system by the same routes as ordinary config:
-#   * `icedos.*` options through the per-file `config.icedos` imports in
-#     modules/options.nix;
-#   * non-icedos options through the raw NixOS passthrough in genflake.nix.
-# At the genflake stage that passthrough is absent, so `inject` re-applies the
-# declared non-icedos values per-path — that is what makes the search index show
-# real values instead of null for custom options.
-#
-# The generated module is wrapped in `lib.setDefaultModuleLocation` with
-# `marker`, which lands the marker string in every declared option's
-# `declarations` — genflake's optionsDoc keep-filter matches on it to include
-# non-icedos custom options in the index.
-#
-# loadLibs constraint: `lib/default.nix` probes each lib file with a bare
-# icedosLib and enumerates only the top-level exported names, so this file
-# exports a single top-level attrset (`extraOptions`) and references icedosLib
-# members only inside the exported functions.
+# `[extraOptions]` TOML -> a NixOS module declaring those options. A node with a
+# `type` is a typed leaf, one without is a namespace; paths are full dotted paths.
 {
   icedosLib,
   lib,
@@ -70,10 +39,8 @@ let
 
   inherit (icedosLib) abortIf validate;
 
-  # Shared provenance marker. Landed in the `_file` of every generated module so
-  # (a) `o.declarations` carries it for the optionsDoc keep-filter, and (b) type
-  # / merge errors point at "config.toml / configs/*.toml" instead of an
-  # anonymous generated location. Also the `source` attribute for validate.*.
+  # Lands in every generated module's `_file`, so optionsDoc can keep-filter on it
+  # and errors name the config files. Also the validate.* `source`.
   marker = "extraOptions (config.toml / configs/*.toml)";
   source = marker;
 
@@ -93,9 +60,8 @@ let
 
   isNum = v: isInt v || isFloat v;
 
-  # Bare-name item types: the scalar types a `list`/`attrs` `item` may name
-  # directly. Composite / constraint-carrying items are written as a descriptor
-  # table instead (see `validateItem`).
+  # Scalar types a `list`/`attrs` `item` may name directly; anything constrained
+  # is written as a descriptor table instead.
   scalarTypes = [
     "bool"
     "string"
@@ -205,10 +171,8 @@ let
       )
     ) true (attrNames node);
 
-  # Every field of a typed leaf must be a known meta key. `validateLeaf` returns
-  # `true` or throws; `validateItem` / `validateFields` recurse into the
-  # descriptor subtrees (`item`, `fields`) that shape a type rather than the
-  # option tree.
+  # Every field of a typed leaf must be a known meta key. The item/fields
+  # descriptors are validated by their own recursions.
   validateLeaf =
     path: node:
     let
@@ -358,10 +322,8 @@ let
     max = node.max or null;
   };
 
-  # Scalar types, with validate.* checks attached where constraints apply. The
-  # checks reuse the same path-aware validators as the `mk*Option` family, so a
-  # bad value reports `extraOptions.<path>` (and `source`) instead of a bare
-  # nixpkgs type error.
+  # The same path-aware validators the `mk*Option` family uses, so a bad value
+  # reports `extraOptions.<path>` instead of a bare nixpkgs type error.
   scalarType =
     path: node:
     let
@@ -376,10 +338,8 @@ let
     else if t == "int" then
       types.addCheck types.int (validate.int (numConstraints node) (fmtPath path) source)
     else if t == "float" then
-      # `types.number` (not `types.float`): TOML parses whole numbers as ints,
-      # and validate.float already accepts ints — `types.float`'s `isFloat`
-      # check would reject them with a bare nixpkgs error before ours ran.
-      # Mirrors `mkFloatBetweenOption` in lib/options/helpers.nix.
+      # `types.number`, not `types.float`: TOML parses whole numbers as ints and
+      # `isFloat` would reject them before our validator ran.
       types.addCheck types.number (validate.float (numConstraints node) (fmtPath path) source)
     else if t == "nonEmptyString" then
       types.nonEmptyStr
@@ -433,9 +393,7 @@ let
     else if t == "intList" then
       types.listOf types.int
     else if t == "floatList" then
-      # Same reasoning as scalar `float` (above): TOML parses whole numbers as
-      # ints, so a float list must accept ints too or `[1, 2]` gets rejected by
-      # `types.float`'s `isFloat` check before our constraints could run.
+      # Same as scalar `float`: `[1, 2]` is a list of ints in TOML.
       types.listOf types.number
     else if t == "list" then
       types.listOf (itemType path node)
@@ -448,21 +406,8 @@ let
     else
       scalarType path node;
 
-  # Fail fast on a bad schema `default` OR a bad injected user value with the
-  # same rich, path-aware validator error a constrained scalar would get —
-  # surfaces at genflake, before any build. Constraint-carrying types (string /
-  # number / int / float / enum) run their `validate.*` validator (which throws
-  # the message); every other type falls back to `leafType.check`, which also
-  # covers the bool / list / attrs shapes nixpkgs would otherwise only check
-  # lazily when the option is read. Composite types are checked ONE level deep:
-  # list elements and attrs values against their `item` type, and record fields
-  # against their `fields` schema (with undeclared fields rejected), so a bad
-  # element/field fails at genflake too — not just a wrong container shape.
-  # Record's own `check` accepts any attrset (nixpkgs' submodule check:
-  # `isAttrs || isFunction || path.check`), so the shape gate passes and
-  # `recordOk` walks the fields; a non-attrs value for a record leaf is still
-  # rejected by the shape gate. Nested item/field `record`s are NOT recursively
-  # checked here (their submodule types check when forced) — document that limit.
+  # Eager, path-aware check of a schema default or injected value at genflake.
+  # Composites are checked ONE level deep; nested records check when forced.
   eagerCheck =
     path: node: value:
     let
@@ -494,9 +439,8 @@ let
         else
           null;
 
-      # Deep check for the composite families. `all`/`filter` over the container
-      # is only reached after the container's own `check` passed, so `value` is
-      # an attrset for attrs/record and a list for the list family.
+      # Only reached after the container's own `check` passed, so `value` already
+      # has the right shape.
       compositeOk =
         if t == "record" then
           let
@@ -541,13 +485,8 @@ let
   mkOptionValue =
     path: node:
     let
-      # Only set `default` when the schema declares one. nixpkgs feeds
-      # `mkOptionDefault opt.default` into the definition list and type-checks it,
-      # so an implicit `default = null` on a typed option makes an *unset* option
-      # fail as "null doesn't match the type" instead of resolving — and an option
-      # the user never touches then aborts the whole build when read. Omitting it
-      # gives the standard nixpkgs contract: resolve the user value if set, else
-      # "was accessed but has no value defined" (tryEval'd to null in the search index).
+      # Only when the schema declares one: an implicit `default = null` is fed
+      # through the type check and fails every unset typed option.
       option = mkOption (
         {
           type = leafType path node;
@@ -581,9 +520,7 @@ in
   extraOptions = {
     inherit marker;
 
-    # Turn the `[extraOptions]` schema into a NixOS module declaring every
-    # option it describes. The root must be a namespace — options are declared
-    # at full dotted paths below it, never at the root itself.
+    # Schema -> a module declaring every option. The root must be a namespace.
     declare =
       schema:
       let
@@ -601,15 +538,8 @@ in
         options = buildTree [ ] schema;
       };
 
-    # genflake-stage value injection: per-path `config.<path> = <raw value>` for
-    # every declared NON-icedos option the user actually set, so the search index
-    # shows real values. `icedos.*` options are skipped (their values already
-    # flow through the per-file `config.icedos` imports in modules/options.nix),
-    # as are paths under `extraOptions` itself (that table holds schema, not
-    # values). A declared path that traverses a non-table intermediate aborts
-    # loudly instead of degrading to a silent null, and every injected value is
-    # eagerly type-checked against its declared leaf — a wrong-typed value fails
-    # at genflake, not silently until something reads the option.
+    # Genflake-stage `config.<path> = <value>` for every declared non-icedos
+    # option the user set (icedos.* already flow through the config imports).
     inject =
       schema: userConfig:
       let

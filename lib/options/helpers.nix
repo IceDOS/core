@@ -9,10 +9,8 @@ let
     abortIf (!(args ? ${key}))
       "${fnName}: missing required arg '${key}' (every validating wrapper requires path + source + default)";
 
-  # validate.* fires on every resolved value — module-config.toml defaults and
-  # user overrides alike — so dev typos (bad default in a module's own
-  # config.toml) surface with the same rich path/source error as user-side
-  # mistakes.
+  # validate.* fires on every resolved value, so a module's own bad default gets
+  # the same rich path/source error as a user mistake.
   requireValidationArgs =
     fnName: args:
     requireArg fnName args "path"
