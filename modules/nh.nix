@@ -71,12 +71,8 @@ let
         tempBuildDirs+=("$dir")
       done < <(find /tmp -type d -name 'icedos-build*' -print0 2>/dev/null)
 
-      # A build dir held by an active build has a `.lock` file that build.sh
-      # keeps flocked for the whole build. Releasing happens automatically on
-      # process exit/crash, so a stale dir is deletable; only a live build is
-      # skipped. A dir without `.lock` (e.g. left by an older build.sh) is
-      # treated as stale and deletable. Unreadable dirs (another user's
-      # build; `mktemp -d` uses mode 0700) are skipped as not ours.
+      # A live build holds a flock on `.lock` (released on exit/crash), so only
+      # live dirs are skipped; unreadable ones are another user's.
       declare -a buildDirs=()
       declare -a inFlightDirs=()
       for dir in "''${tempBuildDirs[@]}"; do
@@ -314,41 +310,21 @@ let
       fi
     ''}/bin/${command}";
 
-  # Each hook entry → its own pkgs.writeShellScript so it runs in a
-  # fresh shell process (isolated env/traps/`set -e`/`exit`). Prelude
-  # prepended so hooks have color vars + log helpers, matching the
-  # rebuild-hooks ergonomics. hookPaths returns a list (usable as
-  # ExecStartPre/Post); runHooksAsUsers emits one runuser-wrapped
-  # invocation per normal user for the timer service; gcHookRunBlock
-  # wraps the same lines so `icedos gc` runs them per user from a
-  # single sudo'd root context, keeping both paths identical.
+  # One script per hook, so each runs in a fresh shell (isolated env/traps/exit)
+  # with the prelude available.
   hookPaths =
     name: scripts:
     imap0 (i: s: writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}") scripts;
 
-  # Hook execution identity. Hooks don't run as root by default: both the
-  # `icedos gc` command and the automatic nh-clean.service run them once per
-  # normal user (as that user) via runuser. The service is already root; the
-  # `icedos gc` command self-elevates with sudo to switch users when needed.
-  # A hook may also escalate itself with `sudo` where the user it runs as has
-  # permission (e.g. NOPASSWD). A config with no normal users skips hooks in
-  # both paths. The shared system steps of the service/command (nh clean,
-  # temp-dir and config-history cleanup) stay root.
+  # Hooks run once per normal user AS that user (never root by default); the
+  # shared system steps stay root.
   normalUsers = map (u: u.name) (icedosLib.users.getNormal { inherit users; });
 
   runuser = "${pkgs.util-linux}/bin/runuser";
   coreutilsEnv = "${pkgs.coreutils}/bin/env";
 
-  # `runuser -u` alone inherits the caller's environment (PATH, XDG_*,
-  # DBUS_*, ...), leaking e.g. the invoking user's profile dirs into another
-  # user's hooks. `runuser -l` is not an option: it is mutually exclusive
-  # with `-u` in util-linux >= 2.42, and without /etc/login.defs (NixOS) its
-  # login mode sets PATH to /usr/local/bin:/usr/bin:/bin. So pin the identity
-  # and a NixOS login PATH explicitly via `env -i` — hooks then see the same
-  # deterministic env from the timer (systemd) and from `icedos gc`
-  # (sudo'd root), regardless of who invoked the command. Quote each whole
-  # `NAME=value` item so it parses identically under bash and systemd
-  # ExecStart (which only strips quotes wrapping a full item).
+  # `runuser -u` would leak the caller's env and `-l` is unusable here, so pin the
+  # identity and a login PATH via `env -i`, quoting each whole `NAME=value` item.
   loginEnv =
     user:
     let
@@ -370,14 +346,8 @@ let
       map (h: "${runuser} -u \"${u}\" -- ${coreutilsEnv} -i ${loginEnv u} ${h}") (hookPaths name scripts)
     ) normalUsers;
 
-  # The `icedos gc` command runs gc hooks per user just like the timer
-  # service, but it isn't root — so instead of sudo-ing once per hook×user
-  # pair, it elevates a single time (`sudo bash -c`) and runs every
-  # per-user hook inside that one root context. Already root? Run the
-  # lines directly. No hooks/users? Emit nothing. The `exit 0` appended to
-  # the sudo payload keeps `|| die` firing only when elevation itself fails
-  # (sudo auth/exec), never on a hook's exit status — hook failures are
-  # then treated the same as in the already-root branch (no `set -e`).
+  # `icedos gc` elevates once and runs every per-user hook in that root context.
+  # The trailing `exit 0` keeps `|| die` firing on elevation failure only.
   gcHookRunBlock =
     name: scripts:
     let

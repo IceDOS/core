@@ -43,7 +43,14 @@ loadLibs [
   ./logger.nix
   ./options/validate.nix
   ./options/helpers.nix
-  ./extra-options.nix
-  ./helpers.nix
+  ./config/extra-options.nix
+  ./bash.nix
+  ./color.nix
+  ./users.nix
+  ./pkgs.nix
+  ./packaging.nix
+  ./toolset.nix
+  ./scan.nix
+  ./inputs.nix
   ./icedos.nix
 ]

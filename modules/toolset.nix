@@ -20,17 +20,13 @@ let
   inherit (lib) concatMap optional;
   validNameRegex = "[a-zA-Z0-9_-]+";
 
-  # Recursively merge commands sharing a name by concatenating their `commands`
-  # children. Without this, two modules registering e.g. `claude` with different
-  # subcommands (`limits`, `mcp`) produce duplicate case labels in the root
-  # dispatcher — bash always matches the first. Recursion handles the same
-  # scenario at any depth.
+  # Merge same-named commands by concatenating their children: two modules
+  # registering one name would otherwise emit duplicate case labels.
   mergeCommands =
     cmds:
     let
-      # Fold over commands, tracking each original entry's classification for the
-      # validation step below — a `_entries` list per group is accumulated so we
-      # can detect leaf/branch collisions across modules.
+      # `_entries` per group keeps each original entry's classification, for the
+      # leaf/branch collision check below.
       grouped = builtins.foldl' (
         acc: cmd:
         if builtins.hasAttr cmd.command acc then
@@ -60,12 +56,8 @@ let
           }
       ) { } cmds;
 
-      # Validate cross-module collisions: if multiple entries share a name and
-      # disagree on leaf vs branch classification, or if multiple leaves collide,
-      # the outcome is order-dependent (NixOS list concatenation decides which
-      # definition wins). A single-entry group that declares both `commands` and
-      # `script`/`bin` is already caught by the accurate assertion below and
-      # falls through.
+      # Same name as both leaf and branch (or two leaves) is order-dependent —
+      # NixOS list concatenation would decide the winner.
       check =
         name: entry:
         let
