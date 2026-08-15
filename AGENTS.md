@@ -460,6 +460,9 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
   per-package duplicate.
 - `writeShellApplication` bash is built `--disable-progcomp`: `compgen`/`complete` are
   missing at runtime (shellcheck still passes). Use `nullglob` arrays instead.
+- `home-manager.useGlobalPkgs = true` (set in `modules/users.nix`): hm user envs use the
+  system pkgs — system `nixpkgs.config` (allowUnfree, permittedInsecurePackages) and
+  `nixpkgs.overlays` apply in user envs; per-user hm `nixpkgs.*` options are disabled.
 - hm-managed `xdg.desktopEntries` land in `/etc/profiles/per-user/<user>/share/applications/`
   (via `home-manager.useUserPackages`) through a symlink chain inotify can't track —
   cache-on-startup daemons need a `home.activation` restart hook.

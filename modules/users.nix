@@ -62,6 +62,11 @@ in
   # deletes as "orphaned" — unrooting the live profile so GC reaps it (kitty/walker vanish).
   home-manager.useUserPackages = true;
 
+  # User envs follow the system pkgs (config incl. allowUnfree/permittedInsecurePackages
+  # and overlays); hm's own pkgs would import bare nixpkgs and miss both. Disables the
+  # per-user `nixpkgs.config`/`nixpkgs.overlays` options — nothing in icedos sets them.
+  home-manager.useGlobalPkgs = true;
+
   home-manager.users = mapAttrs (
     _: _:
     { lib, ... }:
