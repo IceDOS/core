@@ -18,8 +18,7 @@ let
 
   inherit (config.icedos) system users;
 
-  # Resolve home dir the same way `users.users` below does — fall back to
-  # `/home/<user>` when `userAttrs.home` is unset.
+  # Home dir, falling back to /home/<user> when unset.
   homeOf =
     user:
     let
@@ -28,11 +27,7 @@ let
     if (builtins.stringLength h != 0) then h else "/home/${user}";
 in
 {
-  # `nix.settings.trusted-users` grants unrestricted access to the nix
-  # daemon (store tampering, arbitrary build hooks, etc.) — see
-  # https://nix.dev/manual/nix/command-ref/conf-file#conf-trusted-users
-  # Only opt-in users are added; everyone else relies on the daemon's
-  # normal-user sandbox.
+  # trusted-users grants unrestricted nix-daemon access; only opt-in users get it.
   nix.settings.trusted-users = [ "root" ] ++ attrNames (filterAttrs (_: u: u.trusted) users);
 
   users.users = mapAttrs (
@@ -55,16 +50,11 @@ in
   # Rename pre-existing plain files to `<path>.hm-bak` instead of aborting activation.
   home-manager.backupFileExtension = "hm-bak";
 
-  # Install home-manager `home.packages` into `/etc/profiles/per-user/<user>` (via
-  # `users.users.<name>.packages`) rather than a per-user `nix-env` profile. The former
-  # rides the system-generation gcroot (`/nix/var/nix/gcroots/current-system`); the latter
-  # is rooted only by `/nix/var/nix/gcroots/per-user/<user>`, which `nh clean` (>=4.4.0)
-  # deletes as "orphaned" — unrooting the live profile so GC reaps it (kitty/walker vanish).
+  # home.packages into /etc/profiles/per-user/<user>, kept alive by the system
+  # generation gcroot (nh clean would reap per-user nix-env profiles).
   home-manager.useUserPackages = true;
 
-  # User envs follow the system pkgs (config incl. allowUnfree/permittedInsecurePackages
-  # and overlays); hm's own pkgs would import bare nixpkgs and miss both. Disables the
-  # per-user `nixpkgs.config`/`nixpkgs.overlays` options — nothing in icedos sets them.
+  # hm pkgs follow the system (allowUnfree, overlays); bare nixpkgs would miss them.
   home-manager.useGlobalPkgs = true;
 
   home-manager.users = mapAttrs (
@@ -74,27 +64,16 @@ in
       home.stateVersion = system.version;
       systemd.user.startServices = "sd-switch"; # Auto-restart user services whose unit files changed
 
-      # `backupFileExtension = "hm-bak"` (above) makes HM rename conflicting
-      # plain files to `<path>.hm-bak`. With a fixed extension, a second
-      # rebuild that produces a *new* conflict on the same path aborts at
-      # the rename step with "file exists" because the prior `.hm-bak` is
-      # still there. Sweep stale backups *before* the writeBoundary phase
-      # (where HM performs the rename) so each activation finds an empty
-      # backup namespace.
-      home.activation.cleanHmBackups = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+      # Sweep stale .hm-bak files before HM's collision check (checkLinkTargets),
+      # which would otherwise abort on an already-existing backup.
+      home.activation.cleanHmBackups = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
         run ${pkgs.findutils}/bin/find "$HOME" -maxdepth 8 -name '*.hm-bak' -type f -delete || true
       '';
     }
   ) users;
 
-  # Pre-create per-user dirs that home-manager-<user>.service expects on first
-  # boot. nix-daemon creates `/nix/var/nix/profiles/per-user/<user>` lazily on
-  # the user's first nix invocation, and HM activation then writes
-  # `~/.local/state/home-manager/gcroots/new-home` via `nix-store --add-root`,
-  # which won't auto-create intermediate parents. In fresh VMs / headless boxes
-  # the user never logs in to seed those dirs, so HM activation fails with
-  # "Permission denied" or "Could not find suitable profile directory". tmpfiles
-  # `d` doesn't recurse into parents, so each path level is listed explicitly.
+  # Seed per-user dirs HM needs on first boot (fresh VMs never log in to create
+  # them); tmpfiles `d` doesn't recurse, so every path level is listed.
   systemd.tmpfiles.rules = concatLists (
     mapAttrsToList (
       user: _:
