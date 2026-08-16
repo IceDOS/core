@@ -9,8 +9,7 @@ let
   inherit (config.icedos.system.zsh) aliases enable;
   inherit (lib) mkIf readFile replaceStrings;
 
-  stylixOn = config.stylix.enable or false;
-  stylixColors = config.lib.stylix.colors or { };
+  stylixColors = config.lib.stylix.colors;
 
   p10kColorTargets = [
     "local red='#FF5C57'"
@@ -21,18 +20,14 @@ let
     "local white='#F1F1F0'"
   ];
 
-  p10kColorReplacements =
-    if stylixOn then
-      [
-        "local red='#${stylixColors.base08}'"
-        "local yellow='#${stylixColors.base0A}'"
-        "local blue='#${stylixColors.base0D}'"
-        "local magenta='#${stylixColors.base0E}'"
-        "local cyan='#${stylixColors.base0C}'"
-        "local white='#${stylixColors.base07}'"
-      ]
-    else
-      p10kColorTargets;
+  p10kColorReplacements = [
+    "local red='#${stylixColors.base08}'"
+    "local yellow='#${stylixColors.base0A}'"
+    "local blue='#${stylixColors.base0D}'"
+    "local magenta='#${stylixColors.base0E}'"
+    "local cyan='#${stylixColors.base0C}'"
+    "local white='#${stylixColors.base07}'"
+  ];
 
   p10kThemeText = replaceStrings p10kColorTargets p10kColorReplacements (readFile ./p10k-theme.zsh);
 in
