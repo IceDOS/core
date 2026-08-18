@@ -22,10 +22,8 @@ let
     map lib.escapeShellArg config.icedos.system.extraConfigs
   );
 
-  # Render one option's detail: type, description, and a paste-ready TOML
-  # snippet showing the option's current value (user override if set, else the
-  # resolved default). Reused for both the fzf preview pane and the final
-  # selection, so the two never drift. Takes the option name as $1.
+  # One option's detail (type, description, paste-ready TOML), shared by the fzf
+  # preview pane and the final selection so the two never drift.
   detailBin = pkgs.writeShellScript "icedos-search-detail" ''
     ${jq} -r --arg n "$1" '
       def q: if test("^[A-Za-z0-9_-]+$") then . else @json end;
@@ -81,12 +79,8 @@ let
     ' "${modulesCache}"
   '';
 
-  # mtime-based staleness: regenerate the index when config.toml / configs/*.toml
-  # / the state lock are newer than either doc (or one is missing). Regen reuses
-  # the build app through the state-dir build.sh shim (`nix run path:.`), which
-  # sets up the env + PATH the genflake eval needs — the same path `icedos
-  # rebuild` takes, so no IceDOS env has to be reconstructed here. Both docs are
-  # produced together by `build.sh --export-search-index`.
+  # mtime staleness check; regeneration goes through the state-dir build.sh shim,
+  # which already sets up the env the genflake eval needs.
   ensureIndex = ''
     ensure_index() {
       if [ ! -d "${configurationLocation}" ]; then
@@ -179,9 +173,8 @@ let
                 ;;
             esac
 
-            # Permission guard runs once, before the index refresh below can
-            # exec build.sh as the invoker — and outside ensure_index's 1>&2
-            # redirect, so an accepted owner re-run keeps stdout on stdout.
+            # Before the index refresh can exec build.sh, and outside its 1>&2
+            # redirect so an accepted owner re-run keeps stdout on stdout.
             require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
 
             # In non-TTY mode (piped), redirect index chatter to stderr so

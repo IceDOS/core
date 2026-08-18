@@ -12,9 +12,8 @@ let
 
   configRoot = "${configurationLocation}/..";
 
-  # Thin wrapper over the shared binding set (lib/repl-context.nix), which the
-  # MCP server's `nix_eval` imports too — keep the names in the help text below
-  # in sync with what that file returns.
+  # Wrapper over lib/repl-context.nix (the MCP `nix_eval` imports it too); keep
+  # the help text below in sync with what that file returns.
   replExpr = pkgs.writeText "icedos-repl.nix" ''
     import "${inputs.icedos-core}/lib/repl-context.nix" {
       configRoot = "${configRoot}";

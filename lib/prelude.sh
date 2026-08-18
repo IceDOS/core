@@ -1,13 +1,6 @@
 # shellcheck shell=bash
-# Bash prelude shared by Nix-embedded scripts (via icedosLib.bash.prelude
-# in core/lib/helpers.nix) and standalone .sh files (via `source`).
-#
-# Bold + color (1;3N) for severity-style prefixes that end with `:` —
-# `error:`, `warning:`, etc. (matches nh's look). Dim variants (0;3N)
-# for inline highlights that aren't level prefixes (status arrows, arg
-# names in help text, file paths). Pick the *String helper (Nix side)
-# or the matching colour var (shell side) based on whether the colored
-# fragment is followed by a `:` in the surrounding sentence.
+# Prelude for Nix-embedded scripts (icedosLib.bash.prelude) and .sh files. Bold
+# colors (1;3N) for `level:` prefixes, dim (0;3N) for inline highlights.
 NC='\033[0m'
 BLUE='\033[1;34m'
 GREEN='\033[1;32m'

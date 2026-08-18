@@ -37,9 +37,8 @@ let
 
       completion = mkSubmoduleOption { default = { }; } {
         files = mkBoolOption { default = false; };
-        # Shell snippet printing newline-separated candidate values for a
-        # leaf command's positional argument (e.g. module/option names from
-        # a cache). Empty = no dynamic value completion. Leaf commands only.
+        # Shell snippet printing candidate values for a leaf command's positional
+        # argument; empty = no dynamic completion.
         command = mkStrOption { default = ""; };
       };
     };
@@ -185,11 +184,8 @@ in
           url = mkStrOption { default = "https://icedos.mirrors.knp.one/icedos"; };
 
           key = mkStrOption {
-            # `inputs.icedos-core` is only wired in at build stage; the genflake
-            # stage imports this module with a minimal `inputs` (icedos-config
-            # only). Guard the presence check — forcing the missing attr there
-            # throws uncatchably (tryEval can't rescue it), which would abort any
-            # full-config eval (`evaluatedConfig`, the search index, …).
+            # `inputs.icedos-core` exists only at build stage, and forcing a missing
+            # attr throws uncatchably — so guard the presence check.
             default =
               if inputs ? icedos-core then
                 readFile "${inputs.icedos-core.inputs.cache-server}/nix-public.pem"
@@ -205,17 +201,8 @@ in
           url = mkStrOption { };
         }; # e.g. https://github.com/NixOS/nixpkgs/branches/active
 
-        # Arbitrary extra flake inputs registered in the generated state flake
-        # under a user-chosen short `name`, exposed to every module's masked
-        # `inputs` under that bare name, and optionally loaded as NixOS modules
-        # via `modulesToLoad` (dotted output paths, e.g. `nixosModules.default`
-        # or `nixosModules.default.impermanence`). `inputs` maps the extra
-        # flake's own input names to `follows` targets of the generated flake
-        # (e.g. `{ nixpkgs.follows = "nixpkgs"; }`). Empty `modulesToLoad` =
-        # input-only. Name must not collide with a channel, an overlay input,
-        # a module-declared input, or the framework-reserved set
-        # (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`,
-        # `icedos-state`) — all become top-level flake inputs.
+        # Extra flake inputs under a user-chosen `name`, optionally loaded via
+        # `modulesToLoad`. `name` must not collide with any other root input.
         extraFlakes = mkSubmoduleListOption { default = [ ]; } {
           name = mkStrOption { };
           url = mkStrOption { };
@@ -223,15 +210,12 @@ in
           modulesToLoad = mkStrListOption { default = [ ]; };
         };
 
-        # User-supplied module directories (config-root relative). Each is scanned
-        # for modules (subfolders with default.nix / icedos.nix, or loose *.nix)
-        # and imported. Read from config.toml only (bootstrap path).
+        # Scanned for modules (default.nix / icedos.nix, or loose *.nix). Read from
+        # config.toml only (bootstrap path).
         extraModules = mkStrListOption { default = [ "modules" ]; };
 
-        # User-supplied config directories (config-root relative). Every *.toml
-        # under each is autoloaded and merged onto config.toml (the global base).
-        # Hidden .*.toml load too, as local-only overrides. Read from config.toml
-        # only (bootstrap path). See lib/config-files.nix.
+        # Every *.toml (hidden .*.toml too) is merged onto config.toml. Read from
+        # config.toml only (bootstrap path).
         extraConfigs = mkStrListOption { default = [ "configs" ]; };
 
         forceFirstBuild = mkBoolOption { default = false; };
@@ -242,47 +226,32 @@ in
           email = mkStrOption { default = ""; };
         };
 
-        # Framework-owned, synthetic flag: whether this boot is the first one
-        # after install. Computed and baked by lib/genflake.nix at genflake and
-        # build stage (see `icedos.system.forceFirstBuild` for the user-facing
-        # toggle). Internal + readOnly with no default — the injected value is
-        # the single definition, and a default would count as a second one
-        # (nixpkgs readOnly rejects `defs'` length > 1).
+        # Framework-owned; baked by genflake (users get `forceFirstBuild`). No
+        # default: readOnly rejects a second definition.
         isFirstBuild = mkBoolOption {
           internal = true;
           readOnly = true;
         };
 
-        # Inline /etc/nixos/hardware-configuration.nix into the system. On by
-        # default so the machine's hardware essentials always apply; the gate
-        # itself lives in lib/genflake.nix (injection happens at genflake stage).
+        # Inline /etc/nixos/hardware-configuration.nix; the gate itself lives in
+        # lib/genflake.nix, where the injection happens.
         loadHardwareConfiguration = mkBoolOption { default = true; };
 
         nixpkgsChannel = mkStrOption { default = "github:nixos/nixpkgs/nixos-unstable"; };
         packages = mkStrListOption { default = [ ]; };
         permittedInsecurePackages = mkStrListOption { default = [ ]; };
 
-        # The fully-resolved set of loaded IceDOS modules: repo base url ->
-        # module names (explicitly enabled + transitive deps, synthesized
-        # `default` included). Derived from the raw icedos config by
-        # `modulesFromConfig` and injected read-only at genflake/build time —
-        # see `icedosLib.hasModule`. Not user-settable.
+        # repo url -> loaded module names (enabled + transitive deps), injected
+        # read-only from the raw config. Backs `icedosLib.hasModule`.
         loadedModules = mkAttrsOfOption {
           internal = true;
-          # No `default`: a `default` on a readOnly option counts as a definition,
-          # so readOnly + default + the injected value throws "read-only, but it's
-          # set multiple times" (unlike `isFirstBuild` above, which is only
-          # internal-by-convention, not readOnly). No-default is deliberate — a
-          # missed injection should fail loud ("used but not defined") rather than
-          # silently default to `{}` and make `icedosLib.hasModule` report nothing.
+          # No `default`: it would count as a second definition, and a missed
+          # injection must fail loud instead of silently reporting no modules.
           readOnly = true;
         } (types.listOf types.str);
 
-        # Pull selected packages from another channel/flake into the active pkgs
-        # set as an overlay. Each entry must set either `channel` (an existing
-        # `[[icedos.system.channels]]` name) or `url` (a flake URL — registered
-        # automatically as `icedos-overlay-<sanitized-url>`); `channel` wins
-        # when both are set. `packages` must be non-empty.
+        # Pull selected packages from another channel/flake in as an overlay. Each
+        # entry sets `channel` or `url` (`channel` wins); `packages` must be non-empty.
         overlays = {
           fromChannel = mkSubmoduleListOption { default = [ ]; } {
             channel = mkStrOption { default = ""; };
@@ -320,16 +289,12 @@ in
         fetchDependencies = mkBoolOption { default = true; };
         fetchOptionalDependencies = mkBoolOption { default = false; };
         modules = mkStrListOption { default = [ ]; };
-        # Patch files applied to the whole repo source on top of its pinned rev.
-        # Paths are config-root-relative (they must live inside the config repo
-        # so they reach the store). The repo analog of a module input's
-        # `patches` (see `_getModuleInputs`).
+        # Patches applied to the whole repo source on top of its pinned rev.
+        # Config-root-relative, so they reach the store.
         patches = mkStrListOption { default = [ ]; };
 
-        # Consumer-declared input patches: patch a specific module's specific
-        # flake input from config, without forking the module (the consumer
-        # analog of a module author's `inputs.<input>.patches`). `patches` are
-        # config-root-relative files; they apply after any author patches.
+        # Patch a module's flake input from config, without forking the module.
+        # Config-root-relative; applied after the author's own patches.
         inputPatches = mkSubmoduleListOption { default = [ ]; } {
           module = mkStrOption { };
           input = mkStrOption { };
@@ -347,28 +312,20 @@ in
         packages = mkStrListOption { default = [ ]; };
         sudo = mkBoolOption { default = true; };
 
-        # Opt-in: add this user to `nix.settings.trusted-users` so they can
-        # run unrestricted builds (e.g. shared build hosts, CI accounts).
-        # Off by default — non-admin users should not be daemon-trusted, as
-        # trusted-users can tamper the nix store. See
-        # https://nix.dev/manual/nix/command-ref/conf-file#conf-trusted-users
+        # Adds the user to `nix.settings.trusted-users`. Off by default: a trusted
+        # user can tamper with the nix store.
         trusted = mkBoolOption { default = false; };
       };
     };
   };
 
-  # Apply each source file as its own module so nixpkgs eval/type errors on
-  # `icedos.*` values point back at the exact file (config.toml or a specific
-  # configs/*.toml) instead of an anonymous `<unknown-file>`. The strict
-  # "same key in two files" check still runs in load-user-config.nix (used by
-  # genflake), so splitting here loses no validation — it only sharpens
-  # error attribution.
+  # One module per source file, so eval/type errors name the exact TOML file. The
+  # strict cross-file key check still runs in load-user-config.nix.
   imports =
     let
-      # config.toml + every enabled configs/*.toml, pre-parsed — the same set
-      # load-user-config.nix merges (including the per-file `enable` toggle), so
-      # schema validation and the raw passthrough never see a different list.
-      configFiles = import ../lib/config-files.nix "${inputs.icedos-config}";
+      # The same pre-parsed set load-user-config.nix merges, so validation and the
+      # raw passthrough never see a different list.
+      configFiles = import ../lib/config/config-files.nix "${inputs.icedos-config}";
     in
     map (
       f:
