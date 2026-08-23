@@ -30,10 +30,10 @@ rec {
   # Consumed by lib/genflake.nix and lib/icedos.nix.
 
   # Flake-input name from identifying parts: joined with `-`, prefixed, and
-  # URL-unsafe chars (`: / . ? =`) mapped to `_`.
+  # URL-unsafe chars (`: / . ? = +`) mapped to `_`.
   mkInputName =
     { parts }:
-    replaceStrings [ ":" "/" "." "?" "=" ] [ "_" "_" "_" "_" "_" ] (
+    replaceStrings [ ":" "/" "." "?" "=" "+" ] [ "_" "_" "_" "_" "_" "_" ] (
       concatStringsSep "-" ([ INPUTS_PREFIX ] ++ parts)
     );
 
