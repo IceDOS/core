@@ -1231,6 +1231,64 @@ in
     ]
   );
 
+  # Channel name matches a sub-flake name → abort.
+  subFlakeReservedCollisionWithChannel = expectThrow (
+    (mkIcedos {
+      system.channels = [
+        { name = "icedos-github_icedos_apps-aagl"; }
+      ];
+    })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+    ]
+  );
+
+  # ExtraFlake name matches a sub-flake name → abort.
+  subFlakeReservedCollisionWithExtraFlake = expectThrow (
+    (mkIcedos {
+      system.extraFlakes = [
+        { name = "icedos-github_icedos_apps-aagl"; url = "u"; }
+      ];
+    })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+    ]
+  );
+
+  # Repo input name matches a sub-flake name → abort.
+  subFlakeReservedCollisionWithRepo = expectThrow (
+    (mkIcedos { })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+      {
+        _repoInfo = { url = "github:icedos/apps-aagl"; };
+        meta.name = "default";
+      }
+    ]
+  );
+
+  # No collision → ok.
+  subFlakeReservedNoCollision = expectOk (
+    (mkIcedos {
+      system.channels = [ { name = "mychannel"; } ];
+    })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+    ]
+  );
+
   # --- _resolveFlakeRevisionLocked / _resolveFlakeRevisionNested (inputs.nix) ---
   # The pure tail resolves a pinned rev from a lock + node key.
   revLockedGithub = expectEq "/abc" (

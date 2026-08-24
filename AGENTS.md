@@ -205,6 +205,8 @@ Optional module fields:
   on its other inputs pull in the module's `nixpkgs`, not the generated flake's
   (a slot is not emitted for a name the module already declares, so the follows
   targets the sibling inside the sub-flake).
+  Sub-flake names must not collide with repository, reserved, channel,
+  overlay, or extraFlake root input names — genflake aborts naming the collision.
 - `meta.dependencies = [ { url?; modules = [ … ]; } ];` and `meta.optionalDependencies`
   — other modules this one needs (pulled automatically).
 

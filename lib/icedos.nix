@@ -567,6 +567,20 @@ let
         + "\nRename one of them — each declaring module's inputs live under its own sub-flake root input."
       );
 
+    # Sub-flake names must not collide with any other root input name.
+    _checkSubFlakeReservedNames =
+      modules:
+      let
+        subFlakeNames = map (r: r.subFlakeName) (_getModuleInputs modules);
+        rootNames = (map (i: i.name) (_modulesToInputs modules)) ++ _ambientInputNames;
+        colliding = lib.unique (lib.intersectLists subFlakeNames rootNames);
+      in
+      icedosLib.abortIf (colliding != [ ]) (
+        "module sub-flake name(s) "
+        + lib.concatStringsSep ", " colliding
+        + " collide with a repository, reserved, channel, overlay, or extraFlake name — rename the module or the colliding root input"
+      );
+
     # The input set a module's `outputs` sees: stable names regardless of how the
     # repo or input was fetched.
     _createMaskedInputs =
@@ -868,11 +882,10 @@ let
           )
         );
 
-        moduleInputs = seq (_validateExtraFlakes extraFlakes) (
-          seq (icedosLib.abortIf (colliding != [ ]) (
+        moduleInputs = seq (_validateExtraFlakes extraFlakes) (seq (
+          icedosLib.abortIf (colliding != [ ])
             "module-declared input name(s) ${builtins.concatStringsSep ", " colliding} collide with an icedos.system.extraFlakes name — rename the module input or the extraFlake"
-          )) (flatten (map (r: r.masked) subFlakes) ++ extraFlakeMaskedInputs extraFlakes)
-        );
+        )) (flatten (map (r: r.masked) subFlakes) ++ extraFlakeMaskedInputs extraFlakes);
 
         processModuleOutputs =
           { inputs, ... }:
@@ -1467,6 +1480,7 @@ let
 
         # Same set, names only (no url forcing).
         duplicateSubFlakeNameGuard = _checkDuplicateSubFlakeNames (deduped ++ flatten extraModulesP2);
+        subFlakeReservedNameGuard = _checkSubFlakeReservedNames (deduped ++ flatten extraModulesP2);
 
         outputs = externalOutputs // {
           inherit nixosModules loadedModules closureLib;
@@ -1477,9 +1491,12 @@ let
             ++ extraOutputs.inputs
             ++ (seq (_validateExtraFlakes extraFlakes) (
               seq extraFlakeNameGuard (
-                seq duplicateInputGuard (seq duplicateSubFlakeNameGuard (extraFlakeInputs extraFlakes))
+                seq duplicateInputGuard (
+                  seq duplicateSubFlakeNameGuard (seq subFlakeReservedNameGuard (extraFlakeInputs extraFlakes))
+                )
               )
             ));
+
           # Names are unique per declaring module, so a plain merge is exact.
           subFlakes = externalOutputs.subFlakes // extraOutputs.subFlakes;
           options = externalOutputs.options ++ extraOutputs.options;
