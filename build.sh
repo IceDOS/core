@@ -261,24 +261,10 @@ elif [ "$update_repos_inputs" == "1" ]; then
   (
     set -e
     cd "$lock_dir"
-    # Repos first, then each module input nested in its sub-flake. Only STRING
-    # entries are real nodes — arrays are `follows`, and bumping one unpins nixpkgs.
+    # Only module inputs nested in their sub-flake; repo pins stay untouched
+    # (that is --update-repos). Only STRING entries are real nodes — arrays are
+    # `follows`, and bumping one unpins nixpkgs.
     mapfile -t subflakes < <(subflakes_from_lock flake.lock)
-    declare -A subflake_set
-    for sub in "${subflakes[@]}"; do subflake_set["$sub"]=1; done
-    for input in $(jq -r '
-      .nodes.root.inputs
-      | to_entries[]
-      | select(.value | type == "string")
-      | .key
-      | select(startswith("icedos-"))
-    ' flake.lock 2>/dev/null); do
-      # Not `printf | grep`: under pipefail, grep's early exit SIGPIPEs printf and
-      # the negation becomes a false positive.
-      if [ -z "${subflake_set[$input]:-}" ]; then
-        nix flake update "$input" --refresh 2>/dev/null || true
-      fi
-    done
     for sub in "${subflakes[@]}"; do
       for input in $(jq -r --arg sub "$sub" '.nodes.root.inputs[$sub] as $key | select(($key | type) == "string") | .nodes[$key].inputs | to_entries[] | select(.value | type == "string") | .key' flake.lock 2>/dev/null); do
         nix flake update "$sub/$input" --refresh 2>/dev/null || true
