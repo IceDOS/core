@@ -346,7 +346,7 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
   node — see §5). `genflake.nix` emits the sub-flakes directly as the generated
   `flake.nix`'s root `path:` inputs (no `subflakes.json` export — build.sh derives
   sub-flake roots and their declared inputs from the resulting `flake.lock`), and
-  `--update-repos-inputs` refreshes
+  `--update-repo-inputs-only` refreshes
   sub-flake inputs via `nix flake update "<sub>/<input>" --refresh`. All lock steps run
   against a **detached** copy of the state flake — `build.sh` rsyncs `.state` into a temp
   dir (`mktemp`) and copies only the resulting `flake.lock` back, because a git flake
@@ -482,8 +482,8 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
    unavailable.
 
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
-`--run-vm`, `--update`, `--update-core`, `--update-nixpkgs`, `--update-repos`,
-`--update-repos-inputs`, `--update-hooks`, `--ask`,
+`--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-repos`,
+`--update-repos-only`, `--update-repo-inputs-only`, `--update-hooks`, `--ask`,
 `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
 
 ## 8. Hard rules (do not violate)

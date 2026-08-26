@@ -74,7 +74,7 @@ rec {
     if pathExists lockPath then fromJSON (readFile lockPath) else null;
 
   # Revision suffix from the lock: /{rev}, ?rev={rev} (git schemes), ?narHash={h},
-  # or "". `skipUpdateEnvCheck` leaves the nested bake intact during --update-repos.
+  # or "". `skipUpdateEnvCheck` leaves the nested bake intact during --update-repos-only.
   _getRevisionFromLock =
     {
       repoName,
@@ -174,7 +174,7 @@ rec {
       inputKey = if subKey != null then hop (lock.nodes.${subKey}.inputs or { }) inputName else null;
     in
     # Its own flag, so clearing the sub-flake bake never unpins repo urls (and
-    # --update-repos never unpins module inputs).
+    # --update-repos-only never unpins module inputs).
     if
       (inputKey == null)
       || ((stringStartsWith "path:" url) && (ICEDOS_STAGE == "genflake"))

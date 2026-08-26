@@ -13,7 +13,11 @@ nhBuildArgs=()
 set -e
 set -o pipefail
 
+# INPUTS_PREFIX from flake (via icedosBuild wrapper), fallback to "icedos"
+inputs_prefix="${ICEDOS_INPUTS_PREFIX:-icedos}"
+
 previous_arguments=("$@")
+state_inputs=()        # Generic input names from --update-state-inputs (state flake)
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -45,7 +49,6 @@ while [[ $# -gt 0 ]]; do
     --update)
       update_all="1"
       update_core="1"
-      update_nixpkgs="1"
       update_repos="1"
       update_repos_inputs="1"
       shift
@@ -54,17 +57,37 @@ while [[ $# -gt 0 ]]; do
       update_core="1"
       shift
       ;;
-    --update-nixpkgs)
-      update_nixpkgs="1"
+    --update-core-only)
+      update_core_only="1"
       shift
       ;;
     --update-repos)
       update_repos="1"
-      shift
-      ;;
-    --update-repos-inputs)
       update_repos_inputs="1"
       shift
+      ;;
+    --update-repos-only)
+      update_repos="1"
+      shift
+      ;;
+    --update-repo-inputs-only)
+      update_repos_inputs="1"
+      shift
+      ;;
+    --update-state-inputs)
+      # Space-separated list of inputs to update in the state flake.
+      if [[ $# -lt 2 || "$2" == --* ]]; then
+        echo "error: --update-state-inputs requires a space-separated list of input names" >&2
+        echo "  usage: --update-state-inputs \"nixpkgs home-manager\"" >&2
+        exit 1
+      fi
+      IFS=' ' read -ra _parsed <<< "$2"
+      if [[ ${#_parsed[@]} -eq 0 ]]; then
+        echo "error: --update-state-inputs received an empty input list" >&2
+        exit 1
+      fi
+      state_inputs+=("${_parsed[@]}")
+      shift 2
       ;;
     --ask)
       nhBuildArgs+=("-a")
@@ -148,9 +171,15 @@ if [ "$update_core" != "1" ] \
   )
 fi
 
-if [[ "$update_core" == "1" && -z "$skip_update_core" ]]; then
+# Config-flake update routing: --update-core refreshes everything; specific flags
+# target individual inputs. All paths re-execute the build with a fresh lock.
+if [[ -n "$update_core$update_core_only" && -z "$skip_update_core" && -n "$ICEDOS_CONFIG_ROOT" ]]; then
   cd "$ICEDOS_CONFIG_ROOT"
-  nix flake update --refresh
+  if [ "$update_core" == "1" ]; then
+    nix flake update --refresh
+  else
+    nix flake update icedos --refresh
+  fi
   exec env skip_update_core=1 nix run path:. -- "${previous_arguments[@]}"
   exit 0
 fi
@@ -216,7 +245,7 @@ first_lock=0
   nix flake lock
 
   # Store warming only; needs the lock above.
-  if [ "$first_lock" == "1" ] || [ -n "$update_core$update_nixpkgs$update_repos$update_repos_inputs" ]; then
+  if [ "$first_lock" == "1" ] || [ -n "$update_core$update_repos$update_repos_inputs" ] || [ ${#state_inputs[@]} -gt 0 ]; then
     nix flake prefetch-inputs
   fi
 
@@ -273,6 +302,33 @@ elif [ "$update_repos_inputs" == "1" ]; then
   )
 fi
 
+# Update specific inputs in the state flake.lock.
+# Skips icedos-prefixed inputs — controlled by genflake.
+if [[ ${#state_inputs[@]} -gt 0 ]]; then
+  (
+    set -e
+    cd "$lock_dir"
+    # Filter out pinned repos and validate all inputs upfront.
+    valid_inputs=()
+    for input in "${state_inputs[@]}"; do
+      # All icedos-* inputs are managed by genflake (repos, sub-flakes, overlays).
+      # Skip them unconditionally — use --update-repos / --update-repo-inputs-only.
+      if [[ "$input" == "${inputs_prefix}"-* ]]; then
+        echo "warning: skipping '$input' — controlled by genflake, use --update-repos to update" >&2
+        continue
+      fi
+      if ! jq -e --arg name "$input" '(.nodes.root.inputs[$name] | type) == "string"' flake.lock >/dev/null; then
+        echo "error: '$input' is not a declared input in the state flake.lock" >&2
+        exit 1
+      fi
+      valid_inputs+=("$input")
+    done
+    for input in "${valid_inputs[@]}"; do
+      nix flake update "$input"
+    done
+  )
+fi
+
 # Convergence: the genflake above ran with the bakes suppressed, so a PATCHED
 # input still embeds its pre-bump tree. Re-run with the fresh lock and re-lock.
 if [ "$update_repos_inputs" == "1" ] || [ "$update_all" == "1" ]; then
@@ -301,12 +357,6 @@ if [ "$genflake_only" == "1" ]; then
   exit 0
 fi
 
-[ "$update_nixpkgs" == "1" ] && [ "$update_all" != "1" ] && (
-  set -e
-  cd "$lock_dir"
-  nix flake update nixpkgs
-)
-sync_lock
 rm -rf "$lock_dir"
 trap - EXIT
 

@@ -64,6 +64,7 @@
               export ICEDOS_ROOT="${self}"
               export ICEDOS_CONFIG_ROOT="$PWD"
               export ICEDOS_STATE_DIR="$PWD/${_stateDir}"
+              export ICEDOS_INPUTS_PREFIX="${(import ./lib/constants.nix { }).INPUTS_PREFIX}"
               mkdir -p "$ICEDOS_STATE_DIR"
 
               [ -f "$ICEDOS_STATE_DIR/build.sh" ] && rm "$ICEDOS_STATE_DIR/build.sh"

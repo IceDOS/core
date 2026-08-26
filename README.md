@@ -478,10 +478,12 @@ With no flags this is a `switch`: it builds your configuration and activates it 
 | Flag | Effect | Typical use |
 | --- | --- | --- |
 | `--update` | Update everything (core, nixpkgs, module repos, and module-declared inputs) in one blanket bump. | Full update. |
-| `--update-core` | Update IceDOS core, then re-run the command once. | Update IceDOS itself. |
-| `--update-nixpkgs` | Update the nixpkgs channel only. | Newer packages without touching modules. |
-| `--update-repos` | Pull new revisions of the IceDOS module repos (e.g. `apps`, `hardware`). Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (that build's genflake re-reads the new decls and the plain lock re-locks the changed sub-flake; one-build lag, self-healing). | Get the latest modules. |
-| `--update-repos-inputs` | Re-lock every module-declared dependency (each module's inputs live in its own input-namespace sub-flake — a content-addressed store path; this bumps them via `nix flake update "<sub>/<input>"`). The only way to bump inputs defined inside module files. | Bump module dependencies without bumping nixpkgs. |
+| `--update-core` | Update all config flake inputs, then re-run the command once. | Update IceDOS itself plus all dependencies. |
+| `--update-core-only` | Update only the `icedos` input in the config flake. | Update IceDOS core without touching other inputs. |
+| `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
+| `--update-repos` | Pull new revisions of the IceDOS module repos **and** re-lock their declared inputs. | Get latest modules and bump their dependencies. |
+| `--update-repos-only` | Pull new revisions of the IceDOS module repos only. Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (one-build lag, self-healing). | Get latest modules without bumping their dependencies. |
+| `--update-repo-inputs-only` | Re-lock every module-declared dependency without pulling new repo revisions. Each module's inputs live in its own input-namespace sub-flake. | Bump module dependencies without updating repos. |
 | `--update-hooks` | Run only the `preUpdate`/`postUpdate` hooks and exit — no build, no activation. | Refresh non-Nix things (e.g. `flatpak update`). |
 
 #### Behavior flags
