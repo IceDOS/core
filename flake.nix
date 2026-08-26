@@ -2,7 +2,7 @@
   inputs = {
     cache-server = {
       flake = false;
-      url = "github:icedos/cache-server";
+      url = "github:icedos/cache-server/key";
     };
 
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
