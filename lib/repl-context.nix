@@ -1,14 +1,5 @@
-# The binding set every interactive IceDOS evaluation opens with — `icedos repl`
-# (modules/repl.nix) and the MCP server's `nix_eval` tool both import this file,
-# so the two can never disagree about what `config`, `pkgs` or `inputs` mean.
-#
-# Everything is read from the generated flake in the state dir, i.e. the exact
-# same evaluation the system was built from (genflake.nix builds `icedosLib` and
-# `pkgs` the same way). That is what makes module defaults visible: reading
-# config.toml alone only ever shows what the user literally wrote.
-#
-# Impure by design: `getFlake` and the working-tree read below need the real
-# filesystem, which `nix repl` and `nix eval --impure` both provide.
+# The bindings `icedos repl` and the MCP `nix_eval` tool both open with, read from
+# the generated flake so they show the built evaluation, not just config.toml.
 {
   # Config repo root — the directory holding config.toml. Read live, so
   # `declared` reflects pending edits.
@@ -43,10 +34,9 @@ let
   pkgs = system.pkgs;
   lib = pkgs.lib;
 
-  # Raw merged TOML from the working tree — what you are *about* to build, as
-  # opposed to `config`, which is what the running system was built from. Same
-  # split `icedos configuration diff` reports on.
-  declared = (import "${inputs.icedos-core}/lib/load-user-config.nix" configRoot).icedos;
+  # What you are ABOUT to build, as opposed to `config` (what the running system
+  # was built from) — the split `icedos configuration diff` reports on.
+  declared = (import "${inputs.icedos-core}/lib/config/load-user-config.nix" configRoot).icedos;
 in
 {
   inherit
@@ -56,13 +46,8 @@ in
     pkgs
     ;
 
-  # The module-facing lib, as the generated flake exported it: base icedosLib
-  # merged with every module's top-level `lib` field contribution, computed by
-  # `modulesFromConfig` over the built closure and shared with
-  # `specialArgs.icedosLib` within the one flake evaluation — so `icedos repl`
-  # and the MCP `nix_eval` tool see exactly what a module sees (the same
-  # merged value the module system used, not a recomputed fold over the
-  # working tree).
+  # The merged lib exactly as the generated flake exported it, so repl and
+  # `nix_eval` see what a module sees, not a recomputed fold.
   icedosLib =
     flake.icedosLib
       or (throw "no 'icedosLib' output in '${stateDir}'; run 'icedos rebuild' to regenerate the state flake");

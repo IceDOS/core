@@ -23,52 +23,29 @@ let
     flatten
     ;
 
-  inherit (icedosLib)
-    ICEDOS_CONFIG_ROOT
-    ICEDOS_STAGE
-    abortIf
-    _getModuleKey
-    _parseFlakeUrl
-    _resolveFlakeRevision
-    _urlIsGitScheme
-    filterByAttrs
-    findFirst
-    flatMap
-    mkInputName
-    moduleInputName
-    stringStartsWith
-    ;
-
   finalIcedosLib = icedosLib // rec {
-    # Map of repository baseUrl -> its config.toml `fetchOptionalDependencies`
-    # flag, so a repo's setting applies to all of its modules, including ones
-    # pulled in transitively as dependencies.
-
     repositories = config.repositories or [ ];
 
+    # repo baseUrl -> `fetchOptionalDependencies`: the flag applies to every
+    # module of that repo, including transitively pulled ones.
     repoFetchOptional = builtins.listToAttrs (
       map (r: {
-        name = (_parseFlakeUrl r.url).baseUrl;
+        name = (icedosLib._parseFlakeUrl r.url).baseUrl;
         value = r.fetchOptionalDependencies or false;
       }) repositories
     );
 
-    # Map of repository baseUrl -> its config.toml `fetchDependencies` flag.
-    # When false, that repo's modules pull NO declared dependencies at all
-    # (required or optional); the listed modules themselves still load.
+    # repo baseUrl -> `fetchDependencies`. False = that repo's modules pull no
+    # declared dependencies at all; the listed modules still load.
     repoFetchDeps = builtins.listToAttrs (
       map (r: {
-        name = (_parseFlakeUrl r.url).baseUrl;
+        name = (icedosLib._parseFlakeUrl r.url).baseUrl;
         value = r.fetchDependencies or true;
       }) repositories
     );
 
-    # Apply patches to a flake source and return a realised, context-free store
-    # path usable as a locked `path:` flake input. Realising (readDir/IFD) makes
-    # the path exist when genflake renders the input; discarding context lets the
-    # `nix eval --raw` genflake output accept it (it forbids store-path context).
-    # Shared by whole-repo patches (fetchModulesRepository) and input patches
-    # (_getModuleInputs) so the three pure-eval gotchas are handled in one place.
+    # Patch a flake source into a realised, context-free store path usable as a
+    # locked `path:` input (readDir realises it; --raw genflake forbids context).
     _mkPatchedSource =
       {
         name,
@@ -81,33 +58,20 @@ let
       in
       seq (readDir patched) (unsafeDiscardStringContext (toString patched));
 
-    # Resolve config-root-relative patch strings (from config.toml) to store
-    # paths the applyPatches builder can read in its sandbox. Stage-aware:
-    #   - genflake: impure `--file` eval with `inputs` empty → copy from the host
-    #     config root via builtins.path.
-    #   - build: pure flake eval where host paths are unreadable and
-    #     ICEDOS_CONFIG_ROOT is masked → read from the config flake input
-    #     (genflake keeps these files in `filteredConfigRoot`).
-    # Used for whole-repo patches and consumer-declared input patches; author
-    # input patches are Nix path literals and bypass this (already store paths).
-    # Closes over the top-level `inputs`, so callers that shadow `inputs` (e.g.
-    # _getModuleInputs, where `inputs` is a module's input set) still resolve
-    # icedos-config correctly.
+    # Config-root-relative patch strings -> store paths: host copy at genflake,
+    # the top-level `inputs.icedos-config` (never a shadowing one) at build.
     _resolveConfigPatches =
       patches:
       map (
         p:
-        if (ICEDOS_STAGE == "genflake") then
-          builtins.path { path = /. + "${ICEDOS_CONFIG_ROOT}/${p}"; }
+        if (icedosLib.ICEDOS_STAGE == "genflake") then
+          builtins.path { path = /. + "${icedosLib.ICEDOS_CONFIG_ROOT}/${p}"; }
         else
           inputs.icedos-config + "/${p}"
       ) patches;
 
-    # Consumer-declared input patches from config.toml, as a flat
-    # "<repo url>|<module>|<input>" -> [patch strings] lookup. Lets a user patch a
-    # module's flake input without forking the module — the consumer-facing analog
-    # of a module author's `inputs.<x>.patches`. Separator `|` never appears in a
-    # flake url / module name / input name.
+    # config.toml input patches as "<repo url>|<module>|<input>" -> [patches];
+    # `|` never appears in a flake url, module name or input name.
     _consumerInputPatches = builtins.listToAttrs (
       flatten (
         map (
@@ -120,32 +84,8 @@ let
       )
     );
 
-    # --- module `lib` contributions --------------------------------------
-    # Any `icedos.nix` module may extend `icedosLib` by shipping a top-level
-    # `lib = { ... }` field — a repo module (e.g. `desktop/modules/default`
-    # contributing the desktop/DE helpers) or a config-root extra module (the
-    # user's local extension point, replacing the old repo/config-root
-    # `lib.nix` auto-discovery). Core merges every contribution via
-    # `_mergeModuleLibs` into the module-facing lib (see the generated flake's
-    # `specialArgs` and its `icedosLib` output, plus repl-context).
-
-    # Fold module `lib` field contributions into the base lib. Every record in
-    # `mods` is a phase-1 import (base `finalIcedosLib`), so a contribution
-    # sees ONLY the base lib — identical to the old repo/config-root `lib.nix`
-    # imports; passing the merged value would make the merge's construction
-    # depend on the very imports it builds, so contributions are
-    # self-reference-free by construction. Repo-to-repo composition happens at
-    # the MODULE layer, where the full merged lib is already visible. Fails
-    # loud on a non-attrset `lib` field or any name collision — against the
-    # core name set or another module — so a helper can't silently shadow
-    # another. The seed is the base `finalIcedosLib`, which also carries the
-    # resolution machinery (`modulesFromConfig`, `_mergeModuleLibs`,
-    # `fetchModulesRepository`, …) — a contribution must not force those
-    # members: `modulesFromConfig.closureLib` IS the merged result, so forcing
-    # it from a contribution (or deep-forcing the merged lib, which reaches
-    # `closureLib.modulesFromConfig.closureLib`) is the one self-reference
-    # that never terminates. Self-reference-freedom holds for the helper names
-    # a contribution uses, not for the machinery.
+    # Fold every module's `lib` field into the base lib. Contributions are
+    # phase-1 imports (base lib only) and must never force `modulesFromConfig`.
     _mergeModuleLibs =
       mods:
       foldl' (
@@ -162,22 +102,7 @@ let
           throw "Duplicate icedosLib name '${head dupes}' across icedosLib contributions (base lib + module '${m._repoInfo.url}#${m.meta.name}')"
       ) finalIcedosLib mods;
 
-    # The module-facing `icedosLib` is the base lib merged with every module's
-    # `lib` field contribution. The two-phase resolution in `modulesFromConfig`
-    # computes `closureLib` — `_mergeModuleLibs` over the fully-resolved
-    # closure (`deduped` repo modules + phase-1 extra modules) — and
-    # re-imports module files and extra modules with it, so a repo pulled in
-    # as a dependency (e.g. desktop, a required dep of every DE repo) still
-    # contributes its helpers. `specialArgs` reuses that value, so the whole
-    # module system sees one merged lib. `_mergeModuleLibs` is a plain lazy
-    # member of this rec — never forced by `attrNames` — so the probe in
-    # lib/default.nix (`attrNames (import icedos.nix (icedosLibInputs //
-    # { icedosLib = {}; }))`) keeps succeeding: forcing the key set never
-    # forces the merge, and `icedos.nix`'s own `inherit (icedosLib)` (with
-    # `{}`) only needs the static names.
-
-    # Fetch a modules repository, resolving the URL and loading its icedos modules
-    # Handles overrides, flake resolution, and module file loading
+    # Fetch a repo (override- and patch-aware) and load its icedos modules.
     fetchModulesRepository =
       {
         url,
@@ -189,36 +114,26 @@ let
         inherit (builtins) getFlake;
         inherit (lib) optionalAttrs;
 
-        # Apply override URL if available
         _fetchUrl = if (hasAttr url overrides) then overrides.${url} else url;
 
-        # Naming: parse the ORIGINAL `url` so input names (and the
-        # moduleIdentifier prefix derived from `_repoInfo.url`) are
-        # stable across overrideUrl toggles. Without this, flipping
-        # an override to e.g. `path:/local` renames every transitive
-        # `icedos-<repo>-<input>` entry in flake.lock, forcing a full
-        # re-fetch even though the upstreams haven't changed.
-        nameParsed = _parseFlakeUrl url;
-        repoName = mkInputName { parts = [ nameParsed.baseUrl ]; };
+        # Name from the ORIGINAL url so input names stay stable across
+        # overrideUrl toggles (otherwise every lock entry is renamed).
+        nameParsed = icedosLib._parseFlakeUrl url;
+        repoName = icedosLib.mkInputName { parts = [ nameParsed.baseUrl ]; };
 
-        # Fetching: parse the OVERRIDE-APPLIED url. flakeUrl + getFlake
-        # see the override; lock resolution is keyed against repoName
-        # (still original-derived) so toggling override only affects
-        # the pin for THIS repo's own input — transitive inputs keep
-        # their lock entries unchanged.
-        fetchParsed = _parseFlakeUrl _fetchUrl;
+        # Fetch from the OVERRIDE-APPLIED url; lock lookup stays keyed by
+        # repoName, so an override toggle only re-pins this repo's own input.
+        fetchParsed = icedosLib._parseFlakeUrl _fetchUrl;
         inherit (fetchParsed) baseUrl;
         inlineRef = fetchParsed.ref;
 
-        # Resolve the flake revision from lock file
-        lockRev = _resolveFlakeRevision {
+        lockRev = icedosLib._resolveFlakeRevision {
           url = baseUrl;
           inherit repoName;
         };
 
-        # Prefer the rev recorded in flake.lock; fall back to the inline ref the
-        # user wrote in config.toml so the first build (before the lock exists)
-        # still pins to what they asked for.
+        # Lock rev wins; fall back to config.toml's inline ref so the first
+        # build (no lock yet) still pins what the user asked for.
         flakeRev =
           if lockRev != "" then
             lockRev
@@ -227,60 +142,46 @@ let
           else
             "";
 
-        # Build complete flake URL with revision
         flakeUrl = "${baseUrl}${flakeRev}";
 
-        # Resolve the repo flake: fresh at genflake, from the locked input at
-        # build. For a patched repo the build-stage input already resolves to the
-        # patched tree (see `fetchUrl` below), so `baseFlake` is the patched flake
-        # there — fine, since the patch machinery is only forced at genflake.
-        baseFlake = if (ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
+        # Fresh at genflake, the locked input at build — where a patched repo's
+        # input already IS the patched tree (see `fetchUrl`).
+        baseFlake =
+          if (icedosLib.ICEDOS_STAGE == "genflake") then (getFlake flakeUrl) else inputs.${repoName};
 
-        # Optional whole-repo patches — the repo analog of `_getModuleInputs`'
-        # input patching. The patched tree is emitted as the repo's own `path:`
-        # flake input (see `fetchUrl`): nix locks that input (narHash in
-        # flake.lock), so the build stage consumes it as a normal locked input
-        # rather than via `getFlake`, which pure eval rejects for an unlocked
-        # path. The diff stays on the locked rev since it is applied to the
-        # upstream `baseFlake` resolved at genflake.
+        # Whole-repo patches: the patched tree becomes the repo's own locked
+        # `path:` input, so build stage never getFlakes an unlocked path.
         hasPatches = patches != [ ];
 
-        # Realised, context-free patched tree (see `_mkPatchedSource`); patch
-        # files are config-root-relative strings resolved via the shared helper.
-        # Emitted below as the repo's own locked `path:` input.
         patchedPath = _mkPatchedSource {
           name = "${repoName}-patched";
           src = baseFlake.outPath;
           patches = _resolveConfigPatches patches;
         };
 
-        # icedos modules come from: upstream when unpatched; the freshly patched
-        # tree at genflake (impure getFlake ok); the locked patched input at build.
+        # Modules come from: upstream when unpatched, the freshly patched tree at
+        # genflake (impure getFlake ok), the locked patched input at build.
         moduleFlake =
           if !hasPatches then
             baseFlake
-          else if (ICEDOS_STAGE == "genflake") then
+          else if (icedosLib.ICEDOS_STAGE == "genflake") then
             getFlake "path:${patchedPath}"
           else
             inputs.${repoName};
 
-        # Extract icedos modules from the (possibly patched) flake
         modules = moduleFlake.icedosModules { icedosLib = finalIcedosLib; };
       in
       {
         url = nameParsed.baseUrl;
-        # Patched repos are emitted as a locked `path:` input pointing at the
-        # realised patched tree; unpatched repos keep their upstream url.
+        # Patched repo -> locked `path:` input; unpatched keeps its upstream url.
         fetchUrl = if hasPatches then "path:${patchedPath}" else baseUrl;
-        # Realised repo tree: the (possibly patched) flake's store path and
-        # narHash. Forcing `outPath`/`narHash` never touches `icedosModules`.
+        # narHash of the realised tree; forcing it never touches `icedosModules`.
         inherit (moduleFlake) narHash;
         files = flatten modules;
       }
       // (optionalAttrs (!hasPatches && hasAttr "rev" baseFlake) { inherit (baseFlake) rev; });
 
-    # Convert external modules into flake input declarations
-    # Filters out modules marked to skip as inputs
+    # External modules -> repo flake-input declarations (skipModuleAsInput filtered).
     _modulesToInputs =
       modules:
       let
@@ -292,22 +193,19 @@ let
         { _repoInfo, ... }:
         let
           inherit (_repoInfo) url;
-          # Original `url` drives the input NAME (stable across overrideUrl
-          # toggles); `fetchUrl` (override-applied) drives the input VALUE
-          # so the generated flake actually fetches from the override.
-          # `or url` keeps backward compatibility with any _repoInfo not
-          # produced by fetchModulesRepository (e.g. extra-modules).
+          # Original `url` names the input (stable across overrideUrl toggles);
+          # `fetchUrl` (override-applied) is what the flake actually fetches.
           fetchUrl = _repoInfo.fetchUrl or url;
           flakeRev =
             if (hasAttr "rev" _repoInfo) then
-              if _urlIsGitScheme fetchUrl then "?rev=${_repoInfo.rev}" else "/${_repoInfo.rev}"
-            else if (hasAttr "narHash" _repoInfo) && !(stringStartsWith "path:" fetchUrl) then
+              if icedosLib._urlIsGitScheme fetchUrl then "?rev=${_repoInfo.rev}" else "/${_repoInfo.rev}"
+            else if (hasAttr "narHash" _repoInfo) && !(icedosLib.stringStartsWith "path:" fetchUrl) then
               "?narHash=${_repoInfo.narHash}"
             else
               "";
         in
         {
-          name = mkInputName { parts = [ url ]; };
+          name = icedosLib.mkInputName { parts = [ url ]; };
 
           value = {
             url = "${fetchUrl}${flakeRev}";
@@ -315,117 +213,376 @@ let
         }
       ) (filter shouldIncludeAsInput modules);
 
-    # Extract input dependencies from modules and create properly namespaced input declarations
-    # Input names come from `icedosLib.moduleInputName` (single source of truth), so a consumer
-    # computing a module input's top-level name for a string context (e.g. `follows`) gets the
-    # exact same name the generated flake uses.
+    # Root inputs a module input's `follows` may target. MUST mirror genflake's
+    # emission exactly, or a valid follows points at a non-existent root input.
+    _ambientInputNames = [
+      "nixpkgs"
+      "home-manager"
+      "icedos-config"
+      "icedos-core"
+    ]
+    ++ lib.optional (pathExists /etc/icedos) "icedos-state"
+    ++ (map (c: c.name) (config.system.channels or [ ]))
+    ++ (map
+      (
+        e:
+        icedosLib.mkInputName {
+          parts = [
+            "overlay"
+            e.url
+          ];
+        }
+      )
+      (
+        filter (e: (e.channel or "") == "" && (e.url or "") != "" && (e.packages or [ ]) != [ ]) (
+          config.system.overlays.fromChannel or [ ]
+        )
+      )
+    )
+    ++ (map (f: f.name) extraFlakes);
+
+    # One thin input-namespace sub-flake per module that declares inputs. Only
+    # `text`/`input.value.url` resolve patched paths — never force at build stage.
     _getModuleInputs =
       modules:
       let
-        inherit (builtins) attrNames filter getFlake;
-        modulesWithInputs = filter (hasAttr "inputs") modules;
+        inherit (builtins)
+          attrNames
+          filter
+          getFlake
+          listToAttrs
+          ;
+        modulesWithInputs = filter (m: (m.inputs or { }) != { }) modules;
       in
-      flatten (
-        map (
-          {
-            _repoInfo,
-            inputs,
-            meta,
-            ...
-          }:
-          map (
+      map (
+        {
+          _repoInfo,
+          inputs,
+          meta,
+          ...
+        }:
+        let
+          subFlakeName = icedosLib.moduleSubFlakeName {
+            repo = _repoInfo.url;
+            module = meta.name;
+          };
+          declarer = "${_repoInfo.url}#${meta.name}";
+
+          inputNames = attrNames inputs;
+
+          # Author patches (store paths) then consumer patches (config.toml),
+          # in that order, into one patched input.
+          patchesFor =
+            i:
+            (inputs.${i}.patches or [ ])
+            ++ _resolveConfigPatches (_consumerInputPatches."${_repoInfo.url}|${meta.name}|${i}" or [ ]);
+
+          hasPatchesFor = i: patchesFor i != [ ];
+
+          # Every authored `follows` at ANY depth (nix allows them nested), so
+          # each first segment can be validated and slotted. Forces no urls.
+          collectFollows =
+            as:
+            flatten (
+              map (
+                n:
+                (lib.optional ((as.${n}.follows or null) != null) as.${n}.follows)
+                ++ collectFollows (as.${n}.inputs or { })
+              ) (attrNames as)
+            );
+
+          followsTargets = flatten (
+            map (
+              i:
+              lib.optional ((inputs.${i}.follows or null) != null) inputs.${i}.follows
+              ++ collectFollows (inputs.${i}.inputs or { })
+            ) inputNames
+          );
+
+          firstSegments = lib.unique (map (f: head (lib.splitString "/" f)) followsTargets);
+
+          # Nix rejects an input with both a flake reference and a follows, so
+          # abort here instead of on an opaque lock error. Follows-only is legal.
+          directFollowsInvalid = filter (
+            i: (inputs.${i}.follows or null) != null && (inputs.${i} ? url)
+          ) inputNames;
+
+          directFollowsValid = icedosLib.abortIf (directFollowsInvalid != [ ]) ''
+            ${declarer}: module input "${builtins.head directFollowsInvalid}" declares both url and follows.
+            In a module's input-namespace sub-flake an input cannot both reference a source and follow another input (nix rejects a flake input with both a flake reference and a follows attribute). To pin just one of the input's own inputs, write the follows on it instead — e.g. inputs.${builtins.head directFollowsInvalid}.inputs.nixpkgs.follows. A url-less follows-only input remains legal.'';
+
+          # Names emitted inside this sub-flake — a `_source` sibling is
+          # followable only when it is actually emitted (i.e. the input is patched).
+          siblings = flatten (map (i: [ i ] ++ lib.optional (hasPatchesFor i) "${i}_source") inputNames);
+
+          invalidSegments = filter (s: !(elem s _ambientInputNames) && !(elem s siblings)) firstSegments;
+
+          slotsValid = icedosLib.abortIf (invalidSegments != [ ]) ''
+            ${declarer}: input `follows` target(s) "${lib.concatStringsSep "\", \"" invalidSegments}" cannot resolve inside the module's generated sub-flake.
+            A follows first segment must name an ambient input of the generated flake (${lib.concatStringsSep ", " _ambientInputNames}) or a sibling input of the same module.
+            Cross-module follows — e.g. built from icedosLib.moduleInputName, which now yields a sub-flake-relative path — are no longer supported.'';
+
+          # A segment the module also declares is NOT a slot: the follows resolves
+          # to that sibling, and a slot would collide with it in `listToAttrs`.
+          slots = filter (s: elem s _ambientInputNames && !(elem s siblings)) firstSegments;
+
+          perInput =
             i:
             let
-              # Author patches (Nix path literals in the module, already store
-              # paths) + consumer patches (config.toml strings declared via
-              # `[[icedos.repositories.inputPatches]]`, resolved here). Both feed
-              # one patched input; author patches apply first.
-              _authorPatches = inputs.${i}.patches or [ ];
-              _consumerPatches = _resolveConfigPatches (
-                _consumerInputPatches."${_repoInfo.url}|${meta.name}|${i}" or [ ]
-              );
-              patches = _authorPatches ++ _consumerPatches;
+              patches = patchesFor i;
               hasPatches = patches != [ ];
 
-              moduleIdentifier = mkInputName {
-                parts = [
-                  _repoInfo.url
-                  meta.name
-                ];
-              };
+              # `override` is dead but still stripped: an old pinned repo would
+              # otherwise leak the key into the sub-flake and fail opaquely.
+              decl = removeAttrs inputs.${i} [
+                "override"
+                "patches"
+              ];
 
-              normalInput = rec {
-                _originalName = if hasPatches then "${i}_source" else i;
-                name = moduleInputName {
-                  repo = _repoInfo.url;
-                  module = meta.name;
-                  input = _originalName;
-                };
-                # "override" is deprecated (naming is now always namespaced) but
-                # kept stripped so repos pinned at older revs don't leak the key
-                # into the generated flake input and fail opaquely.
-                value = removeAttrs inputs.${i} [
-                  "override"
-                  "patches"
-                ];
-              };
+              # The patched `src` and the `_source` url bake the same locked rev,
+              # so a sub-flake re-lock cannot disagree with the realised tree.
+              _patchSrcParsed = icedosLib._parseFlakeUrl inputs.${i}.url;
 
-              # Resolve the upstream URL against the state lock so the patched
-              # derivation's `src` matches the rev pinned in flake.lock under
-              # `normalInput.name`. Mirrors fetchModulesRepository's contract.
-              _patchSrcParsed = _parseFlakeUrl inputs.${i}.url;
+              # Pre-lock fallback pin (the author's `github:o/r/<ref>`); once the
+              # lock has the rev it wins, so a first build self-heals next run.
+              _patchSrcInlineRef = if _patchSrcParsed.ref != null then "/${_patchSrcParsed.ref}" else "";
 
-              _patchSrcLockRev = _resolveFlakeRevision {
+              _patchSrcLockRev = icedosLib._resolveFlakeRevisionNested {
                 url = _patchSrcParsed.baseUrl;
-                repoName = normalInput.name;
+                inherit subFlakeName;
+                inputName = "${i}_source";
               };
 
-              _patchSrcRev =
-                if _patchSrcLockRev != "" then
-                  _patchSrcLockRev
-                else if _patchSrcParsed.ref != null then
-                  "/${_patchSrcParsed.ref}"
-                else
-                  "";
+              _patchSrcRev = if _patchSrcLockRev != "" then _patchSrcLockRev else _patchSrcInlineRef;
 
               _patchSrcUrl = "${_patchSrcParsed.baseUrl}${_patchSrcRev}";
 
               patchedInputSource = _mkPatchedSource {
-                name = "${moduleIdentifier}-${i}-patched";
+                name = "${subFlakeName}-${i}-patched";
                 src = getFlake _patchSrcUrl |> toString;
                 inherit patches;
               };
 
-              patchedInput = rec {
-                _originalName = i;
-                name = moduleInputName {
-                  repo = _repoInfo.url;
-                  module = meta.name;
-                  input = _originalName;
-                };
-                value =
-                  (removeAttrs inputs.${i} [
-                    "override"
-                    "patches"
-                  ])
-                  // {
-                    url = "path:${patchedInputSource}";
-                  };
+              # Verbatim when unpatched; `_source` (upstream, rev baked) plus a
+              # `path:` node for the realised tree when patched.
+              decls =
+                if hasPatches then
+                  [
+                    {
+                      name = "${i}_source";
+                      value = decl // {
+                        url = _patchSrcUrl;
+                      };
+                    }
+                    {
+                      name = i;
+                      value = decl // {
+                        url = "path:${patchedInputSource}";
+                      };
+                    }
+                  ]
+                else
+                  [
+                    {
+                      name = i;
+                      value = decl;
+                    }
+                  ];
+
+              # Masked-mapping entries: the bare names every module's outputs
+              # see (`<i>` — the patched tree when patched — plus `<i>_source`).
+              maskedEntries =
+                map
+                  (e: {
+                    _originalName = e;
+                    _subFlake = subFlakeName;
+                    name = icedosLib.moduleInputName {
+                      repo = _repoInfo.url;
+                      module = meta.name;
+                      input = e;
+                    };
+                  })
+                  (
+                    if hasPatches then
+                      [
+                        "${i}_source"
+                        i
+                      ]
+                    else
+                      [ i ]
+                  );
+            in
+            {
+              inherit
+                decls
+                hasPatches
+                maskedEntries
+                ;
+            };
+        in
+        let
+          # The sub-flake's flake.nix: verbatim module inputs plus only the
+          # ambient slots its authored follows reference.
+          text = seq (slotsValid && directFollowsValid) ''
+            {
+              # Generated by icedos genflake — do not edit.
+              inputs = ${
+                lib.generators.toPretty
+                  {
+                    multiline = true;
+                    allowPrettyValues = true;
+                  }
+                  (
+                    listToAttrs (
+                      (map (s: {
+                        name = s;
+                        value = { };
+                      }) slots)
+                      ++ flatten (map (i: (perInput i).decls) inputNames)
+                    )
+                  )
+              };
+
+              outputs = inputs: { inherit inputs; };
+            }
+          '';
+
+          # Hashed over the flake.nix text, so a decl change flips the path and
+          # `nix flake lock` re-locks just this root. Genflake-only (IFD).
+          url =
+            let
+              storeDir = builtins.path {
+                # `-subflake` marker: build.sh classifies sub-flake roots by this
+                # exact suffix, so a store-path root input is never mistaken for one.
+                name = "${subFlakeName}-subflake";
+                path = (pkgs.writeTextDir "flake.nix" text).outPath;
               };
             in
-            if hasPatches then
-              [
-                normalInput
-                patchedInput
-              ]
-            else
-              normalInput
-          ) (attrNames inputs)
-        ) modulesWithInputs
+            "path:${seq (builtins.readDir storeDir) (builtins.unsafeDiscardStringContext (toString storeDir))}";
+        in
+        {
+          inherit subFlakeName text url;
+
+          # Root input decl: the sub-flake as a `path:` input, its slots rewired
+          # to the parent's own inputs. Only genflake forces `value.url` (IFD).
+          input = seq (slotsValid && directFollowsValid) {
+            name = subFlakeName;
+            value = {
+              inherit url;
+              inputs = listToAttrs (
+                map (s: {
+                  name = s;
+                  value.follows = s;
+                }) slots
+              );
+            };
+          };
+
+          masked = flatten (map (i: (perInput i).maskedEntries) inputNames);
+        }
+      ) modulesWithInputs;
+
+    # Same bare input name with differing url/patches/decl would silently pick
+    # one winner in the masked set — abort instead. Forces urls: genflake only.
+    _checkDuplicateModuleInputs =
+      modules:
+      let
+        declared = flatten (
+          map (
+            m:
+            map (i: {
+              name = i;
+              url = m.inputs.${i}.url or "";
+              # Effective patch set (author + consumer), JSON-encoded so two
+              # store-path lists compare structurally.
+              patches = builtins.toJSON (
+                (m.inputs.${i}.patches or [ ])
+                ++ _resolveConfigPatches (_consumerInputPatches."${m._repoInfo.url}|${m.meta.name}|${i}" or [ ])
+              );
+              # Rest of the decl (follows, nested overrides, ...): same url but
+              # different overrides are still two different nodes, so they collide.
+              declJson = builtins.toJSON (
+                removeAttrs m.inputs.${i} [
+                  "override"
+                  "patches"
+                ]
+              );
+              declarer = "${m._repoInfo.url}#${m.meta.name}";
+            }) (attrNames (m.inputs or { }))
+          ) modules
+        );
+
+        tree = d: "${d.url}::${d.patches}::${d.declJson}";
+
+        colliding = lib.filterAttrs (_: decls: lib.length (lib.unique (map tree decls)) > 1) (
+          lib.groupBy (d: d.name) declared
+        );
+      in
+      icedosLib.abortIf (colliding != { }) (
+        let
+          lines = lib.mapAttrsToList (
+            name: decls:
+            "  input \"${name}\" is declared with different urls, patch sets, or input declarations by:\n"
+            + lib.concatStringsSep "\n" (
+              map (
+                d:
+                "    ${d.declarer} -> ${d.url}"
+                + (if d.patches != "[]" then "  patches: ${d.patches}" else "")
+                # Show the decl only when it adds something to the url, else the
+                # two lines are byte-identical and hide what differs.
+                + (if d.declJson != builtins.toJSON { url = d.url; } then "\n      decl: ${d.declJson}" else "")
+              ) decls
+            )
+          ) colliding;
+        in
+        "module-declared inputs collide on a bare name with different urls, patch sets, or input declarations:\n"
+        + lib.concatStringsSep "\n" lines
+        + "\nRename one of them — every module's outputs share one masked input namespace."
       );
 
-    # Create a masked inputs set for nixos module evaluation
-    # Ensures modules use consistent input names and see appropriate dependencies
+    # Two distinct modules can sanitize to one sub-flake name (`mkInputName`
+    # keeps `-`), which would silently overwrite in `listToAttrs`. Names only.
+    _checkDuplicateSubFlakeNames =
+      modules:
+      let
+        declarer = m: "${m._repoInfo.url}#${m.meta.name}";
+        withSubFlakes = filter (m: (m.inputs or { }) != { }) modules;
+        groups = lib.groupBy (
+          m:
+          icedosLib.moduleSubFlakeName {
+            repo = m._repoInfo.url;
+            module = m.meta.name;
+          }
+        ) withSubFlakes;
+        colliding = lib.filterAttrs (_: ms: lib.length (lib.unique (map declarer ms)) > 1) groups;
+      in
+      icedosLib.abortIf (colliding != { }) (
+        let
+          lines = lib.mapAttrsToList (
+            name: ms: "  ${name} ← " + lib.concatStringsSep ", " (lib.unique (map declarer ms))
+          ) colliding;
+        in
+        "module sub-flake names collide (two modules sanitize to the same root input name):\n"
+        + lib.concatStringsSep "\n" lines
+        + "\nRename one of them — each declaring module's inputs live under its own sub-flake root input."
+      );
+
+    # Sub-flake names must not collide with any other root input name.
+    _checkSubFlakeReservedNames =
+      modules:
+      let
+        subFlakeNames = map (r: r.subFlakeName) (_getModuleInputs modules);
+        rootNames = (map (i: i.name) (_modulesToInputs modules)) ++ _ambientInputNames;
+        colliding = lib.unique (lib.intersectLists subFlakeNames rootNames);
+      in
+      icedosLib.abortIf (colliding != [ ]) (
+        "module sub-flake name(s) "
+        + lib.concatStringsSep ", " colliding
+        + " collide with a repository, reserved, channel, overlay, or extraFlake name — rename the module or the colliding root input"
+      );
+
+    # The input set a module's `outputs` sees: stable names regardless of how the
+    # repo or input was fetched.
     _createMaskedInputs =
       {
         baseInputs,
@@ -433,6 +590,9 @@ let
         repoInfo,
         isSkipModuleAsInput,
       }:
+      let
+        inherit (builtins) listToAttrs;
+      in
       {
         inherit (baseInputs) nixpkgs home-manager;
         icedos-state = if (hasAttr "icedos-state" baseInputs) then baseInputs.icedos-state else null;
@@ -441,21 +601,23 @@ let
           if isSkipModuleAsInput then
             "icedos-config"
           else
-            baseInputs.${mkInputName { parts = [ repoInfo.url ]; }};
+            baseInputs.${icedosLib.mkInputName { parts = [ repoInfo.url ]; }};
       }
       // (
-        let
-          inherit (builtins) listToAttrs;
-        in
+        # `_subFlake` entries resolve one hop down (`<sub>.inputs.<bare>`);
+        # extraFlake entries are plain root inputs.
         listToAttrs (
           map (i: {
             name = i._originalName;
-            value = baseInputs.${i.name};
+            value =
+              if (i ? _subFlake) then
+                baseInputs.${i._subFlake}.inputs.${i._originalName}
+              else
+                baseInputs.${i.name};
           }) moduleInputs
         )
       );
 
-    # Extract all options declarations from modules that define them
     _getModuleOptions =
       modules:
       map (
@@ -463,50 +625,10 @@ let
         {
           inherit options;
         }
-      ) (filterByAttrs [ "options" ] modules);
+      ) (icedosLib.filterByAttrs [ "options" ] modules);
 
-    # Compute a structural dedup key for a NixOS module *value*, or `null` when
-    # the value is opaque and must never be deduplicated. A function is opaque
-    # (two syntactically-identical closures may capture different scopes and
-    # there is no way to compare them); opacity bubbles up, so a list/attrset
-    # containing any function yields `null` — two module values are only ever
-    # merged when they are provably identical. A derivation is opaque too —
-    # keying never forces it (`v.type` alone is inspected; `drvPath` is
-    # *not*): a derivation is a cyclic attrset (`d.all = [ d.out ]`,
-    # `d.out = d`) that deep-traversal would recurse forever on, and forcing
-    # `drvPath` can eagerly instantiate or trigger IFD for packages the module
-    # system would never build. Any attrset carrying `_type` (the module
-    # system's property wrappers — `mkIf`, `mkMerge`, `mkForce`, `mkDefault`,
-    # option types, …) is opaque too: those are exactly the values whose
-    # branches the module system may never force (`mkIf false` content is
-    # dropped without forcing), so keying must not descend into them. Depth is
-    # capped so any other self-referential value degrades to opaque instead of
-    # `max-call-depth exceeded`. The whole computation runs under `tryEval`,
-    # which degrades values that `throw` or `assert` when forced to opaque
-    # rather than aborting the system evaluation — never-dedup is always the
-    # safe fallback. `tryEval` does NOT catch `abort`, a missing attribute, a
-    # type error, or infinite recursion; the depth cap bounds recursion, and
-    # the `_type`/derivation guards keep keying out of the module system's
-    # conditional branches. The remaining exposure is strictness: keying IS
-    # strict over function-free, `_type`-free, derivation-free payloads,
-    # including a definition for an option a real build would never force (an
-    # option no module reads — a `mkIf`-wrapped branch is `_type`-guarded, but
-    # a plain definition under an unread option is not). An uncatchable error
-    # hidden there surfaces at build-stage eval instead of never; it is a real
-    # config bug either way, and the module system would hit it too once the
-    # option was read. Nix's `==` on strings also ignores string context, so a
-    # payload carrying a store-path reference (context) could key equal to an
-    # otherwise-identical bare literal — contrived, but dedup only ever keeps
-    # the first occurrence, so if the context-free literal loads first, the
-    # copy that carried the store reference is silently dropped.
-    # Every keyed value is tagged with its `kind` (list/attrs/path/str/bool/
-    # int/float/null), so structurally different shapes can never compare
-    # equal: `{ }` ≠ `[ ]`, a path ≠ a plain string, `42` ≠ `42.0` (Nix treats
-    # `int == float` as equal). `==` on the result mirrors value equality
-    # within each kind, for the keyable subset of Nix. `setDefaultModuleLocation`
-    # shims are NOT unwrapped here — callers do that first
-    # (`_dedupeNixosModules`), otherwise two shims with different `_file`
-    # strings would never compare equal.
+    # Structural dedup key, `null` = opaque (functions, derivations, `_type`
+    # wrappers — never forced). Kind-tagged, so `{ }` != `[ ]` and 42 != 42.0.
     _opaqueOrKey =
       value:
       let
@@ -583,25 +705,8 @@ let
       in
       if result.success then result.value else null;
 
-    # Deduplicate a flat list of NixOS module values. Every module emitted by an
-    # IceDOS module arrives wrapped in a `setDefaultModuleLocation` shim
-    # (`{ _file = "<repo>#<module>"; imports = [ m ]; }`), so nixpkgs keys each
-    # module by its own `_file`/position and never dedups them — two IceDOS
-    # modules emitting the SAME module value (e.g. a shared pure-attrset module,
-    # or a common `inputs.<x>.nixosModules.default` that is a path) load it
-    # twice. Unwrap the shim, key the payload with `_opaqueOrKey`, and keep the
-    # FIRST occurrence of each structurally-identical value (the surviving shim
-    # keeps its `_file`, so provenance errors still name the declarer that was
-    # kept). Functions, derivations, `_type` wrappers, and anything containing
-    # one are opaque and never merged — this includes any payload that DECLARES
-    # options, since `lib.mkOption` produces `{ _type = "option"; … }`: duplicate
-    # option declarations still fail loudly ("The option `x' is already
-    # declared"), which is correct, never masked by dedup. The common path case
-    # (`inputs.jovian.nixosModules.default` = a directory) is already
-    # deduplicated by nixpkgs' own identical-path handling; this closes the
-    # identical-attrset-config-value gap. Only the `nixosModules` output is
-    # deduplicated — `modulesFromConfig.options` (the option-doc index) is
-    # intentionally left as-is.
+    # Keep the first of each structurally-identical module value: nixpkgs keys by
+    # the `setDefaultModuleLocation` shim's `_file`, so it never dedups these.
     _dedupeNixosModules =
       modules:
       let
@@ -613,11 +718,8 @@ let
             && m ? imports
             && builtins.isList m.imports
             && builtins.length m.imports == 1
-            # Only a *pure* `setDefaultModuleLocation` shim (`{ _file;
-            # imports = [ m ]; }`) is unwrapped. A value shaped `{ _file = …;
-            # imports = [ x ]; config = …; }` is a real module with its own
-            # body, not a shim — unwrapping would key on `x` alone and silently
-            # drop its `config` on collision.
+            # Only a PURE shim is unwrapped; anything with its own body is a real
+            # module whose config would be dropped on collision.
             &&
               builtins.attrNames m == [
                 "_file"
@@ -645,34 +747,26 @@ let
       in
       step [ ] [ ] modules;
 
-    # --- icedos.system.extraFlakes -----------------------------------------
-    # Arbitrary extra flake inputs: registered in the generated state flake
-    # under a user-chosen short `name`, exposed to every module's masked
-    # `inputs` under that bare name, and optionally loaded as NixOS modules
-    # via `modulesToLoad` (dotted output paths, e.g. `nixosModules.default`).
-    # See `modules/options.nix` for the option schema.
+    # `icedos.system.extraFlakes`: user-named root inputs, exposed to modules
+    # under that bare name and optionally loaded via `modulesToLoad`.
 
     extraFlakes = config.system.extraFlakes or [ ];
 
-    # Entry-level + cross-entry validation, run on every forcing path (genflake
-    # `modulesFromConfig.inputs`, build-stage `nixosModules` /
-    # `_extractNixosModules`). Returns true so it chains with `seq`/`&&`. The
-    # scalar-tolerating name/url checks run first, so a stray scalar entry
-    # (e.g. a TOML typo) aborts with a friendly message before the
-    # attrset-only checks.
+    # Returns true so it chains with `seq`/`&&`. Scalar-tolerating name/url
+    # checks run first, so a TOML typo aborts friendly, not on an attr miss.
     _validateExtraFlakes =
       flakes:
-      abortIf
+      icedosLib.abortIf
         (builtins.any (
           f:
           !(builtins.isString (f.name or ""))
           || builtins.match "^[a-zA-Z][a-zA-Z0-9_-]*$" (f.name or "") == null
         ) flakes)
         "icedos.system.extraFlakes: every entry's `name` must be non-empty and match ^[a-zA-Z][a-zA-Z0-9_-]*$"
-      && abortIf (builtins.any (
+      && icedosLib.abortIf (builtins.any (
         f: !(builtins.isString (f.url or "")) || (f.url or "") == ""
       ) flakes) "icedos.system.extraFlakes: every entry must set a non-empty `url`"
-      && abortIf (builtins.any (
+      && icedosLib.abortIf (builtins.any (
         f:
         builtins.any (
           k:
@@ -684,11 +778,11 @@ let
           ])
         ) (attrNames f)
       ) flakes) "icedos.system.extraFlakes: entries may only set `name`, `url`, `inputs`, `modulesToLoad`"
-      && abortIf (builtins.any (
+      && icedosLib.abortIf (builtins.any (
         f: builtins.any (p: p == "") (f.modulesToLoad or [ ])
       ) flakes) "icedos.system.extraFlakes: every `modulesToLoad` path must be non-empty"
       &&
-        abortIf
+        icedosLib.abortIf
           (builtins.any (
             n:
             builtins.elem n [
@@ -701,21 +795,16 @@ let
             ]
           ) (map (f: f.name) flakes))
           "icedos.system.extraFlakes: name is reserved (nixpkgs, home-manager, self, icedos-config, icedos-core, icedos-state)"
-      && abortIf (
+      && icedosLib.abortIf (
         builtins.length (lib.unique (map (f: f.name) flakes)) != builtins.length flakes
       ) "icedos.system.extraFlakes: `name` values must be unique";
 
-    # Declared input names colliding with an extraFlake `name`. Shared by the
-    # two guards that protect the generated flake's top-level input namespace:
-    # the masked-input guard in `_extractNixosModules` (both a module input's
-    # bare `_originalName` and its namespaced `icedos-<repo>-<module>-<input>`
-    # name are flake-input keys, so an extraFlake may shadow neither) and the
-    # repo-input guard in `modulesFromConfig`. Kept pure so tests can drive it.
+    # Declared names colliding with an extraFlake `name`; shared by the masked-
+    # input and repo/sub-flake-input guards. Pure, so tests can drive it.
     _extraFlakeNameCollisions =
       declaredNames: lib.intersectLists declaredNames (map (f: f.name) extraFlakes);
 
-    # Flake-input declarations (name + value) for the generated state flake.
-    # `value` keeps `url` + `inputs` (the homeManagerInput shape), so arbitrary
+    # Root input decls; `value` keeps `url` + `inputs`, so a user's
     # `inputs.<x>.follows` passthrough survives into the locked flake.
     extraFlakeInputs =
       flakes:
@@ -727,9 +816,8 @@ let
         ];
       }) flakes;
 
-    # Masked-input entries exposing each extra flake to module `outputs` under
-    # its bare `name` — the `_originalName`/`name` shape `_getModuleInputs`
-    # produces, consumed by `_createMaskedInputs`.
+    # Masked entries exposing each extra flake under its bare `name`, in the
+    # shape `_createMaskedInputs` consumes.
     extraFlakeMaskedInputs =
       flakes:
       map (f: {
@@ -737,33 +825,29 @@ let
         name = f.name;
       }) flakes;
 
-    # Resolve a dotted `modulesToLoad` path against an extra flake input's
-    # outputs (`inputs.<name>.<segments...>`). Aborts with a friendly message
-    # when the input is absent, a segment is missing, or the selected output is
-    # missing or null (a NixOS module cannot be null anyway).
+    # Resolve a dotted `modulesToLoad` path against the flake's outputs, naming
+    # the missing input/segment instead of failing on a bare attr miss.
     _selectExtraFlakeOutput =
       flakeName: path: inputs:
       let
         segments = lib.splitString "." path;
-        input = seq (abortIf (!(inputs ? ${flakeName}))
+        input = seq (icedosLib.abortIf (!(inputs ? ${flakeName}))
           "icedos.system.extraFlakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
         ) inputs.${flakeName};
         walk =
           node: seg:
-          seq (abortIf (!(node ? ${seg}))
+          seq (icedosLib.abortIf (!(node ? ${seg}))
             "icedos.system.extraFlakes: output path '${path}' on flake input '${flakeName}' is missing segment '${seg}'"
           ) node.${seg};
         selected = foldl' walk input segments;
-        nullGuard = abortIf (
+        nullGuard = icedosLib.abortIf (
           selected == null
         ) "icedos.system.extraFlakes: output '${path}' on flake input '${flakeName}' is missing or null";
       in
       seq nullGuard selected;
 
-    # Load every extra flake's selected outputs as NixOS modules. Each selection
-    # is wrapped in a single `setDefaultModuleLocation` shim — the same shape
-    # `_extractNixosModules` emits — so `_dedupeNixosModules` can unwrap and key
-    # it, and a `modulesToLoad` value a module also emits loads exactly once.
+    # Selected outputs as NixOS modules, in the same shim shape
+    # `_extractNixosModules` emits so `_dedupeNixosModules` can key them.
     extraFlakeModules =
       params:
       seq (_validateExtraFlakes extraFlakes) (
@@ -779,8 +863,7 @@ let
         )
       );
 
-    # Process output modules into nixos modules with proper input masking
-    # Each module's outputs are evaluated with its appropriate input set
+    # Evaluate every module's `outputs.nixosModules` with its masked input set.
     _extractNixosModules =
       {
         inputs,
@@ -789,26 +872,20 @@ let
       let
         inherit (lib) flatten;
 
-        # Module-declared inputs (namespaced) plus every extra flake (bare
-        # `name`) — both feed `_createMaskedInputs`, so a module sees an extra
-        # flake under `inputs.<name>` exactly like its own declared inputs.
-        # A module-declared name equal to an extraFlake name would silently
-        # overwrite in the masked set (bare) or in the generated flake's
-        # top-level inputs (namespaced), so abort (per-subset, catching
-        # collisions with external and extra modules alike since both share
-        # this path).
-        moduleDeclaredInputs = _getModuleInputs modules;
+        # Every module's declared inputs plus every extra flake, all under bare
+        # names — so a collision between the two would silently overwrite.
+        subFlakes = _getModuleInputs modules;
         colliding = _extraFlakeNameCollisions (
           lib.unique (
-            (map (i: i._originalName) moduleDeclaredInputs) ++ (map (i: i.name) moduleDeclaredInputs)
+            (flatten (map (r: map (e: e._originalName) r.masked) subFlakes))
+            ++ (map (r: r.subFlakeName) subFlakes)
           )
         );
 
-        moduleInputs = seq (_validateExtraFlakes extraFlakes) (
-          seq (abortIf (colliding != [ ]) (
+        moduleInputs = seq (_validateExtraFlakes extraFlakes) (seq (
+          icedosLib.abortIf (colliding != [ ])
             "module-declared input name(s) ${builtins.concatStringsSep ", " colliding} collide with an icedos.system.extraFlakes name — rename the module input or the extraFlake"
-          )) (moduleDeclaredInputs ++ extraFlakeMaskedInputs extraFlakes)
-        );
+        )) (flatten (map (r: r.masked) subFlakes) ++ extraFlakeMaskedInputs extraFlakes);
 
         processModuleOutputs =
           { inputs, ... }:
@@ -828,41 +905,36 @@ let
               isSkipModuleAsInput = hasAttr "skipModuleAsInput" _repoInfo && _repoInfo.skipModuleAsInput;
             };
 
-            # Tag every emitted module with its origin (`<repo>#<module>`) so
-            # nixpkgs eval/type/conflict errors point back at the IceDOS module
-            # instead of an anonymous generated location. setDefaultModuleLocation
-            # only stamps modules that don't already declare their own location.
+            # Origin tag, so nixpkgs eval/type/conflict errors name the IceDOS
+            # module instead of an anonymous generated location.
             location = "${_repoInfo.url}#${meta.name}";
           in
           map (lib.setDefaultModuleLocation location) (
             outputs.nixosModules {
               inputs = maskedInputs;
-              # The calling module's own repo base url, so `icedosLib.hasModule`
-              # (with `repoUrl`) can resolve same-repo sibling modules without
+              # Lets `icedosLib.hasModule` resolve same-repo siblings without
               # hardcoding the url at every call site.
               repoUrl = _repoInfo.url;
             }
           );
       in
-      # Dedupe within this module set: two modules emitting the same module
-      # value (function-free) would otherwise load it twice — nixpkgs keys
-      # modules by `_file`/position, so identical values in two
-      # `setDefaultModuleLocation` shims never dedup.
+      # Two modules emitting the same value would otherwise load it twice.
       _dedupeNixosModules (
         flatten (
-          map (processModuleOutputs { inherit inputs; }) (filterByAttrs [ "outputs" "nixosModules" ] modules)
+          map (processModuleOutputs { inherit inputs; }) (
+            icedosLib.filterByAttrs [ "outputs" "nixosModules" ] modules
+          )
         )
       );
 
-    # Main function to extract all outputs from external modules
-    # Combines inputs, nixos modules, options, and module text outputs
+    # All outputs of a module set: inputs, nixosModules, options, module text.
     getExternalModuleOutputs =
       modules:
       let
-        inherit (lib) flatten;
+        inherit (lib) flatten listToAttrs;
 
         modulesAsInputs = _modulesToInputs modules;
-        moduleInputs = _getModuleInputs modules;
+        moduleSubFlakes = _getModuleInputs modules;
         options = _getModuleOptions modules;
 
         nixosModules =
@@ -873,20 +945,34 @@ let
           };
 
         nixosModulesText = flatten (
-          map (mod: mod.outputs.nixosModulesText) (filterByAttrs [ "outputs" "nixosModulesText" ] modules)
+          map (mod: mod.outputs.nixosModulesText) (
+            icedosLib.filterByAttrs [ "outputs" "nixosModulesText" ] modules
+          )
+        );
+
+        # Root input decls: repo inputs plus one sub-flake root per declaring module.
+        inputs = modulesAsInputs ++ (map (r: r.input) moduleSubFlakes);
+
+        # Genflake-only export: name -> flake.nix text. Names are forced here,
+        # texts stay lazy (they resolve patched paths / getFlake).
+        subFlakes = listToAttrs (
+          map (r: {
+            name = r.subFlakeName;
+            value = r.text;
+          }) moduleSubFlakes
         );
       in
       {
-        inputs = modulesAsInputs ++ moduleInputs;
-
         inherit
+          inputs
           nixosModules
           nixosModulesText
           options
+          subFlakes
           ;
       };
 
-    # Build a set of override URL mappings from dependencies that define overrides
+    # url -> overrideUrl map from dependency entries.
     _buildOverridesMap =
       {
         newDeps,
@@ -907,11 +993,8 @@ let
       else
         existingOverrides;
 
-    # Build a set of repo-url -> patch-list mappings from config repositories.
-    # Mirrors `_buildOverridesMap` so a repository's `patches` apply to EVERY
-    # fetch of that url — including transitive (self-)dependency fetches, which
-    # otherwise re-fetch the repo unpatched and leak an unpatched input (the repo
-    # maps to a single flake input, so its patch set must be consistent).
+    # url -> patches map. Must cover transitive fetches too: one repo is one
+    # flake input, so an unpatched re-fetch would leak an unpatched tree.
     _buildPatchesMap =
       {
         newDeps,
@@ -932,11 +1015,8 @@ let
       else
         existingPatches;
 
-    # Load module files from a repository and ensure a default module exists
-    # Returns list of modules with _repoInfo attached to each. Phase-1 import:
-    # module files see the BASE `finalIcedosLib` here — resolution only forces
-    # `meta`; the closure-aware merge is applied later when `modulesFromConfig`
-    # re-imports each file's outputs via `_sourceFile`.
+    # Phase-1 import (BASE lib, only `meta` forced) with `_repoInfo` attached;
+    # a `default` module is synthesized when the repo has none.
     _loadModulesFromRepo =
       repo:
       let
@@ -952,7 +1032,7 @@ let
           }
         ) repo.files;
 
-        hasDefault = findFirst (mod: mod.meta.name == "default") modules != null;
+        hasDefault = icedosLib.findFirst (mod: mod.meta.name == "default") modules != null;
       in
       if hasDefault then
         modules
@@ -965,12 +1045,11 @@ let
           }
         ];
 
-    # Check if a module is already loaded (by key)
     _isModuleLoaded =
       existingDeps: url: name:
-      elem (_getModuleKey url name) existingDeps;
+      elem (icedosLib._getModuleKey url name) existingDeps;
 
-    # Filter new modules to only include those that are needed and not already loaded
+    # Requested (or `default`) modules that are not loaded yet.
     _filterNewModules =
       {
         modules,
@@ -985,8 +1064,7 @@ let
       in
       filter (mod: isRequested mod && isNew mod) modules;
 
-    # Extract internal dependencies from a module's metadata
-    # Optionally includes optional dependencies based on flag
+    # A module's declared dependencies, optionals included per repo config.
     _getModuleDependencies =
       {
         mod,
@@ -999,7 +1077,7 @@ let
         let
           inherit (mod) meta;
 
-          # Tag each dep group so it can later be labelled required vs optional
+          # Tagged so a missing dep can later be labelled required vs optional.
           tag = isOptional: map (d: d // { _optional = isOptional; });
           baseDeps = tag false (meta.dependencies or [ ]);
           optionalDeps =
@@ -1007,7 +1085,7 @@ let
         in
         baseDeps ++ optionalDeps;
 
-    # Convert dependency metadata to resolved dependency entries (filtering already-loaded modules)
+    # Dependency metadata -> resolved entries, already-loaded modules dropped.
     _resolveDependencyEntries =
       {
         deps,
@@ -1029,12 +1107,11 @@ let
           _requestedBy = requestedBy // {
             optional = _optional;
           };
-          modules = filter (mod: !elem (_getModuleKey realUrl mod) allKnownKeys) modules;
+          modules = filter (mod: !elem (icedosLib._getModuleKey realUrl mod) allKnownKeys) modules;
         }
       ) deps;
 
-    # Recursively resolve external dependencies, fetching repositories and extracting modules
-    # Handles deduplication and override merging across the entire dependency tree
+    # Walk the whole dependency tree: fetch repos, dedupe, merge overrides/patches.
     resolveExternalDependencyRecursively =
       {
         newDeps,
@@ -1052,28 +1129,23 @@ let
 
         inherit (lib) optional unique;
 
-        # Build override map from new dependencies or use existing
         overrides = _buildOverridesMap {
           inherit newDeps loadOverrides existingOverrides;
         };
 
-        # Build patch map (repo url -> patch list) the same way, so a repo's
-        # patches follow it across the whole dependency tree, not just its
-        # top-level config entry.
+        # Same for patches, so they follow a repo across the whole tree, not
+        # just its top-level config entry.
         patchesMap = _buildPatchesMap {
           inherit newDeps loadOverrides existingPatches;
         };
 
-        # Process each dependency and accumulate modules + missing-reference diagnostics
         result =
           foldl'
             (
               acc: newDep:
               let
-                # Determine which modules are not yet loaded
                 missingModules = filter (mod: !_isModuleLoaded existingDeps newDep.url mod) (newDep.modules or [ ]);
 
-                # Fetch repository if new modules are needed or default isn't loaded
                 newRepo =
                   optional (((length missingModules) > 0) || !_isModuleLoaded existingDeps newDep.url "default")
                     (
@@ -1086,12 +1158,12 @@ let
                       )
                     );
 
-                # All modules present in the fetched repository (includes synthesized "default")
-                repoModules = flatMap _loadModulesFromRepo newRepo;
+                # Includes the synthesized `default` module.
+                repoModules = icedosLib.flatMap _loadModulesFromRepo newRepo;
                 availableNames = map (mod: mod.meta.name) repoModules;
 
-                # Requested-but-not-loaded names that don't exist in the repo are missing references.
-                # `origin` is structured so the error can be grouped into views downstream.
+                # Requested names the repo doesn't have. `origin` is structured so
+                # the error can be grouped into per-source views downstream.
                 missingHere = map (name: {
                   inherit name;
                   url = newDep.url;
@@ -1099,7 +1171,6 @@ let
                   origin = newDep._requestedBy or { kind = "config"; };
                 }) (filter (name: !elem name availableNames) missingModules);
 
-                # Filter loaded modules to only the requested, not-yet-loaded ones
                 newModules = _filterNewModules {
                   inherit existingDeps;
 
@@ -1107,12 +1178,10 @@ let
                   requestedNames = newDep.modules or [ ];
                 };
 
-                # Build set of all known module keys (existing + new)
-                newModulesKeys = map (mod: _getModuleKey mod._repoInfo.url mod.meta.name) newModules;
+                newModulesKeys = map (mod: icedosLib._getModuleKey mod._repoInfo.url mod.meta.name) newModules;
                 allKnownKeys = unique (existingDeps ++ newModulesKeys);
 
-                # Extract and resolve nested dependencies from new modules
-                innerDeps = flatMap (
+                innerDeps = icedosLib.flatMap (
                   mod:
                   _resolveDependencyEntries {
                     deps = _getModuleDependencies {
@@ -1132,7 +1201,6 @@ let
                   }
                 ) newModules;
 
-                # Recursively resolve inner dependencies if any
                 resolved =
                   if (length innerDeps) > 0 then
                     resolveExternalDependencyRecursively {
@@ -1163,15 +1231,8 @@ let
         missing = result.missing;
       };
 
-    # Import an extra module file and attach repository info
-    # Extra modules are stored locally in the config directory. The file is
-    # imported with `config` + nixpkgs `lib` + `icedosLibValue` — the same
-    # argument set a repo module file gets in phase 1 (`_loadModulesFromRepo`),
-    # so an extra module can use nixpkgs `lib` at its top level (e.g. a
-    # `lib = import ./lib.nix { inherit icedosLib lib; };` contribution).
-    # `icedosLibValue` is the lib passed to the file — the base lib in phase 1
-    # (contributions + meta), the closure-aware merge
-    # (`modulesFromConfig.closureLib`) in phase 2 (outputs).
+    # Config-root extra module, imported with the same argument set a repo module
+    # gets: base lib in phase 1 (meta + contributions), closureLib in phase 2.
     _importExtraModule =
       {
         filePath,
@@ -1202,13 +1263,8 @@ let
         };
       };
 
-    # Load all IceDOS-style extra modules (icedos.nix) from every configured
-    # extra-module directory (config.system.extraModules, default `modules`).
-    # Missing directories contribute nothing; returns [] when none exist.
-    # `icedosLibValue` is threaded into every file import: the base lib in
-    # phase 1 (`extraModulesP1` — contributions + meta), `closureLib` in
-    # phase 2 (`extraModulesP2` — outputs). `config` and nixpkgs `lib` are
-    # always threaded too (see `_importExtraModule`).
+    # Every `icedos.nix` under the configured extra-module dirs; missing dirs
+    # contribute nothing.
     _loadExtraModules =
       {
         configFlake,
@@ -1249,18 +1305,18 @@ let
       in
       flatten (map loadDir dirs);
 
-    # Get the configuration flake (either from inputs or local filesystem)
+    # The config flake: the input at build stage, the live path at genflake.
     _getConfigFlake =
       if (hasAttr "icedos-config" inputs) then
         inputs.icedos-config
       else
         fetchTree {
           type = "path";
-          path = ICEDOS_CONFIG_ROOT;
+          path = icedosLib.ICEDOS_CONFIG_ROOT;
         };
 
-    # Main function to resolve and process all modules from config
-    # Deduplicates modules, extracts outputs, and combines external + extra modules
+    # Resolve every module the config asks for and combine external + extra
+    # outputs. The only entry point genflake and the build stage use.
     modulesFromConfig =
       let
         inherit (builtins)
@@ -1277,23 +1333,17 @@ let
           unique
           ;
 
-        # Format every missing reference into one error, split into views by
-        # origin so each is actionable on its own:
-        #   - config.toml view: names from a repository's `modules` list —
-        #     the user fixes/removes them.
-        #   - module-dependency view: names a module declares as a (optional)
-        #     dependency — reported upstream.
+        # One error for every missing reference, split by origin: config.toml
+        # names the user fixes, module dependencies they report upstream.
         mkMissingModulesError =
           missing:
           let
-            # Note the active overrideUrl so the user sees which path was
-            # actually searched (config.toml `overrideUrl`, for local testing).
+            # Show the active overrideUrl, so the user sees the path searched.
             overrideNote = override: if override != null then " (override: ${override})" else "";
 
             configMissing = filter (m: m.origin.kind == "config") missing;
             moduleMissing = filter (m: m.origin.kind == "module") missing;
 
-            # config.toml view, one "<repo> -> module "<name>"" line per missing name
             configView =
               let
                 configLine = m: "  ${m.url}${overrideNote m.override} -> module \"${m.name}\"";
@@ -1306,10 +1356,8 @@ let
                 ++ map configLine configMissing
               );
 
-            # module-dependency view, one line per missing dependency:
-            #   "<repo> -> module "<declaring>" -> [optional ]dependency "<name>""
-            # The declaring repo's override is shown; a dependency resolving to a
-            # different repo also notes that repo (and its override).
+            # One line per missing dependency; a dep resolving to another repo
+            # also names that repo.
             moduleView =
               let
                 depKind = origin: if origin.optional then "optional dependency" else "dependency";
@@ -1336,20 +1384,19 @@ let
 
             ${concatStringsSep "\n\n" views}'';
 
-        # Resolve external dependencies from config repositories
         externalResult = resolveExternalDependencyRecursively {
           newDeps = repositories;
           loadOverrides = true;
         };
 
-        # Fail fast, listing every missing reference at once
+        # Fail once, listing every missing reference.
         missingModules = unique externalResult.missing;
 
-        externalModules = seq (abortIf (missingModules != [ ]) (
+        externalModules = seq (icedosLib.abortIf (missingModules != [ ]) (
           mkMissingModulesError missingModules
         )) externalResult.modules;
 
-        # Deduplicate modules by (url, name) pair
+        # Dedupe by (url, name).
         deduped = attrValues (
           listToAttrs (
             map (m: {
@@ -1359,34 +1406,19 @@ let
           )
         );
 
-        # The closure-aware merged lib: base `finalIcedosLib` plus every
-        # module's top-level `lib` field contribution over the FULLY-RESOLVED
-        # closure — every deduped repo module plus every phase-1 extra module.
-        # A repo pulled in as a dependency (e.g. desktop, required by every DE
-        # repo) still contributes its helpers through its (always-loaded)
-        # `default` module. Phase-1 imports force only `meta` and the `lib`
-        # field with the BASE lib, so contributions see the same view the old
-        # repo/config-root `lib.nix` imports saw.
         configFlake = _getConfigFlake;
         inherit (configFlake) narHash;
 
-        # Phase-1 extra-module load: `icedos.nix` extra modules imported with
-        # the BASE lib, so their `lib` field contributions (and `meta`) exist
-        # before any merged value is computed. Only `meta` and the `lib` field
-        # are forced here; `outputs` is re-imported with the merged lib in
-        # phase 2 below.
+        # Phase 1 (BASE lib): contributions and `meta` must exist before the
+        # merged lib can be computed.
         extraModulesP1 = _loadExtraModules {
           inherit configFlake narHash;
         };
 
         closureLib = _mergeModuleLibs (deduped ++ flatten extraModulesP1);
 
-        # Phase-2 re-import: every external module file is imported AGAIN with
-        # the closure-aware lib, so options/outputs (forced here, not during
-        # resolution) see the helpers of transitive repos too. Repo-synthesized
-        # `default` records (no `_sourceFile`, no `outputs`/`options` — see
-        # `_loadModulesFromRepo`) pass through untouched; `getExternalModuleOutputs`
-        # drops them via its `options`/`outputs` filters, exactly as today.
+        # Phase 2: re-import every module file with `closureLib`, so its
+        # options/outputs see transitive repos' helpers too.
         externalOutputs = getExternalModuleOutputs (
           map (
             m:
@@ -1403,35 +1435,23 @@ let
           ) deduped
         );
 
-        # Phase-2 extra-module load: re-import every extra module file with
-        # the closure-aware lib so its `outputs` see the merged helpers. The
-        # `lib` field stays lazy here (`getExternalModuleOutputs` never forces
-        # it), so a contribution is evaluated exactly once, against the base
-        # lib in phase 1.
+        # Same for extra modules. Their `lib` field stays lazy here, so a
+        # contribution is evaluated exactly once — in phase 1.
         extraModulesP2 = _loadExtraModules {
           inherit configFlake narHash;
           icedosLibValue = closureLib;
         };
 
-        # Get outputs from extra modules
         extraOutputs = getExternalModuleOutputs (flatten extraModulesP2);
 
-        # Fully-resolved loaded module set: repo base url -> [names].
-        # Explicit + transitive deps, synthesized `default` included (it is
-        # always requested by `_filterNewModules`). Extra-modules (repo key
-        # "config", so a user's extra module can `hasModule { inherit config
-        # repoUrl; }` against its own repo) are included too. Injected into the
-        # module system as the read-only `icedos.system.loadedModules` option
-        # and consumed by `icedosLib.hasModule`.
+        # repo url -> [names] over the fully-resolved closure (extra modules
+        # under "config"); injected as `icedos.system.loadedModules`.
         loadedModules = mapAttrs (_: mods: map (m: m.meta.name) mods) (
           lib.groupBy (m: m._repoInfo.url) (deduped ++ flatten extraModulesP2)
         );
 
-        # Combine nixos modules from both external and extra sources plus the
-        # extra-flake selections. Each source dedups internally
-        # (`_extractNixosModules`); dedupe again across the split so the same
-        # identical module value emitted by one external and one extra module —
-        # or by a module and a `modulesToLoad` selection — loads only once.
+        # Each source dedups internally; dedupe again across the split so one
+        # value emitted by two sources still loads once.
         nixosModules =
           params:
           _dedupeNixosModules (
@@ -1440,30 +1460,45 @@ let
             ++ (extraFlakeModules params)
           );
 
-        # An extraFlake name must not shadow a repo-derived input name
-        # (`icedos-<sanitized-url>`) — both end up as top-level flake inputs,
-        # and a duplicate key would silently overwrite in `listToAttrs`.
-        # Namespaced module-declared inputs are checked per-subset in
-        # `_extractNixosModules` (via the shared `_extraFlakeNameCollisions`);
-        # repo inputs are computed here from the resolved closure (external +
-        # extra modules).
-        extraFlakeNameGuard = abortIf (
-          _extraFlakeNameCollisions (map (i: i.name) (_modulesToInputs (deduped ++ flatten extraModulesP2)))
-          != [ ]
-        ) "an icedos.system.extraFlakes name collides with a repository input name — rename the extraFlake";
+        # An extraFlake name must not shadow a repo or sub-flake input name —
+        # all are root inputs, and a duplicate silently wins in `listToAttrs`.
+        extraFlakeNameGuard =
+          icedosLib.abortIf
+            (
+              _extraFlakeNameCollisions (
+                unique (
+                  (map (i: i.name) (_modulesToInputs (deduped ++ flatten extraModulesP2)))
+                  ++ (map (r: r.subFlakeName) (_getModuleInputs (deduped ++ flatten extraModulesP2)))
+                )
+              ) != [ ]
+            )
+            "an icedos.system.extraFlakes name collides with a repository input or module sub-flake name — rename the extraFlake";
 
-        # Final combined outputs
+        # Over the same combined set the masked inputs are built from. Forced
+        # only here: it forces urls, which the build stage must never do.
+        duplicateInputGuard = _checkDuplicateModuleInputs (deduped ++ flatten extraModulesP2);
+
+        # Same set, names only (no url forcing).
+        duplicateSubFlakeNameGuard = _checkDuplicateSubFlakeNames (deduped ++ flatten extraModulesP2);
+        subFlakeReservedNameGuard = _checkSubFlakeReservedNames (deduped ++ flatten extraModulesP2);
+
         outputs = externalOutputs // {
           inherit nixosModules loadedModules closureLib;
-          # Extra-flake input declarations reach the generated flake through
-          # `modulesFromConfig.inputs`; forcing them here (seq) runs extraFlake
-          # validation and the repo-name guard at genflake stage.
+          # `seq` chain: reaching the generated flake's inputs runs every
+          # genflake-stage guard.
           inputs =
             externalOutputs.inputs
             ++ extraOutputs.inputs
             ++ (seq (_validateExtraFlakes extraFlakes) (
-              seq extraFlakeNameGuard (extraFlakeInputs extraFlakes)
+              seq extraFlakeNameGuard (
+                seq duplicateInputGuard (
+                  seq duplicateSubFlakeNameGuard (seq subFlakeReservedNameGuard (extraFlakeInputs extraFlakes))
+                )
+              )
             ));
+
+          # Names are unique per declaring module, so a plain merge is exact.
+          subFlakes = externalOutputs.subFlakes // extraOutputs.subFlakes;
           options = externalOutputs.options ++ extraOutputs.options;
           nixosModulesText = externalOutputs.nixosModulesText ++ extraOutputs.nixosModulesText;
         };

@@ -33,11 +33,8 @@ let
     preUpdate
     ;
 
-  # Compile each hook entry into its own pkgs.writeShellScript so it runs
-  # in a fresh shell process. Isolates env/traps/`set -e`/`exit` from
-  # other hooks and from the rebuild script itself. Prelude is injected
-  # so hooks can use color vars (GREEN, NC, ...) and log helpers
-  # (log_info, log_step, log_ok, log_warn, log_fail, die).
+  # One script per hook, so each runs in a fresh shell (isolated env/traps/exit)
+  # with the prelude available.
   runHooks =
     name: scripts:
     concatStringsSep "\n" (
@@ -74,10 +71,12 @@ in
           echo "  --update-hooks            run update hooks only (pre+post), no build"
           echo "  --build                   build closure without switching"
           echo "  --boot                    build and set as boot entry"
-          echo "  --update-core             update core flake inputs before rebuild"
-          echo "  --update-nixpkgs          update nixpkgs input before rebuild"
-          echo "  --update-repos            update repo inputs before rebuild"
-          echo "  --update-repos-inputs     update repo input locks before rebuild"
+          echo "  --update-core             update all config flake inputs before rebuild"
+          echo "  --update-core-only        update only icedos input before rebuild"
+          echo "  --update-state-inputs <list> update specific state flake inputs before rebuild"
+          echo "  --update-repos            update repos + their inputs before rebuild"
+          echo "  --update-repos-only       update repos only before rebuild"
+          echo "  --update-repo-inputs-only update repo inputs only before rebuild"
           echo "  --build-vm                build a VM test image"
           echo "  --run-vm                  build and run a VM test image"
           echo "  --genflake-only           generate .state/flake.nix and exit (--dry's underlying mechanism)"
@@ -185,10 +184,8 @@ in
 
         LATEST_CACHE_FOLDER=$(ls -dt "$CACHE_DIR"/*/ 2>/dev/null | head -1)
 
-        # Cache $1 (path) under name "$(basename $1)$2", appending it to
-        # CACHED_NAMES if the content differs from the most recent cache.
-        # Caller flushes the accumulated list once at the end so the user sees
-        # one summary line instead of one per file.
+        # Caches $1 when its content changed, accumulating CACHED_NAMES so the
+        # caller can print one summary line instead of one per file.
         function cache() {
           IS_CACHED=0
           FILE="$1"
@@ -212,10 +209,8 @@ in
           fi
         }
 
-        # Latest snapshot folder carrying the .config-set marker — the anchor
-        # that flags a folder as a config (not flake-only) snapshot. A marker,
-        # not config.toml, because config.toml is optional (a root may be all
-        # configs/*.toml + modules/).
+        # Keyed on the .config-set marker, not config.toml — config.toml is
+        # optional.
         function latest_config_snapshot() {
           local d last=""
           shopt -s nullglob
@@ -226,9 +221,8 @@ in
           printf '%s' "$last"
         }
 
-        # True (0) when the working config set (config.toml + every *.toml,
-        # including hidden .*.toml, under each CONFIG_DIRS entry) differs from
-        # snapshot dir $1 (empty $1 = no snapshot).
+        # True (0) when the working config set differs from snapshot dir $1
+        # (empty $1 = no snapshot).
         function config_set_changed() {
           local snap="$1" d f base
           [ -n "$snap" ] || return 0
@@ -253,12 +247,8 @@ in
           return 1
         }
 
-        # Snapshot the config set as a unit (config.toml + every *.toml, including
-        # hidden .*.toml, under each CONFIG_DIRS entry), preserving each dir's
-        # layout, only when it changed — so `icedos configuration rollback` can
-        # restore the exact config that built a generation. Hidden .*.toml are
-        # gitignored private configs, not secrets: they're copied into the state
-        # cache (and are already plaintext in the store) so rollback can restore them.
+        # Snapshot the whole config set (hidden .*.toml included — gitignored, not
+        # secret) when it changed, so rollback can restore it exactly.
         function snapshot_config_set() {
           local snap folder d f
           snap="$(latest_config_snapshot)"
@@ -280,12 +270,8 @@ in
 
         ${optionalString (hasPreUpdate || hasPostUpdate) ''
           if [ "$DRY" != "1" ]; then
-            # --update-hooks: run pre+post update hooks and exit. Skips
-            # preRebuild/postRebuild, build.sh, cache, reboot check. For
-            # refreshing non-nix things (flatpak, ...)
-            # without a full system rebuild. ICEDOS_HOOKS_ONLY tells hooks
-            # that no HM activation will follow, so they should fully
-            # complete their work standalone.
+            # --update-hooks: pre+post update hooks only, no build. ICEDOS_HOOKS_ONLY
+            # tells hooks no HM activation follows, so they must stand alone.
             for arg in "''${args[@]}"; do
               if [ "$arg" = "--update-hooks" ]; then
                 export ICEDOS_HOOKS_ONLY=1
@@ -341,11 +327,8 @@ in
           echo -e "${dimGreenString ">"} Caching ''${JOINED%, }"
         fi
 
-        # Record which config snapshot built the just-created generation so
-        # `icedos configuration rollback` can restore the exact config set that
-        # built it. Only switch/boot mint a new system generation; --build
-        # never produces one so there is nothing to record.
-        # build/build-vm/run-vm do not.
+        # Only switch/boot mint a generation, so only they record which snapshot
+        # built it (for `icedos configuration rollback`).
         GEN_CREATED=1
         for arg in "''${args[@]}"; do
           case "$arg" in

@@ -1,28 +1,5 @@
 # shellcheck shell=bash
-#
-# Shared helpers for the `modules/*/update.sh` source-pin updaters in the module repos
-# (apps, cosmic, hardware, hyprland, tweaks).
-#
-# Unlike prelude.sh, this is *not* reachable through `icedosLib`: the updaters run as
-# standalone scripts in each repo's CI, outside any IceDOS evaluation. They locate core
-# on disk instead — CI checks it out beside the repo, and a local IceDOS tree already has
-# it as a sibling. Every update.sh opens with the same bootstrap:
-#
-#   #!/usr/bin/env nix-shell
-#   #! nix-shell -i bash -p curl jq nix nix-prefetch-git
-#
-#   set -euo pipefail
-#
-#   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-#   REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-#   CORE="${ICEDOS_CORE:-$REPO_ROOT/.icedos-core}"
-#   [ -d "$CORE" ] || CORE="$REPO_ROOT/../core"
-#   [ -f "$CORE/lib/update-lib.sh" ] ||
-#     { echo "ERROR: core not found; set ICEDOS_CORE=/path/to/IceDOS/core" >&2; exit 1; }
-#   . "$CORE/lib/update-lib.sh"
-#
-# The nix-shell shebang on the calling script supplies the tools used here: curl, jq,
-# nix (nix-prefetch-url), nix-prefetch-git, and git.
+# Helpers for the module repos' `modules/*/update.sh` source-pin updaters.
 
 # banner TEXT — title plus a rule of the same width, so the two cannot drift apart when a
 # package is renamed.
@@ -48,11 +25,8 @@ gh_api() {
   fi
 }
 
-# gh_latest_release OWNER/REPO [TAG_REGEX]
-#
-# Newest non-draft, non-prerelease tag. With TAG_REGEX, scans the release list and takes
-# the first match instead of trusting /releases/latest — needed where a repo publishes
-# several tag namespaces (nx-optimizer ships both `manager-*` and `yuzu-*`).
+# gh_latest_release OWNER/REPO [TAG_REGEX] — newest non-draft, non-prerelease tag.
+# TAG_REGEX scans the release list, for repos with several tag namespaces.
 gh_latest_release() {
   local repo="$1" regex="${2:-}"
 
@@ -67,10 +41,8 @@ gh_latest_release() {
   fi
 }
 
-# gh_latest_tag OWNER/REPO [TAG_REGEX]
-#
-# For repos that tag but never publish releases (ayatana-ido). Version-sorted so it does
-# not depend on the API's tag ordering.
+# gh_latest_tag OWNER/REPO [TAG_REGEX] — for repos that tag but never release.
+# Version-sorted, so it does not depend on the API's tag ordering.
 gh_latest_tag() {
   local repo="$1" regex="${2:-.}"
 
@@ -81,11 +53,8 @@ gh_latest_tag() {
     | tail -1
 }
 
-# gh_release_asset_url OWNER/REPO TAG NAME_REGEX
-#
-# Resolve an asset by pattern rather than by a constructed filename: upstreams rename
-# assets between releases (ReignTweak went from `reigntweak.tar.gz` to a bare
-# `reigntweak`), and a constructed URL would silently 404 instead.
+# gh_release_asset_url OWNER/REPO TAG NAME_REGEX — resolve by pattern: upstreams
+# rename assets between releases, and a constructed URL would silently 404.
 gh_release_asset_url() {
   local repo="$1" tag="$2" regex="$3"
 
@@ -94,9 +63,7 @@ gh_release_asset_url() {
       '[.assets[] | select(.name | test($re))] | first | .browser_download_url // ""'
 }
 
-# git_head URL [BRANCH]
-#
-# HEAD of a branch, for upstreams that never tag.
+# git_head URL [BRANCH] — HEAD of a branch, for upstreams that never tag.
 git_head() {
   local url="$1" branch="${2:-}"
 
@@ -130,19 +97,14 @@ prefetch_unpacked() {
   to_sri "$raw"
 }
 
-# prefetch_github OWNER REPO REV — SRI matching `fetchFromGitHub { rev; hash; }`.
-# Uses the archive tarball; for `fetchSubmodules = true` use prefetch_git instead, since
-# the tarball carries no submodule content.
+# prefetch_github OWNER REPO REV — SRI for `fetchFromGitHub { rev; hash; }`. Uses the
+# tarball, so use prefetch_git for `fetchSubmodules = true`.
 prefetch_github() {
   prefetch_unpacked "https://github.com/$1/$2/archive/$3.tar.gz"
 }
 
-# prefetch_git_json URL REV [extra nix-prefetch-git flags...]
-#
-# Full nix-prefetch-git report. Worth preferring over prefetch_github for revisions
-# tracked by commit: it yields the SRI `hash` *and* the commit `date` in one clone, so an
-# updater needs no GitHub API call to build an `unstable-<date>` version string — and
-# therefore cannot be defeated by the 60 req/h unauthenticated rate limit.
+# prefetch_git_json URL REV [flags...] — full report: hash AND commit date in one
+# clone, so an `unstable-<date>` pin needs no rate-limited GitHub API call.
 prefetch_git_json() {
   local url="$1" rev="$2"
   shift 2
@@ -150,25 +112,16 @@ prefetch_git_json() {
   nix-prefetch-git --quiet --url "$url" --rev "$rev" "$@" 2>/dev/null
 }
 
-# prefetch_git URL REV [extra nix-prefetch-git flags...] — just the SRI hash.
-#
-# Matches `fetchgit`, and `fetchFromGitHub` too: for a repo without submodules or LFS the
-# git tree and the release tarball hash identically. Pass --fetch-submodules for
-# `fetchFromGitHub { fetchSubmodules = true; }`, where the tarball carries no submodules
-# and prefetch_github would report the wrong hash.
+# prefetch_git URL REV [flags...] — SRI hash. Matches `fetchgit` and (without
+# submodules/LFS) `fetchFromGitHub`; pass --fetch-submodules when it has them.
 prefetch_git() {
   prefetch_git_json "$@" | jq -r '.hash // ""'
 }
 
 # --- Cargo --------------------------------------------------------------------
 
-# cargo_git_output_hashes LOCKFILE
-#
-# `rustPlatform.buildRustPackage`'s `cargoLock.outputHashes` needs one entry per git
-# dependency, keyed `<name>-<version>`; crates.io dependencies are covered by the lockfile
-# itself and must not appear. Cargo records a git dep as
-# `source = "git+<url>[?branch=…|?rev=…|?tag=…]#<rev>"`, so each is parsed out and
-# prefetched at its locked revision. Prints a JSON object, `{}` when there are none.
+# cargo_git_output_hashes LOCKFILE — `cargoLock.outputHashes` JSON: one entry per
+# GIT dependency, keyed `<name>-<version>` (crates.io deps must not appear).
 cargo_git_output_hashes() {
   local lock="$1"
   local out="{}" name version src url rev hash
@@ -209,10 +162,8 @@ read_pin() {
   jq -r "${2} // \"\"" "$1" 2>/dev/null || echo ""
 }
 
-# require_nonempty LABEL VALUE...
-#
-# A pin with an empty field still evaluates, producing a nameless derivation that only
-# fails deep in a build. Refuse to write one.
+# require_nonempty LABEL VALUE... — an empty field still evaluates and only fails
+# deep in a build, so refuse to write the pin.
 require_nonempty() {
   local label="$1"
   shift
@@ -222,9 +173,8 @@ require_nonempty() {
   done
 }
 
-# write_pin FILE — reads the new JSON on stdin, validates it parses, writes atomically.
-# Field order is whatever the caller's `jq -n` emitted (not sorted), so a pin stays
-# readable as {version, rev, hash} and its diffs stay minimal.
+# write_pin FILE — validates the JSON on stdin and writes atomically, keeping the
+# caller's field order so pins stay readable and diffs minimal.
 write_pin() {
   local file="$1" tmp
   tmp="$(mktemp)"
@@ -236,8 +186,5 @@ write_pin() {
   mv "$tmp" "$file"
 }
 
-# No pin backup/restore helper is needed: every updater resolves the new revision *and*
-# its hash before touching the pin, then writes it with a single `mv`. There is no window
-# in which a half-written pin can be observed, so unlike shadps4 — which must write a
-# placeholder hash to provoke the mismatch that reveals the real one — nothing here has
-# to be rolled back on failure.
+# No backup/restore helper: updaters resolve rev AND hash before the single `mv`,
+# so a half-written pin is never observable.

@@ -173,9 +173,8 @@ in
 
             [ -z "$PACKAGE" ] && echo -e "${redString "error"}: package name is required" && exit 1
 
-            # `+` only ever parses on the `nix-build -A` path — it is not a Nix
-            # identifier char, so it always errors on `nix eval p.$PACKAGE` and
-            # falls through to the build. Kept so `-A` accepts the same set.
+            # `+` is not a Nix identifier char, so it always errors on `nix eval`
+            # and falls through to the build; kept so `-A` accepts the same set.
             if [[ ! "$PACKAGE" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
               echo -e "${redString "error"}: invalid package attribute '$PACKAGE'"
               exit 1

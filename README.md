@@ -241,7 +241,7 @@ modules = [ "btop", "steam" ]          # which modules to enable
 # patches = [ "patches/apps.patch" ]      # patch the whole repo source
 ```
 
-`url` accepts any Nix flake reference — `github:`, `gitlab:`, `git+https://…`, or a local `path:/…`, not just GitHub. (`overrideUrl` is a separate knob for *swapping* a repo's source during local testing while keeping its lock identity — you don't need it just to load a `path:` repo.)
+`url` accepts any Nix flake reference — `github:`, `gitlab:`, `git+https://…`, or a local `path:/…`, not just GitHub. (`overrideUrl` is a separate knob for *swapping* a repo's source during local testing while keeping its lock identity — you don't need it just to load a `path:` repo.) A local `path:` must be **absolute**: lock steps run against a detached copy of the state flake (see `build.sh`), so a relative `path:./…` would resolve against that temp dir, not `.state`.
 
 ### `config.toml` at a glance
 
@@ -307,7 +307,7 @@ url = "github:numtide/flake-utils"
 inputs = { nixpkgs.follows = "nixpkgs" }
 ```
 
-A `name` must not collide with a module-declared input, a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — all of those become top-level inputs too, and a duplicate would silently overwrite.
+A `name` must not collide with a module-declared input (its sub-flake name or its masked bare names), a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — extraFlakes become top-level inputs, module-declared inputs live as bare names inside their module's sub-flake, and a duplicate would silently overwrite.
 
 ### Hardware configuration
 
@@ -478,10 +478,12 @@ With no flags this is a `switch`: it builds your configuration and activates it 
 | Flag | Effect | Typical use |
 | --- | --- | --- |
 | `--update` | Update everything (core, nixpkgs, module repos, and module-declared inputs) in one blanket bump. | Full update. |
-| `--update-core` | Update IceDOS core, then re-run the command once. | Update IceDOS itself. |
-| `--update-nixpkgs` | Update the nixpkgs channel only. | Newer packages without touching modules. |
-| `--update-repos` | Pull new revisions of the IceDOS module repos (e.g. `apps`, `hardware`). Does **not** re-lock inputs declared *inside* those modules. | Get the latest modules. |
-| `--update-repos-inputs` | Re-lock every module-declared dependency. The only way to bump inputs defined inside module files. | Bump module dependencies without bumping nixpkgs. |
+| `--update-core` | Update all config flake inputs, then re-run the command once. | Update IceDOS itself plus all dependencies. |
+| `--update-core-only` | Update only the `icedos` input in the config flake. | Update IceDOS core without touching other inputs. |
+| `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
+| `--update-repos` | Pull new revisions of the IceDOS module repos **and** re-lock their declared inputs. | Get latest modules and bump their dependencies. |
+| `--update-repos-only` | Pull new revisions of the IceDOS module repos only. Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (one-build lag, self-healing). | Get latest modules without bumping their dependencies. |
+| `--update-repo-inputs-only` | Re-lock every module-declared dependency without pulling new repo revisions. Each module's inputs live in its own input-namespace sub-flake. | Bump module dependencies without updating repos. |
 | `--update-hooks` | Run only the `preUpdate`/`postUpdate` hooks and exit — no build, no activation. | Refresh non-Nix things (e.g. `flatpak update`). |
 
 #### Behavior flags

@@ -1,10 +1,5 @@
-# Eval-only smoke tests for core/lib/options/validate.nix, core/lib/helpers.nix
-# (hasModule, moduleInputName) and core/lib/icedos.nix (_mergeModuleLibs,
-# _opaqueOrKey, _dedupeNixosModules).
-# Usage (canonical): `nix flake check` in the core repo — the `checks.<system>.lib-tests`
-# derivation fails if any result value is not "ok".
-# Manual: nix-instantiate --eval --strict --expr '(import ./lib/tests/tests.nix) { }'
-# Every key must evaluate to "ok". Any "FAIL:..." string or thrown error equals regression.
+# Eval-only lib tests; every value must be "ok". Run with `nix flake check`, or
+# `nix eval --impure --json --expr '(import ./tests/tests.nix) { }'`.
 
 {
   lib ? import <nixpkgs/lib>,
@@ -13,17 +8,22 @@
 let
   icedosLib = {
     abortIf = condition: message: if condition then throw message else true;
-    # Track the real prefix so a constants.nix change fails the test instead of
-    # silently passing; the rest of icedosLib is lazy, so it never evaluates.
-    INPUTS_PREFIX = (import ../constants.nix { }).INPUTS_PREFIX;
-    generateAttrPath = throw "helpers.generateAttrPath is not stubbed in tests";
+    # Real semantics: `_getRevisionFromLock` / `_resolveFlakeRevisionNested` force
+    # them via `_readFlakeLock` / `_urlIsGitScheme`.
+    stringStartsWith = prefix: str: lib.strings.hasPrefix prefix str;
+    # Track the real constants so a constants.nix change fails the test instead
+    # of silently passing; the rest of icedosLib is lazy, so it never evaluates.
+    ICEDOS_STAGE = (import ../lib/constants.nix { }).ICEDOS_STAGE;
+    ICEDOS_STATE_DIR = (import ../lib/constants.nix { }).ICEDOS_STATE_DIR;
+    INPUTS_PREFIX = (import ../lib/constants.nix { }).INPUTS_PREFIX;
+    generateAttrPath = throw "generateAttrPath is not stubbed in tests";
   };
 
-  validate = (import ../options/validate.nix { inherit icedosLib lib; }).validate;
+  validate = (import ../lib/options/validate.nix { inherit icedosLib lib; }).validate;
 
-  # extraOptions (extra-options.nix) with the real abortIf/validate stubs.
+  # extraOptions (lib/config/extra-options.nix) with the real abortIf/validate stubs.
   extraOptions =
-    (import ../extra-options.nix {
+    (import ../lib/config/extra-options.nix {
       inherit lib;
       icedosLib = {
         abortIf = icedosLib.abortIf;
@@ -61,7 +61,7 @@ let
       modules = [ e2eBase ] ++ modules;
     }).config;
 
-  helpers = import ../helpers.nix {
+  helpers = import ../lib/inputs.nix {
     inherit icedosLib lib;
     self = "tests";
   };
@@ -94,11 +94,10 @@ let
       # The needle arg is documentation of the expected message fragment.
       "ok";
 
-  # --- icedosLib.hasModule (helpers.nix) --------------------------------
-  # Import helpers.nix with just the members hasModule actually forces stubbed;
-  # the abortIf/stringStartsWith stubs carry the real semantics.
+  # --- icedosLib.hasModule (scan.nix) ------------------------------------
+  # Only the members hasModule forces are stubbed, with real semantics.
   hasModule =
-    (import ../helpers.nix {
+    (import ../lib/scan.nix {
       inherit lib;
       self = "";
       icedosLib = {
@@ -112,11 +111,9 @@ let
     }).hasModule;
 
   # --- _mergeModuleLibs (icedos.nix) -------------------------------------
-  # The merge folds module `lib` field contributions onto the base lib. Import
-  # icedos.nix with a stubbed base lib and force only `_mergeModuleLibs` — the
-  # resolution machinery is a lazy rec member, so the rest never evaluates.
+  # Stubbed base lib; only `_mergeModuleLibs` is forced (the rest is lazy).
   merge =
-    (import ../icedos.nix {
+    (import ../lib/icedos.nix {
       inherit lib;
       config = { };
       inputs = { };
@@ -127,7 +124,7 @@ let
     })._mergeModuleLibs;
 
   # --- _opaqueOrKey / _dedupeNixosModules (icedos.nix) ---------------------
-  icedos = import ../icedos.nix {
+  icedos = import ../lib/icedos.nix {
     inherit lib;
     config = { };
     inputs = { };
@@ -137,14 +134,11 @@ let
     };
   };
 
-  # The real, fully-loaded lib (common.nix + helpers + icedos.nix) for the
-  # cross-source e2e tests, which drive `getExternalModuleOutputs` →
-  # `_extractNixosModules` (masked inputs, provenance shims, per-source dedup).
-  # `pkgs`/`inputs`/`config` stay empty — nothing those functions force needs
-  # them. Imported through the `in` block so it is lazy unless forced.
+  # The real, fully-loaded lib for the e2e tests. `pkgs`/`inputs`/`config` stay
+  # empty — nothing the driven functions force needs them.
   fullIcedos =
     let
-      realLib = import ../default.nix {
+      realLib = import ../lib/default.nix {
         inherit lib;
         config = { };
         inputs = { };
@@ -155,18 +149,18 @@ let
     in
     realLib;
 
-  # Same full import as `fullIcedos`, but with a caller-supplied raw config so
-  # tests can drive the rec-level `extraFlakes` members
-  # (`extraFlakeInputs`, `_validateExtraFlakes`, `extraFlakeModules`, masked
-  # exposure via `getExternalModuleOutputs`) with data — without ever forcing
-  # `modulesFromConfig` (which would force `_getConfigFlake` →
-  # `fetchTree { path = ICEDOS_CONFIG_ROOT; }` with the env unset here).
+  # `fullIcedos` with a caller-supplied config (forcing `modulesFromConfig` would
+  # need a config root); `writeTextDir` stubbed so sub-flake urls need no build.
   mkIcedos =
     config:
-    import ../default.nix {
+    import ../lib/default.nix {
       inherit lib config;
       inputs = { };
-      pkgs = { };
+      pkgs = {
+        writeTextDir = _name: _text: {
+          outPath = toString ../.;
+        };
+      };
       enableLogging = false;
       self = "tests";
     };
@@ -198,21 +192,16 @@ let
   opaqueOrKey = icedos._opaqueOrKey;
   dedupe = icedos._dedupeNixosModules;
 
-  # End-to-end module-system observable: `entries` collects whatever module
-  # values were actually loaded (identical values would load twice without
-  # dedup). The options module is separate from the emitted values so the
-  # emitted module stays function-free and structurally comparable.
+  # What the module system actually loaded. Option declarations stay out of the
+  # emitted values, so those remain function-free and comparable.
   e2eEntries =
     emitted:
     (lib.evalModules {
       modules = [ e2eBase ] ++ emitted;
     }).config.entries;
 
-  # `e2eEntries` with extra *base* modules declaring options the emitted
-  # payloads use. Keeping declarations out of the emitted values matters:
-  # a `lib.types.*` value contains a `merge` function, which would make a
-  # payload opaque in `_opaqueOrKey` for the wrong reason (never keyed, so a
-  # test asserting dedup/keep behaviour by key could not observe it).
+  # Option declarations live here, not in the payloads: a `lib.types.*` value
+  # carries a `merge` function and would make a payload opaque for the wrong reason.
   e2eBase = {
     options.entries = lib.mkOption {
       type = lib.types.listOf lib.types.str;
@@ -252,6 +241,242 @@ let
       "steam"
     ];
     "github:icedos/desktop" = [ "default" ];
+  };
+
+  # --- module-input sub-flake fixtures (_getModuleInputs) -------------------
+  # Empty config, so `_ambientInputNames` is the static set; `text` stays unforced.
+  miMod =
+    inputs:
+    let
+      r = (mkIcedos { })._getModuleInputs [
+        {
+          _repoInfo = {
+            url = "github:icedos/hardware";
+          };
+          meta = {
+            name = "aagl";
+          };
+          inherit inputs;
+        }
+      ];
+    in
+    builtins.head r;
+
+  miAagl = miMod {
+    aagl = {
+      url = "github:ezKEa/aagl-gtk-on-nix";
+      inputs = {
+        nixpkgs = {
+          follows = "nixpkgs";
+        };
+      };
+    };
+  };
+
+  miSibling = miMod {
+    base = {
+      url = "github:x/base";
+    };
+    patched = {
+      url = "github:x/patched";
+      inputs = {
+        nixpkgs = {
+          follows = "base/nixpkgs";
+        };
+      };
+    };
+  };
+
+  miShadow = miMod {
+    nixpkgs = {
+      url = "github:nixos/nixpkgs";
+    };
+    other = {
+      url = "github:x/other";
+      inputs = {
+        nixpkgs = {
+          follows = "nixpkgs";
+        };
+      };
+    };
+  };
+
+  miCross = miMod {
+    jovian = {
+      url = "github:jovian-experiments/jovian-nixos";
+      inputs = {
+        nixpkgs = {
+          follows = "icedos-github_icedos_providers-jovian/jovian";
+        };
+      };
+    };
+  };
+
+  miUnknown = miMod {
+    foo = {
+      url = "github:x/foo";
+      inputs = {
+        nixpkgs = {
+          follows = "unknown";
+        };
+      };
+    };
+  };
+
+  miSelf = miMod {
+    foo = {
+      url = "github:x/foo";
+      inputs = {
+        nixpkgs = {
+          follows = "self";
+        };
+      };
+    };
+  };
+
+  # A follows nested two levels deep is valid flake syntax and must still be
+  # collected, or it dangles in the sub-flake.
+  miDeepFollows = miMod {
+    foo = {
+      url = "github:x/foo";
+      inputs = {
+        bar = {
+          url = "github:x/bar";
+          inputs = {
+            baz = {
+              follows = "nixpkgs";
+            };
+          };
+        };
+      };
+    };
+  };
+
+  # A follows written directly on the input (not under `.inputs`) is collected
+  # too, so its slot is emitted.
+  miUrllessFollows = miMod {
+    foo = {
+      follows = "nixpkgs";
+    };
+  };
+
+  # url + follows on one input is unrepresentable — genflake must abort instead
+  # of emitting an un-lockable flake.
+  miDirectFollows = miMod {
+    foo = {
+      url = "github:x/foo";
+      follows = "nixpkgs";
+    };
+  };
+
+  miPatched = miMod {
+    foo = {
+      url = "github:x/foo";
+      patches = [ "dummy-patch" ];
+    };
+  };
+
+  mockLock = original: locked: {
+    nodes.apps = { inherit original locked; };
+  };
+
+  # Two-level lock shaped like the generated state flake's: sub-flake inputs are
+  # either a node key (string) or a follows path (array).
+  nestedLock = {
+    nodes = {
+      root = {
+        inputs = {
+          "icedos-github_icedos_providers-jovian" = "icedos-github_icedos_providers-jovian";
+        };
+        locked = { };
+      };
+      "icedos-github_icedos_providers-jovian" = {
+        inputs = {
+          jovian = "github:jovian-experiments/jovian-nixos";
+          nixpkgs = [ "nixpkgs" ];
+          missing_target = "github:missing/missing";
+          gitinput = "git:https://x/y";
+        };
+        locked = {
+          type = "path";
+          path = "./subflakes/icedos-github_icedos_providers-jovian";
+        };
+      };
+      "github:jovian-experiments/jovian-nixos" = {
+        original = {
+          type = "github";
+          owner = "jovian-experiments";
+          repo = "jovian-nixos";
+        };
+        locked = {
+          type = "github";
+          owner = "jovian-experiments";
+          repo = "jovian-nixos";
+          rev = "abcdef";
+        };
+      };
+      "github:missing/missing" = {
+        original = {
+          type = "github";
+          owner = "missing";
+          repo = "missing";
+        };
+        locked = {
+          type = "github";
+          owner = "missing";
+          repo = "missing";
+          narHash = "h2";
+        };
+      };
+      "git:https://x/y" = {
+        original = {
+          type = "git";
+          url = "https://x/y";
+        };
+        locked = {
+          type = "git";
+          url = "https://x/y";
+          rev = "beef";
+        };
+      };
+    };
+  };
+
+  # Trivial module + root-input-shaped baseInputs, so forcing the result forces
+  # `_extractNixosModules`' extraFlake/masked-name collision guard.
+  extractJovian =
+    base: extra:
+    (mkIcedos (lib.optionalAttrs (extra != { }) { system.extraFlakes = [ extra ]; }))
+    ._extractNixosModules
+      {
+        inputs = base;
+        modules = [
+          {
+            _repoInfo = {
+              url = "github:icedos/providers";
+            };
+            meta = {
+              name = "jovian";
+            };
+            inputs.jovian = {
+              url = "github:jovian-experiments/jovian-nixos";
+            };
+            outputs.nixosModules =
+              { inputs, ... }:
+              builtins.seq (builtins.attrNames inputs) [ ];
+          }
+        ];
+      };
+
+  extractBase = {
+    nixpkgs = { };
+    home-manager = { };
+    "icedos-github_icedos_providers" = { };
+    "icedos-github_icedos_providers-jovian" = {
+      inputs = {
+        jovian = { };
+      };
+    };
   };
 in
 {
@@ -442,8 +667,9 @@ in
     } "p" "/some/file.toml" 99
   );
 
-  # moduleInputName — mirrors _getModuleInputs in lib/icedos.nix (single source of truth).
-  moduleInputNameJovian = expectEq "icedos-github_icedos_providers-jovian-jovian" (
+  # moduleInputName — the `<sub-flake>/<input>` path form, mirroring
+  # `_getModuleInputs` (single source of truth).
+  moduleInputNameJovian = expectEq "icedos-github_icedos_providers-jovian/jovian" (
     helpers.moduleInputName {
       repo = "github:icedos/providers";
       module = "jovian";
@@ -451,7 +677,7 @@ in
     }
   );
 
-  moduleInputNameNur = expectEq "icedos-github_icedos_providers-nur-nur" (
+  moduleInputNameNur = expectEq "icedos-github_icedos_providers-nur/nur" (
     helpers.moduleInputName {
       repo = "github:icedos/providers";
       module = "nur";
@@ -462,7 +688,7 @@ in
   # repo/module pass through mkInputName's URL-char sanitization; `input` is a Nix
   # attr identifier in production and is appended verbatim.
   moduleInputNameSanitizesUrlChars =
-    expectEq "icedos-https___example_com_blog_from_1-the_post-nixpkgs"
+    expectEq "icedos-https___example_com_blog_from_1-the_post/nixpkgs"
       (
         helpers.moduleInputName {
           repo = "https://example.com/blog?from=1";
@@ -473,29 +699,786 @@ in
 
   # A patched module's inputs split into an unpatched node (named `<input>_source`)
   # and a patched node — the `_source` variant mirrors _getModuleInputs' normalInput.
-  moduleInputNamePatchedSource = expectEq "icedos-github_icedos_providers-jovian-jovian_source" (
+  moduleInputNamePatchedSource = expectEq "icedos-github_icedos_providers-jovian/jovian_source" (
     helpers.moduleInputName {
       repo = "github:icedos/providers";
       module = "jovian";
       input = "jovian_source";
     }
   );
-  # --- hasModule (helpers.nix) & _mergeModuleLibs (icedos.nix) test cases ---
-  # --- hasModule test cases ---------------------------------------------
 
-  # name present in any repo -> true
+  # moduleSubFlakeName — the root input name a module's inputs live under.
+  moduleSubFlakeNameJovian = expectEq "icedos-github_icedos_providers-jovian" (
+    helpers.moduleSubFlakeName {
+      repo = "github:icedos/providers";
+      module = "jovian";
+    }
+  );
+
+  # The path form is exactly the sub-flake name plus "/" plus the input name.
+  moduleInputNameComposesFromSubFlakeName = expectOk (
+    helpers.moduleInputName {
+      repo = "github:icedos/providers";
+      module = "jovian";
+      input = "nur";
+    } == "${
+      helpers.moduleSubFlakeName {
+        repo = "github:icedos/providers";
+        module = "jovian";
+      }
+    }/nur"
+  );
+
+  # --- module-input sub-flakes: _getModuleInputs / _checkDuplicateModuleInputs ----
+  # The root's `-subflake` suffix is load-bearing: build.sh keys on it.
+  subFlakeNameAagl = expectEq "icedos-github_icedos_hardware-aagl" miAagl.subFlakeName;
+  subFlakeRootDeclIsStorePath = expectOk (
+    lib.strings.hasPrefix "path:/nix/store/" miAagl.input.value.url
+  );
+  subFlakeRootDeclNamed = expectOk (
+    lib.strings.hasSuffix "icedos-github_icedos_hardware-aagl-subflake" miAagl.input.value.url
+  );
+  subFlakeSlotFollows = expectEq "nixpkgs" miAagl.input.value.inputs.nixpkgs.follows;
+
+  # Masked mapping: sub-flake tag + original bare name + path-form `name`.
+  subFlakeMasked = expectEq {
+    _originalName = "aagl";
+    _subFlake = "icedos-github_icedos_hardware-aagl";
+    name = "icedos-github_icedos_hardware-aagl/aagl";
+  } (builtins.head miAagl.masked);
+
+  # The slot assertion targets the empty decl (`nixpkgs = { }`), not the bare
+  # name — the decl's own follows contains "nixpkgs" too.
+  subFlakeTextHasUrl = expectOk (lib.strings.hasInfix "github:ezKEa/aagl-gtk-on-nix" miAagl.text);
+  subFlakeTextHasSlot = expectOk (lib.strings.hasInfix "nixpkgs = { }" miAagl.text);
+
+  # Config-root extra modules export sub-flakes too; if one goes missing,
+  # genflake emits no root input and the module's input stops resolving.
+  extraSourceSubFlake = expectOk (
+    (fullIcedos.getExternalModuleOutputs [
+      (
+        mod "config" "extra-with-input" null
+        // {
+          inputs.foo = {
+            url = "github:x/foo";
+          };
+        }
+      )
+    ]).subFlakes ? icedos-config-extra-with-input
+  );
+  # Multi-segment follows whose first segment is a *sibling* input is legal and
+  # emits no slot (base is not ambient).
+  subFlakeSiblingFollowsLegal = expectOk (miSibling.input ? value);
+  subFlakeSiblingFollowsNoSlot = expectEq { } miSibling.input.value.inputs;
+
+  # A module declaring its own `nixpkgs` shadows the ambient name: legal, but no
+  # slot is emitted for it (the follows resolves to the module's own input).
+  subFlakeAmbientShadowed = expectOk (miShadow.input ? value);
+  subFlakeAmbientShadowedNoSlot = expectEq { } miShadow.input.value.inputs;
+
+  # Cross-module follows (first segment a sub-flake name) and unknown segments
+  # abort when the root input decl is forced (genflake naming the declarer).
+  subFlakeCrossModuleAbort = expectThrow miCross.input;
+  subFlakeUnknownSegmentAbort = expectThrow miUnknown.input;
+
+  # `self` is not ambient either (the generated flake has no `inputs.self`) →
+  # aborts like any unresolvable first segment.
+  subFlakeSelfAbort = expectThrow miSelf.input;
+
+  # A nested follows' first segment still becomes a slot the parent rewires.
+  subFlakeDeepFollowsSlot = expectEq "nixpkgs" miDeepFollows.input.value.inputs.nixpkgs.follows;
+  subFlakeDeepFollowsText = expectOk (lib.strings.hasInfix "nixpkgs = { }" miDeepFollows.text);
+
+  # Url-less follows-only input: the input's OWN `follows` is collected (not just
+  # `inputs.*.follows`), emitting the ambient slot it shadows.
+  subFlakeUrllessFollowsSlot = expectEq "nixpkgs" miUrllessFollows.input.value.inputs.nixpkgs.follows;
+
+  # url + follows on the same input is unrepresentable in a sub-flake — abort
+  # (naming the declarer) rather than emit an un-lockable flake.
+  subFlakeDirectFollowsAbort = expectThrow miDirectFollows.input;
+
+  # Pin `_ambientInputNames` against genflake's root-input emission, so drift in
+  # either direction fails here. Subset-based: /etc/icedos is machine-dependent.
+  ambientSetStatic = expectOk (
+    lib.all (n: lib.elem n (mkIcedos { })._ambientInputNames) [
+      "nixpkgs"
+      "home-manager"
+      "icedos-config"
+      "icedos-core"
+    ]
+  );
+  ambientSetMirrorsConfig = expectOk (
+    let
+      s =
+        (mkIcedos {
+          system = {
+            channels = [
+              {
+                name = "mychannel";
+                url = "github:x/y";
+              }
+            ];
+            overlays = {
+              fromChannel = [
+                {
+                  url = "https://example.com/overlay";
+                  packages = [ "foo" ];
+                }
+                # Empty-packages and channel-mode overlay entries are not root
+                # inputs in genflake — and must not be followable slots either.
+                {
+                  url = "https://example.com/dropped";
+                  packages = [ ];
+                }
+                {
+                  channel = "mychannel";
+                  packages = [ "bar" ];
+                }
+              ];
+            };
+            extraFlakes = [
+              {
+                name = "myflake";
+                url = "u";
+              }
+            ];
+          };
+        })._ambientInputNames;
+    in
+    lib.all (n: lib.elem n s) [
+      "mychannel"
+      # `mkInputName { parts = [ "overlay" url ] }` → prefix "icedos-" + part
+      # "overlay" joined by "_" → dash after "overlay", underscore before url.
+      "icedos-overlay-https___example_com_overlay"
+      "myflake"
+    ]
+    && !lib.elem "icedos-overlay-https___example_com_dropped" s
+    && !lib.elem "icedos-overlay-mychannel" s
+  );
+
+  # An extraFlake named like a module's sub-flake aborts; without it the same
+  # module extracts cleanly.
+  subFlakeExtraFlakeCollision = expectThrow (
+    extractJovian extractBase {
+      name = "icedos-github_icedos_providers-jovian";
+      url = "u";
+    }
+  );
+  subFlakeExtraFlakeNoCollision = expectEq [ ] (extractJovian extractBase { });
+
+  # Patched input: `masked` carries both the `_source` and the patched node (the
+  # real sub-flake name / manifest key), without forcing the patched store path.
+  subFlakePatchedMasked = expectEq [
+    {
+      _originalName = "foo_source";
+      _subFlake = "icedos-github_icedos_hardware-aagl";
+      name = "icedos-github_icedos_hardware-aagl/foo_source";
+    }
+    {
+      _originalName = "foo";
+      _subFlake = "icedos-github_icedos_hardware-aagl";
+      name = "icedos-github_icedos_hardware-aagl/foo";
+    }
+  ] miPatched.masked;
+
+  # Duplicate bare input name: same url across declarers is fine (lock dedups the
+  # node), different urls abort naming both declarers.
+  dupInputSameUrl = expectOk (
+    (mkIcedos { })._checkDuplicateModuleInputs [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "a";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/desktop";
+        };
+        meta = {
+          name = "b";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+    ]
+  );
+  dupInputDiffUrl = expectThrow (
+    (mkIcedos { })._checkDuplicateModuleInputs [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "a";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/desktop";
+        };
+        meta = {
+          name = "b";
+        };
+        inputs = {
+          foo = {
+            url = "github:p/q";
+          };
+        };
+      }
+    ]
+  );
+  # Same url but DIFFERENT patch sets realise two different trees, and the masked
+  # set (`listToAttrs` keyed by bare name) would silently pick one — abort.
+  dupInputSameUrlDiffPatches = expectThrow (
+    (mkIcedos { })._checkDuplicateModuleInputs [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "a";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            patches = [ ../lib/icedos.nix ];
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/desktop";
+        };
+        meta = {
+          name = "b";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+    ]
+  );
+  # Same url AND the same patch set is still fine (lock dedups the node).
+  dupInputSameUrlSamePatches = expectOk (
+    (mkIcedos { })._checkDuplicateModuleInputs [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "a";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            patches = [ ../lib/icedos.nix ];
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/desktop";
+        };
+        meta = {
+          name = "b";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            patches = [ ../lib/icedos.nix ];
+          };
+        };
+      }
+    ]
+  );
+
+  # Same url AND the same follow/override decl is still fine — the lock dedups
+  # the node and the masked mapping is unambiguous.
+  dupInputSameUrlSameDecl = expectOk (
+    (mkIcedos { })._checkDuplicateModuleInputs [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "a";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            follows = "nixpkgs";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/desktop";
+        };
+        meta = {
+          name = "b";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            follows = "nixpkgs";
+          };
+        };
+      }
+    ]
+  );
+  # Same name and url but different nested decls are two different nodes, and
+  # the masked set could only keep one — abort.
+  dupInputSameUrlDiffDecl = expectThrow (
+    (mkIcedos { })._checkDuplicateModuleInputs [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "a";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            follows = "nixpkgs";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/desktop";
+        };
+        meta = {
+          name = "b";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+            follows = "home-manager";
+          };
+        };
+      }
+    ]
+  );
+
+  # `mkInputName` keeps `-`, so `hardware#cachyos-kernel` and
+  # `hardware-cachyos#kernel` sanitize to one root name — abort.
+  subFlakeNameDistinctOk = expectOk (
+    (mkIcedos { })._checkDuplicateSubFlakeNames [
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware";
+        };
+        meta = {
+          name = "cachyos-kernel";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "aagl";
+        };
+        inputs = {
+          bar = {
+            url = "github:p/q";
+          };
+        };
+      }
+    ]
+  );
+  subFlakeNameSameDeclarerOk = expectOk (
+    (mkIcedos { })._checkDuplicateSubFlakeNames [
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware";
+        };
+        meta = {
+          name = "cachyos-kernel";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware";
+        };
+        meta = {
+          name = "cachyos-kernel";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+    ]
+  );
+  # Same sub-flake name from different repos whose names differ only in a
+  # `-`/`.`-split: both declarers abort.
+  subFlakeNameCollisionAcrossRepos = expectThrow (
+    (mkIcedos { })._checkDuplicateSubFlakeNames [
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware";
+        };
+        meta = {
+          name = "cachyos-kernel";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware-cachyos";
+        };
+        meta = {
+          name = "kernel";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+    ]
+  );
+  # Same repo, two module names differing only in sanitized characters.
+  subFlakeNameCollisionWithinRepo = expectThrow (
+    (mkIcedos { })._checkDuplicateSubFlakeNames [
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "my.mod";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
+        meta = {
+          name = "my_mod";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+    ]
+  );
+  # The second module declares no inputs → no sub-flake → no collision.
+  subFlakeNameInputlessIgnored = expectOk (
+    (mkIcedos { })._checkDuplicateSubFlakeNames [
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware";
+        };
+        meta = {
+          name = "cachyos-kernel";
+        };
+        inputs = {
+          foo = {
+            url = "github:x/y";
+          };
+        };
+      }
+      {
+        _repoInfo = {
+          url = "github:icedos/hardware-cachyos";
+        };
+        meta = {
+          name = "kernel";
+        };
+      }
+    ]
+  );
+
+  # Channel name matches a sub-flake name → abort.
+  subFlakeReservedCollisionWithChannel = expectThrow (
+    (mkIcedos {
+      system.channels = [
+        { name = "icedos-github_icedos_apps-aagl"; }
+      ];
+    })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+    ]
+  );
+
+  # ExtraFlake name matches a sub-flake name → abort.
+  subFlakeReservedCollisionWithExtraFlake = expectThrow (
+    (mkIcedos {
+      system.extraFlakes = [
+        { name = "icedos-github_icedos_apps-aagl"; url = "u"; }
+      ];
+    })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+    ]
+  );
+
+  # Repo input name matches a sub-flake name → abort.
+  subFlakeReservedCollisionWithRepo = expectThrow (
+    (mkIcedos { })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+      {
+        _repoInfo = { url = "github:icedos/apps-aagl"; };
+        meta.name = "default";
+      }
+    ]
+  );
+
+  # No collision → ok.
+  subFlakeReservedNoCollision = expectOk (
+    (mkIcedos {
+      system.channels = [ { name = "mychannel"; } ];
+    })._checkSubFlakeReservedNames [
+      {
+        _repoInfo = { url = "github:icedos/apps"; };
+        meta.name = "aagl";
+        inputs.foo.url = "github:x/y";
+      }
+    ]
+  );
+
+  # --- _resolveFlakeRevisionLocked / _resolveFlakeRevisionNested (inputs.nix) ---
+  # The pure tail resolves a pinned rev from a lock + node key.
+  revLockedGithub = expectEq "/abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+
+  # git+ url: git scheme → `?rev=` form (with the git+ prefix kept in the url).
+  revLockedGitScheme = expectEq "?rev=abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+https://example.com/x";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "git";
+            url = "https://example.com/x";
+          }
+          {
+            type = "git";
+            url = "https://example.com/x";
+            rev = "abc";
+          };
+    }
+  );
+
+  # The node's `original` no longer describes `url` (overrideUrl toggled) → the
+  # pin is invalidated and "" is returned so the input re-resolves from scratch.
+  revLockedMismatch = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "other";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "other";
+            repo = "apps";
+            rev = "abc";
+          };
+    }
+  );
+
+  revLockedPath = expectEq "/abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "path:/abs/x";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "path";
+            path = "/abs/x";
+          }
+          {
+            type = "path";
+            path = "/abs/x";
+            rev = "abc";
+          };
+    }
+  );
+
+  revLockedNarHashOnly = expectEq "?narHash=h1" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            narHash = "h1";
+          };
+    }
+  );
+
+  # Two-hop nested lookup with no lock present: ICEDOS_STATE_DIR is empty in
+  # tests, so `_readFlakeLock` returns null → "" (fallback to latest).
+  revNestedNoLock = expectEq "" (
+    helpers._resolveFlakeRevisionNested {
+      url = "github:x/y";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "jovian";
+    }
+  );
+
+  # Two-hop nested lookup over a mock lock (`_resolveFlakeRevisionNestedLocked`):
+  # root → sub-flake node key → input node key, then the shared locked tail.
+  revNestedStringHops = expectEq "/abcdef" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "github:jovian-experiments/jovian-nixos";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "jovian";
+      lock = nestedLock;
+    }
+  );
+  # A follows-array where a node key was expected (e.g. `nixpkgs = [ "nixpkgs" ]`)
+  # is not a resolvable hop → "".
+  revNestedFollowsArray = expectEq "" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "github:nixos/nixpkgs";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "nixpkgs";
+      lock = nestedLock;
+    }
+  );
+  # Unknown sub-flake name → first hop misses → "".
+  revNestedMissingSub = expectEq "" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "github:x/y";
+      subFlakeName = "no-such-sub";
+      inputName = "jovian";
+      lock = nestedLock;
+    }
+  );
+  # Sub-flake node without the input → second hop misses → "".
+  revNestedMissingInput = expectEq "" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "github:x/y";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "no-such-input";
+      lock = nestedLock;
+    }
+  );
+  # The resolved leaf has only a narHash → "?narHash=…" (same tail as the
+  # single-hop case).
+  revNestedNarHashOnly = expectEq "?narHash=h2" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "github:missing/missing";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "missing_target";
+      lock = nestedLock;
+    }
+  );
+  # Git-scheme leaf (git+…) encodes the rev as a query param.
+  revNestedGitScheme = expectEq "?rev=beef" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "git+https://x/y";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "gitinput";
+      lock = nestedLock;
+    }
+  );
+  # The leaf's `original` no longer describes `url` → pin invalidated, "".
+  revNestedMismatch = expectEq "" (
+    helpers._resolveFlakeRevisionNestedLocked {
+      url = "github:other/nixos";
+      subFlakeName = "icedos-github_icedos_providers-jovian";
+      inputName = "jovian";
+      lock = nestedLock;
+    }
+  );
+  # --- hasModule (scan.nix) ---------------------------------------------
+
   hasModuleNamePresent = expectOk (hasModule {
     config = fakeConfig loaded;
     name = "steam";
   });
-  # name absent everywhere -> false (NOT an abort)
   hasModuleNameAbsent = expectOk (
     !(hasModule {
       config = fakeConfig loaded;
       name = "ghost";
     })
   );
-  # url branch: matching repo + present name -> true
   hasModuleUrlMatch = expectOk (hasModule {
     config = fakeConfig loaded;
     url = "github:icedos/apps";
@@ -509,7 +1492,6 @@ in
       name = "steam";
     })
   );
-  # url branch: unknown repo -> false
   hasModuleUrlNoSuchRepo = expectOk (
     !(hasModule {
       config = fakeConfig loaded;
@@ -517,13 +1499,11 @@ in
       name = "btop";
     })
   );
-  # repoUrl branch -> true
   hasModuleRepoUrlMatch = expectOk (hasModule {
     config = fakeConfig loaded;
     repoUrl = "github:icedos/desktop";
     modules = [ "default" ];
   });
-  # modules branch: all present -> true
   hasModuleModulesAll = expectOk (hasModule {
     config = fakeConfig loaded;
     modules = [
@@ -531,7 +1511,6 @@ in
       "steam"
     ];
   });
-  # modules branch: one missing -> false
   hasModuleModulesPartial = expectOk (
     !(hasModule {
       config = fakeConfig loaded;
@@ -553,7 +1532,6 @@ in
     config = fakeConfig loaded;
     modules = [ ];
   });
-  # neither name nor modules -> abort
   hasModuleNeitherAbort = expectThrow (hasModule {
     config = fakeConfig loaded;
   });
@@ -562,18 +1540,15 @@ in
     config = fakeConfig { };
   });
 
-  # disjoint contributions fold in cleanly
   mergeHappy = expectOk (
     (merge [
       (mod "github:icedos/a" "m1" { alpha = 1; })
       (mod "github:icedos/b" "m2" { beta = 2; })
     ]).beta == 2
   );
-  # a contribution name colliding with the base lib -> named throw
   mergeCollidesBase = expectThrowMatch (merge [
     (mod "github:icedos/a" "m1" { foo = "shadow"; })
   ]) "Duplicate icedosLib name 'foo'";
-  # a name colliding across two contributions -> named throw
   mergeCollidesAcross = expectThrowMatch (merge [
     (mod "github:icedos/a" "m1" { bar = 1; })
     (mod "github:icedos/b" "m2" { bar = 2; })
@@ -607,14 +1582,12 @@ in
   # dedup, and a path never collides with an equal-looking plain string).
   opaquePath = expectEq {
     kind = "path";
-    value = toString ./tests-fixture-module.nix;
-  } (opaqueOrKey ./tests-fixture-module.nix);
+    value = toString ./fixtures/tests-fixture-module.nix;
+  } (opaqueOrKey ./fixtures/tests-fixture-module.nix);
   # `null` keys as its own kind (a module value carrying `null` can dedup).
   opaqueNull = expectEq { kind = "null"; } (opaqueOrKey null);
-  # A derivation is opaque: keying inspects `type` alone and never forces the
-  # value (a derivation is a cyclic attrset; forcing `drvPath` could
-  # instantiate). It degrades to `null`, so derivation-bearing values are
-  # never deduplicated.
+  # Keying inspects `type` alone and never forces a derivation (cyclic attrset;
+  # forcing `drvPath` could instantiate).
   opaqueDerivation = expectEq null (opaqueOrKey {
     type = "derivation";
     name = "fake";
@@ -625,14 +1598,11 @@ in
   opaqueDerivationInValue = expectEq null (opaqueOrKey {
     p = fakeDrv;
   });
-  # A property wrapper (`_type` attr: mkIf/mkMerge/mkForce/option types, …) is
-  # opaque — keying must never descend into branches the module system may
-  # drop unforced. `abort` is NOT caught by `tryEval`, so this only passes
-  # because of the `_type` guard, not the safety net.
+  # `_type` wrappers are opaque: keying must not descend into branches the module
+  # system may drop. `abort` is not caught by tryEval, so only the guard saves this.
   opaquePropertyWrapper = expectEq null (opaqueOrKey (lib.mkIf false (abort "unforced")));
-  # A payload that DECLARES options is opaque too: `lib.mkOption` produces
-  # `{ _type = "option"; … }`, so duplicate option declarations are never
-  # silently merged by dedup — they still fail loudly, which is correct.
+  # Option declarations are `_type`-tagged, so duplicates still fail loudly
+  # instead of being silently merged.
   opaqueOptionDecl = expectEq null (opaqueOrKey {
     options.x = lib.mkOption { type = lib.types.str; };
   });
@@ -653,7 +1623,6 @@ in
     opaqueOrKey (builtins.foldl' (acc: _: [ acc ]) 0 (builtins.genList (x: x) 50)) != null
     && opaqueOrKey (builtins.foldl' (acc: _: [ acc ]) 0 (builtins.genList (x: x) 51)) == null
   );
-  # Lists recurse elementwise.
   opaqueList =
     expectEq
       {
@@ -742,12 +1711,12 @@ in
   opaqueFnInAttrs = expectEq null (opaqueOrKey {
     config = { pkgs, ... }: { };
   });
-  # Structurally different shapes never compare equal (the `kind` tag): an
-  # empty list vs an empty attrset, a path vs a plain string of its store
-  # text, and `42` vs `42.0` (Nix treats int == float as equal untagged).
+  # The `kind` tag keeps different shapes apart: `{ }` vs `[ ]`, a path vs its
+  # store string, `42` vs `42.0` (Nix treats int == float as equal).
   opaqueKindListVsAttrs = expectOk (opaqueOrKey [ ] != opaqueOrKey { });
   opaqueKindPathVsString = expectOk (
-    opaqueOrKey ./tests-fixture-module.nix != opaqueOrKey (toString ./tests-fixture-module.nix)
+    opaqueOrKey ./fixtures/tests-fixture-module.nix
+    != opaqueOrKey (toString ./fixtures/tests-fixture-module.nix)
   );
   opaqueKindIntVsFloat = expectOk (opaqueOrKey 42 != opaqueOrKey 42.0);
   # Two structurally-identical (differently-ordered) values get equal keys.
@@ -778,7 +1747,6 @@ in
         (lib.setDefaultModuleLocation "locA" shared)
         (lib.setDefaultModuleLocation "locB" shared)
       ]);
-  # Keep-first preserves the surviving shim's `_file`.
   dedupeFirstFile = expectOk (
     (builtins.head (dedupe [
       (lib.setDefaultModuleLocation "locA" shared)
@@ -790,7 +1758,6 @@ in
     shared
     (lib.setDefaultModuleLocation "loc" shared)
   ]);
-  # Distinct function-free values are both kept.
   dedupeDistinct = expectEq 2 (
     builtins.length (dedupe [
       (lib.setDefaultModuleLocation "l1" { config.entries = [ "A" ]; })
@@ -812,11 +1779,11 @@ in
   dedupePath =
     expectEq
       [
-        (lib.setDefaultModuleLocation "locA" ./tests-fixture-module.nix)
+        (lib.setDefaultModuleLocation "locA" ./fixtures/tests-fixture-module.nix)
       ]
       (dedupe [
-        (lib.setDefaultModuleLocation "locA" ./tests-fixture-module.nix)
-        (lib.setDefaultModuleLocation "locB" ./tests-fixture-module.nix)
+        (lib.setDefaultModuleLocation "locA" ./fixtures/tests-fixture-module.nix)
+        (lib.setDefaultModuleLocation "locB" ./fixtures/tests-fixture-module.nix)
       ]);
   # Dedup preserves the relative order of kept modules (order affects
   # merge/priority precedence), each distinct value kept once.
@@ -843,7 +1810,6 @@ in
     (lib.setDefaultModuleLocation "locA" shared)
     (lib.setDefaultModuleLocation "locB" shared)
   ]);
-  # Deduped emission loads it once.
   e2eDeduped = expectEq [ "S" ] (
     e2eEntries (dedupe [
       (lib.setDefaultModuleLocation "locA" shared)
@@ -875,18 +1841,13 @@ in
   # Shim-wrapped identical paths (the jovian case) dedup to one.
   e2ePath = expectEq [ "S" ] (
     e2eEntries (dedupe [
-      (lib.setDefaultModuleLocation "locA" ./tests-fixture-module.nix)
-      (lib.setDefaultModuleLocation "locB" ./tests-fixture-module.nix)
+      (lib.setDefaultModuleLocation "locA" ./fixtures/tests-fixture-module.nix)
+      (lib.setDefaultModuleLocation "locB" ./fixtures/tests-fixture-module.nix)
     ])
   );
 
   # ── cross-source: repo (external) + config-root (extra) modules ────────────
-  # Mirrors modulesFromConfig.nixosModules exactly: each source flattens and
-  # dedups internally (`getExternalModuleOutputs` → `_extractNixosModules`),
-  # then the two sources are combined and deduped again
-  # (`_dedupeNixosModules (external ++ extra)`), so an identical value emitted
-  # by a config-root `icedos.nix` module (`_repoInfo.url = "config"`) and a
-  # repo module loads only once.
+  # Mirrors `modulesFromConfig.nixosModules`: each source dedups, then the combine does.
   crossSourceDedup =
     let
       emit =
@@ -927,7 +1888,6 @@ in
       )
     );
 
-  # Cross-source distinct values both survive the combine (order unspecified).
   crossSourceDistinct = expectOk (
     let
       emit =
@@ -950,9 +1910,7 @@ in
   );
 
   # ── icedos.system.extraFlakes ─────────────────────────────────────────────
-  # Rec-level members, driven directly on `mkIcedos` (no `modulesFromConfig`
-  # forcing — that would hit `_getConfigFlake` → `fetchTree` with no config
-  # root here).
+  # Driven on `mkIcedos` directly; `modulesFromConfig` would need a config root.
 
   # Flake-input emission: `{ url; inputs; }` value (modulesToLoad stripped),
   # so `inputs.<x>.follows` passthrough survives into the generated flake.
@@ -969,7 +1927,6 @@ in
       };
     }
   ] ((mkIcedos { }).extraFlakeInputs (efIcedos.extraFlakes));
-  # An entry without `inputs` emits a bare `{ url; }`.
   efInputsBare =
     expectEq
       [
@@ -996,7 +1953,6 @@ in
       name = "jovian";
     }
   ] ((mkIcedos { }).extraFlakeMaskedInputs efIcedos.extraFlakes);
-  # Happy paths: empty list and a fully-valid entry.
   efValid = expectOk ((mkIcedos { })._validateExtraFlakes [ ]);
   efValidEntry = expectOk ((mkIcedos { })._validateExtraFlakes efIcedos.extraFlakes);
   # Validation rejects: reserved name, duplicate names, bad name regex, empty
@@ -1073,7 +2029,6 @@ in
           };
         }
       );
-  # Multi-path / multi-entry: indices resolve independently.
   efLoadMulti =
     expectEq
       [
@@ -1127,9 +2082,8 @@ in
             };
           }
       );
-  # Missing input, missing segment, and null output all abort loudly. The
-  # selections are lazy inside the provenance shim, so `deepSeq` forces them so
-  # the throw lands inside `expectThrow`'s tryEval.
+  # Selections are lazy inside the provenance shim, so `deepSeq` lands the throw
+  # inside `expectThrow`'s tryEval.
   efMissingInput = expectThrow (
     builtins.deepSeq (efIcedos.extraFlakeModules {
       inputs = { };
@@ -1154,9 +2108,8 @@ in
     }) true
   );
 
-  # Masked-input exposure: a module referencing `inputs.jovian.…` resolves
-  # against the registered extra flake. The fake module forces the masked input,
-  # so `_extractNixosModules`'s validation + collision checks actually run.
+  # A module referencing `inputs.jovian` resolves against the registered extra
+  # flake; forcing it runs `_extractNixosModules`' validation and guards.
   efMaskedExposure = expectEq [ "S" ] (
     e2eEntries (
       (efBare.getExternalModuleOutputs [
@@ -1179,10 +2132,8 @@ in
     )
   );
 
-  # Collision: a module-declared input whose bare name matches an extraFlake
-  # name aborts (forced via the masked input the fake module reads).
-  # The collision throw lives inside a lazily-emitted module, so `deepSeq`
-  # forces the emitted value to land it inside `expectThrow`'s tryEval.
+  # A module input whose bare name matches an extraFlake aborts; `deepSeq` lands
+  # the lazily-emitted throw inside tryEval.
   efCollision = expectThrow (
     builtins.deepSeq (
       (efBare.getExternalModuleOutputs [
@@ -1206,9 +2157,8 @@ in
     ) true
   );
 
-  # The shared name-collision helper `_extraFlakeNameCollisions` backs both the
-  # masked-input guard (bare + namespaced) and `modulesFromConfig`'s repo-input
-  # guard, so driving it directly covers the latter's logic.
+  # `_extraFlakeNameCollisions` backs both the masked-input and repo-input
+  # guards, so driving it directly covers the latter too.
   efNameCollisionsHelper = expectEq [ "jovian" ] (
     (mkIcedos {
       system.extraFlakes = [
@@ -1225,9 +2175,8 @@ in
       ]
   );
 
-  # Collision with the NAMESPACED module-input name (an extraFlake named exactly
-  # `icedos-<repo>-<module>-<input>` would otherwise silently overwrite the
-  # module's generated top-level input in `listToAttrs`).
+  # An extraFlake named exactly like a module's generated input name would
+  # otherwise silently overwrite it in `listToAttrs`.
   efCollisionNamespaced =
     let
       collisionIcedos = mkIcedos {
@@ -1266,9 +2215,7 @@ in
       ) true
     );
 
-  # Single-load dedup across a module emission and a `modulesToLoad` selection
-  # (mirrors `modulesFromConfig.nixosModules`: external ++ extra ++
-  # extraFlakeModules, deduped once).
+  # One value emitted by a module and by a `modulesToLoad` selection loads once.
   efCrossSourceDedup = expectEq [ "S" ] (
     e2eEntries (
       dedupe (
@@ -1297,11 +2244,7 @@ in
   );
 
   # --- end-to-end hardening (review regressions) ---------------------------
-  # Identical derivation-bearing values are opaque — both `null`, so never
-  # deduplicated, and keying never crashes on the cyclic derivation. A full e2e
-  # is not possible: carrying `p` under `config` needs an option declaration,
-  # and any `lib.types.*` type contains a `merge` function, which makes the
-  # whole payload opaque (correctly: never deduped).
+  # Derivation-bearing values key as opaque and never crash on the cycle.
   opaqueDerivationKeepsOpaque = expectOk (
     let
       a = opaqueOrKey {
@@ -1315,9 +2258,8 @@ in
     in
     a == null && b == null
   );
-  # A value that throws when forced never dedups and never aborts eval. The
-  # option declaration lives in the base module so the emitted payloads stay
-  # function-free — only the `throw` makes them opaque.
+  # A value that throws when forced never dedups and never aborts eval; only the
+  # `throw` makes these payloads opaque.
   e2eThrowsKeepsBoth = expectEq [ "S" "S" ] (
     e2eEntriesWith
       [
@@ -1336,8 +2278,7 @@ in
         })
       ])
   );
-  # A path and an equal-looking plain string never collide (without the
-  # `path:` tag both would key to the same store string and dedup to one).
+  # Without the `path` tag both would key to the same store string and dedup.
   e2ePathVsStringKeepsBoth = expectEq [ "S" "S" ] (
     e2eEntriesWith
       [
@@ -1348,17 +2289,16 @@ in
       (dedupe [
         (lib.setDefaultModuleLocation "p" {
           config.entries = [ "S" ];
-          config.src = ./tests-fixture-module.nix;
+          config.src = ./fixtures/tests-fixture-module.nix;
         })
         (lib.setDefaultModuleLocation "s" {
           config.entries = [ "S" ];
-          config.src = toString ./tests-fixture-module.nix;
+          config.src = toString ./fixtures/tests-fixture-module.nix;
         })
       ])
   );
-  # A real module shaped `{ _file; imports; config; }` is NOT a shim: its body
-  # is part of the key, so two distinct locations stay distinct (a buggy
-  # unwrap would key on the single imports payload alone and drop one's body).
+  # `{ _file; imports; config; }` is a real module, not a shim: a buggy unwrap
+  # would key on its imports alone and drop the body.
   e2eRealModuleKeepsBoth = expectOk (
     let
       result = e2eEntries (dedupe [
@@ -1378,7 +2318,7 @@ in
     builtins.length result == 4 && builtins.elem "S" result && builtins.elem "I" result
   );
 
-  # --- extraOptions (extra-options.nix) ----------------------------------
+  # --- extraOptions (lib/config/extra-options.nix) -----------------------
   # Defaults from the schema materialise without any injected value.
   extraDefault = expectEq 8080 (extraEval [ (extraOptions.declare extraSchema) ]).services.myapp.port;
 
@@ -1407,10 +2347,8 @@ in
     && cfg.services.myapp.name == "app"
   );
 
-  # A leaf WITHOUT a schema `default` is declared WITHOUT one: nixpkgs then
-  # resolves the user value if set, else reports "was accessed but has no value defined" — it must
-  # NOT synthesise `default = null`, which would fail the type check for every
-  # unset typed option.
+  # A leaf without a schema `default` must not get a synthesised `default = null`,
+  # which would fail the type check for every unset typed option.
   extraNoDefaultOmitsDefault = expectOk (
     let
       opt =
@@ -1479,12 +2417,8 @@ in
     ]).x.port
   );
 
-  # … but unset no-default `list`/`attrs` leaves resolve via nixpkgs'
-  # `type.emptyValue` (mergeDefinitions: `else if type.emptyValue ? value then
-  # type.emptyValue.value`) instead of erroring — the documented convenience for
-  # those types. Requires a 2026-era nixpkgs: the 25.11-era root channel's
-  # mergeDefinitions lacks the branch, so under `nix-instantiate <nixpkgs/lib>`
-  # these read as version skew, not a regression.
+  # … but unset `list`/`attrs` leaves resolve via nixpkgs' `type.emptyValue`.
+  # Needs a 2026-era nixpkgs; older `mergeDefinitions` lacks that branch.
   extraEmptyValueList = expectEq [ ] (
     (extraEval [
       (extraOptions.declare {
@@ -1523,7 +2457,6 @@ in
     .x.mode
   );
 
-  # `attrs` map of a leaf type.
   extraAttrsEval = expectEq { foo = "bar"; } (
     let
       schema = {
@@ -1545,7 +2478,6 @@ in
     )).x.byName
   );
 
-  # `list` with a constrained descriptor `item`.
   extraListDescriptorEval = expectEq [ 1 2 ] (
     let
       schema = {
@@ -1719,9 +2651,8 @@ in
       };
     }
   );
-  # A constraint-violating string default aborts when the option is evaluated
-  # (assert defaultOk in mkOptionValue) — deepSeq forces the module structure so
-  # the throw lands in tryEval.
+  # A constraint-violating default aborts when the option is evaluated; deepSeq
+  # lands the throw in tryEval.
   extraBadStringDefault = expectThrow (
     builtins.deepSeq (extraOptions.declare {
       x.y = {
@@ -1837,7 +2768,6 @@ in
       })
     )).x.service
   );
-  # A well-formed deep value still flows through unchanged.
   extraRecordGoodInject =
     expectEq
       {
