@@ -1,7 +1,6 @@
 {
   icedosLib,
   lib,
-  self,
   ...
 }:
 
@@ -73,6 +72,21 @@ rec {
     in
     if pathExists lockPath then fromJSON (readFile lockPath) else null;
 
+  # Repo urls from --update-repos-select; empty when unset.
+  _selectedRepos =
+    let
+      raw = builtins.getEnv "ICEDOS_UPDATE_REPOS_SELECT";
+    in
+    if raw == "" then [ ] else lib.filter (s: s != "") (lib.splitString " " raw);
+
+  # Match `repoName` against generated input names or config.toml urls.
+  _repoSelected =
+    selectedRepos: repoName:
+    lib.any (
+      selected:
+      selected == repoName || (mkInputName { parts = [ (_parseFlakeUrl selected).baseUrl ]; }) == repoName
+    ) selectedRepos;
+
   # Revision suffix from the lock: /{rev}, ?rev={rev} (git schemes), ?narHash={h},
   # or "". `skipUpdateEnvCheck` leaves the nested bake intact during --update-repos-only.
   _getRevisionFromLock =
@@ -81,15 +95,15 @@ rec {
       lock,
       url,
       skipUpdateEnvCheck ? false,
+      selectedRepos ? _selectedRepos,
     }:
     let
       hasRev = hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock;
       hasNarHash = hasAttrByPath [ "nodes" repoName "locked" "narHash" ] lock;
+      updateAll = builtins.getEnv "ICEDOS_UPDATE" == "1";
+      updateSelected = _repoSelected selectedRepos repoName;
     in
-    if
-      ((skipUpdateEnvCheck != true) && (builtins.getEnv "ICEDOS_UPDATE" == "1"))
-      || (!hasRev && !hasNarHash)
-    then
+    if ((skipUpdateEnvCheck != true) && (updateAll || updateSelected)) || (!hasRev && !hasNarHash) then
       ""
     else if hasRev && _urlIsGitScheme url then
       "?rev=${lock.nodes.${repoName}.locked.rev}"
@@ -106,6 +120,7 @@ rec {
       lock,
       nodeKey,
       skipUpdateEnvCheck ? false,
+      selectedRepos ? _selectedRepos,
     }:
     let
       lockedOriginalMatches =
@@ -130,7 +145,12 @@ rec {
     else
       _getRevisionFromLock {
         repoName = nodeKey;
-        inherit lock url skipUpdateEnvCheck;
+        inherit
+          lock
+          url
+          skipUpdateEnvCheck
+          selectedRepos
+          ;
       };
 
   # A repo input's locked revision suffix, "" when it must re-resolve.

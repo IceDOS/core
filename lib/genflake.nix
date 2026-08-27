@@ -41,6 +41,8 @@ let
     ICEDOS_STATE_DIR
     _loadModulesFromRepo
     _parseFlakeUrl
+    _repoSelected
+    _selectedRepos
     injectIfExists
     mkInputName
     modulesFromConfig
@@ -167,6 +169,21 @@ let
       )) != [ ];
     path = "icedos.system.extraFlakes";
     msg = "name collides with a [[icedos.system.channels]] name, an overlay input name, a module sub-flake name, or a genflake-reserved input name";
+  };
+
+  # --update-repos-select repos, validated against [[icedos.repositories]].
+  configuredRepoInputNames = map (
+    r: mkInputName { parts = [ (_parseFlakeUrl (r.url or "")).baseUrl ]; }
+  ) (icedos.repositories or [ ]);
+
+  updateReposSelectUnknown = filter (
+    s: !(any (_repoSelected [ s ]) configuredRepoInputNames)
+  ) _selectedRepos;
+
+  updateReposSelectGuard = validate.abort {
+    when = updateReposSelectUnknown != [ ];
+    path = "--update-repos-select";
+    msg = "unknown repo(s): ${concatStringsSep " " updateReposSelectUnknown} — only repos listed in [[icedos.repositories]] can be selected";
   };
 
   nixpkgsInput = {
@@ -408,6 +425,7 @@ let
 in
 assert isFirstBuildGuard;
 assert extraFlakeNameGuard;
+assert updateReposSelectGuard;
 {
   inherit
     evaluatedConfig

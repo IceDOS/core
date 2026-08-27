@@ -483,6 +483,7 @@ With no flags this is a `switch`: it builds your configuration and activates it 
 | `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
 | `--update-repos` | Pull new revisions of the IceDOS module repos **and** re-lock their declared inputs. | Get latest modules and bump their dependencies. |
 | `--update-repos-only` | Pull new revisions of the IceDOS module repos only. Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (one-build lag, self-healing). | Get latest modules without bumping their dependencies. |
+| `--update-repos-select "..."` | Pull new revisions of only the named repos (space-separated `[[icedos.repositories]].url` values), without re-locking inputs declared *inside* those modules. Same one-build lag as `--update-repos-only` for the selected repos. | Get latest modules for one or a few repos without bumping everything. |
 | `--update-repo-inputs-only` | Re-lock every module-declared dependency without pulling new repo revisions. Each module's inputs live in its own input-namespace sub-flake. | Bump module dependencies without updating repos. |
 | `--update-hooks` | Run only the `preUpdate`/`postUpdate` hooks and exit — no build, no activation. | Refresh non-Nix things (e.g. `flatpak update`). |
 

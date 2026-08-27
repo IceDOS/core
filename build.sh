@@ -18,6 +18,7 @@ inputs_prefix="${ICEDOS_INPUTS_PREFIX:-icedos}"
 
 previous_arguments=("$@")
 state_inputs=()        # Generic input names from --update-state-inputs (state flake)
+repos_select=()        # Repo urls from --update-repos-select
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -73,6 +74,21 @@ while [[ $# -gt 0 ]]; do
     --update-repo-inputs-only)
       update_repos_inputs="1"
       shift
+      ;;
+    --update-repos-select)
+      # Repo urls to update.
+      if [[ $# -lt 2 || "$2" == --* ]]; then
+        echo "error: --update-repos-select requires a space-separated list of repo urls" >&2
+        echo "  usage: --update-repos-select \"github:icedos/apps github:icedos/gaming\"" >&2
+        exit 1
+      fi
+      IFS=' ' read -ra _parsed <<< "$2"
+      if [[ ${#_parsed[@]} -eq 0 ]]; then
+        echo "error: --update-repos-select received an empty repo list" >&2
+        exit 1
+      fi
+      repos_select+=("${_parsed[@]}")
+      shift 2
       ;;
     --update-state-inputs)
       # Space-separated list of inputs to update in the state flake.
@@ -184,7 +200,7 @@ if [[ -n "$update_core$update_core_only" && -z "$skip_update_core" && -n "$ICEDO
   exit 0
 fi
 
-if [ "$update_repos" == "1" ]; then
+if [ "$update_repos" == "1" ] || [ ${#repos_select[@]} -gt 0 ]; then
   refresh="--refresh"
 fi
 
@@ -192,10 +208,12 @@ fi
 # running update flag is about to bump. --update sets both.
 update_flag="$update_repos"
 update_module_inputs_flag="$update_repos_inputs"
+update_repos_select_flag="${repos_select[*]}"
 
 # Captured first, written second, so a failed eval leaves the previous
 # `.state/flake.nix` intact instead of truncating it.
 flake_final=$(ICEDOS_UPDATE="$update_flag" ICEDOS_UPDATE_MODULE_INPUTS="$update_module_inputs_flag" \
+  ICEDOS_UPDATE_REPOS_SELECT="$update_repos_select_flag" \
   ICEDOS_STAGE="genflake" nix eval --raw $refresh $trace \
   --file "$ICEDOS_ROOT/lib/genflake.nix" flakeFinal)
 printf '%s\n' "$flake_final" >"$ICEDOS_STATE_DIR/$FLAKE"
@@ -245,7 +263,7 @@ first_lock=0
   nix flake lock
 
   # Store warming only; needs the lock above.
-  if [ "$first_lock" == "1" ] || [ -n "$update_core$update_repos$update_repos_inputs" ] || [ ${#state_inputs[@]} -gt 0 ]; then
+  if [ "$first_lock" == "1" ] || [ -n "$update_core$update_repos$update_repos_inputs" ] || [ ${#state_inputs[@]} -gt 0 ] || [ ${#repos_select[@]} -gt 0 ]; then
     nix flake prefetch-inputs
   fi
 

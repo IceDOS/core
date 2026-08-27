@@ -66,6 +66,10 @@ let
     self = "tests";
   };
 
+  repoSelectAppsName = helpers.mkInputName {
+    parts = [ (helpers._parseFlakeUrl "github:icedos/apps").baseUrl ];
+  };
+
   expectOk = expr: if expr == true then "ok" else "FAIL: expected true, got ${builtins.toJSON expr}";
 
   expectEq =
@@ -1391,6 +1395,49 @@ in
     }
   );
 
+  # A selected repo drops its pin; an unselected repo keeps it.
+  revLockedSelected = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      selectedRepos = [ "apps" ];
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+          };
+    }
+  );
+
+  revLockedUnselected = expectEq "/abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      selectedRepos = [ "other" ];
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+          };
+    }
+  );
+
   # Two-hop nested lookup with no lock present: ICEDOS_STATE_DIR is empty in
   # tests, so `_readFlakeLock` returns null → "" (fallback to latest).
   revNestedNoLock = expectEq "" (
@@ -1467,6 +1514,16 @@ in
       lock = nestedLock;
     }
   );
+
+  # --- _repoSelected (--update-repos-select matching, inputs.nix) ------
+  repoSelectByUrl = expectOk (helpers._repoSelected [ "github:icedos/apps" ] repoSelectAppsName);
+
+  repoSelectByUrlWithRef = expectOk (helpers._repoSelected [ "github:icedos/apps/main" ] repoSelectAppsName);
+
+  repoSelectByInputName = expectOk (helpers._repoSelected [ repoSelectAppsName ] repoSelectAppsName);
+
+  repoSelectMiss = expectOk (!(helpers._repoSelected [ "github:other/repo" ] repoSelectAppsName));
+
   # --- hasModule (scan.nix) ---------------------------------------------
 
   hasModuleNamePresent = expectOk (hasModule {
@@ -1709,7 +1766,7 @@ in
     (x: x)
   ]);
   opaqueFnInAttrs = expectEq null (opaqueOrKey {
-    config = { pkgs, ... }: { };
+    config = { ... }: { };
   });
   # The `kind` tag keeps different shapes apart: `{ }` vs `[ ]`, a path vs its
   # store string, `42` vs `42.0` (Nix treats int == float as equal).

@@ -483,7 +483,7 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
 
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
 `--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-repos`,
-`--update-repos-only`, `--update-repo-inputs-only`, `--update-hooks`, `--ask`,
+`--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--update-hooks`, `--ask`,
 `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
 
 ## 8. Hard rules (do not violate)
@@ -621,7 +621,7 @@ Environment a hook can rely on:
 | `ICEDOS_ROOT` | build app | the core store path. |
 | `ICEDOS_BUILD_DIR` | `build.sh` | temp build dir — set **after** `build.sh` starts, so **not** available in `preRebuild`/`preUpdate` (they run before it). |
 | `ICEDOS_HOOKS_ONLY=1` | `--update-hooks` only | tells `pre/postUpdate` that no HM activation follows, so they must complete standalone. |
-| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` / `ICEDOS_UPDATE_MODULE_INPUTS` | eval-internal | don't depend on these in runtime hooks. |
+| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` / `ICEDOS_UPDATE_MODULE_INPUTS` / `ICEDOS_UPDATE_REPOS_SELECT` | eval-internal | don't depend on these in runtime hooks. |
 
 Order (`modules/rebuild.nix`): `--update-hooks` short-circuit (pre+postUpdate, then
 exit) → `preRebuild` → `preUpdate` (only with `--update`) → `build.sh` → `postUpdate`
