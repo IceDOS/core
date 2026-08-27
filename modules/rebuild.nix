@@ -76,6 +76,7 @@ in
           echo "  --update-state-inputs <list> update specific state flake inputs before rebuild"
           echo "  --update-repos            update repos + their inputs before rebuild"
           echo "  --update-repos-only       update repos only before rebuild"
+          echo "  --update-repos-select <list> update specific repos (space-separated urls) before rebuild"
           echo "  --update-repo-inputs-only update repo inputs only before rebuild"
           echo "  --build-vm                build a VM test image"
           echo "  --run-vm                  build and run a VM test image"
