@@ -67,7 +67,22 @@ nh os <switch|boot|build|build-vm> path:.
 
 - **`build/`** — the Python orchestrator. Parses flags, runs flake generation
   (`ICEDOS_STAGE=genflake nix eval … lib/genflake.nix`), refreshes `path:` inputs,
-  formats the generated flake (`nixfmt`), then calls `nh`.
+  formats the generated flake (`nixfmt`), then calls `nh`. If a GitHub token
+  resolves (first match of a literal — `--github-token` arg or
+  `ICEDOS_GITHUB_TOKEN` env, which the wrapper bakes from the
+  `icedos.system.githubToken` option — then a token file via
+  `--github-token-path`, `ICEDOS_GITHUB_TOKEN_PATH` (wrapper-baked from
+  `icedos.system.githubTokenPath`), default `/etc/icedos-github-token`), the
+  token is passed to every nix call as
+  `access-tokens = github.com=<token>` (via `NIX_CONFIG`) — higher GitHub rate
+  limits. The toolset wrapper also pre-resolves the token file and exports
+  `NIX_CONFIG` before the orchestrator runs, so nix calls that precede it (e.g.
+  a stale-lock `nix run` re-resolving `github:` inputs) authenticate too. A missing file is a silent skip; an unreadable file is read via
+  `sudo cat` (passwordless `sudo -n` first, then a password prompt when stdin
+  is a TTY), and when that is impossible (non-interactive session, declined
+  prompt) it warns and continues without the token. A literal
+  `icedos.system.githubToken` is baked into the world-readable nix store, so
+  genflake emits a `builtins.trace` warning on every eval while it is set.
 - **`lib/genflake.nix`** — evaluates the merged config through `evalModules`
   (this is where `validate.*` fires), resolves external repos, and emits the state
   flake as a Nix string (`flakeFinal`). Also exposes `optionsDoc` / `modulesDoc`

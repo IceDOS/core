@@ -422,10 +422,19 @@ let
 
   # Sub-flake texts leave this stage only as the root inputs' store paths; nothing
   # else is exported (the build orchestrator reads the resulting flake.lock).
+
+  # Literal tokens end up inside the world-readable wrapper derivation, so every
+  # eval of this stage warns while one is configured.
+  githubTokenStoreWarning =
+    if (icedos.system.githubToken or "") != "" then
+      builtins.trace "warning: icedos.system.githubToken is embedded in the nix store (world-readable to every local user); prefer a token file via icedos.system.githubTokenPath" true
+    else
+      true;
 in
 assert isFirstBuildGuard;
 assert extraFlakeNameGuard;
 assert updateReposSelectGuard;
+assert githubTokenStoreWarning;
 {
   inherit
     evaluatedConfig

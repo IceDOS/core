@@ -7,6 +7,10 @@ let
 in
 {
   INPUTS_PREFIX = "icedos";
+
+  # Default GitHub-token file for nix github.com fetches. build/main.py keeps its
+  # own copy (it cannot read this Nix constant).
+  GITHUB_TOKEN_PATH = "/etc/icedos-github-token";
   ENABLE_LOGGING = enableLogging || (getEnv "ICEDOS_LOGGING") == "1";
 
   ICEDOS_CONFIG_ROOT = getEnv "ICEDOS_CONFIG_ROOT";

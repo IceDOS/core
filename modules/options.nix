@@ -226,6 +226,14 @@ in
           email = mkStrOption { default = ""; };
         };
 
+        # Literal GitHub token passed to nix during rebuilds. WARNING: baked
+        # into the nix store (world-readable) — prefer githubTokenPath.
+        githubToken = mkStrOption { default = ""; };
+
+        # File holding a GitHub token for nix github.com fetches during rebuilds;
+        # per-run overrides: --github-token-path or ICEDOS_GITHUB_TOKEN_PATH.
+        githubTokenPath = mkStrOption { default = icedosLib.GITHUB_TOKEN_PATH; };
+
         # Framework-owned; baked by genflake (users get `forceFirstBuild`). No
         # default: readOnly rejects a second definition.
         isFirstBuild = mkBoolOption {

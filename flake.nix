@@ -62,6 +62,10 @@
               export ICEDOS_CONFIG_ROOT="$PWD"
               export ICEDOS_STATE_DIR="$PWD/${_stateDir}"
               export ICEDOS_INPUTS_PREFIX="${(import ./lib/constants.nix { }).INPUTS_PREFIX}"
+              export ICEDOS_GITHUB_TOKEN_PATH="''${ICEDOS_GITHUB_TOKEN_PATH:-${
+                icedos.system.githubTokenPath or (import ./lib/constants.nix { }).GITHUB_TOKEN_PATH
+              }}"
+              export ICEDOS_GITHUB_TOKEN="''${ICEDOS_GITHUB_TOKEN:-${icedos.system.githubToken or ""}}"
               mkdir -p "$ICEDOS_STATE_DIR"
 
               [ -f "$ICEDOS_STATE_DIR/build.sh" ] && rm "$ICEDOS_STATE_DIR/build.sh"

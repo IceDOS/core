@@ -16,6 +16,7 @@ let
     ICEDOS_STAGE = (import ../lib/constants.nix { }).ICEDOS_STAGE;
     ICEDOS_STATE_DIR = (import ../lib/constants.nix { }).ICEDOS_STATE_DIR;
     INPUTS_PREFIX = (import ../lib/constants.nix { }).INPUTS_PREFIX;
+    GITHUB_TOKEN_PATH = (import ../lib/constants.nix { }).GITHUB_TOKEN_PATH;
     generateAttrPath = throw "generateAttrPath is not stubbed in tests";
   };
 
@@ -2877,4 +2878,7 @@ in
           })
         )).x.service
       );
+  # modules/options.nix defaults `githubTokenPath` to this and README/AGENTS.md
+  # quote the path, so a drift here must fail rather than pass silently.
+  githubTokenPathConstant = expectEq "/etc/icedos-github-token" icedosLib.GITHUB_TOKEN_PATH;
 }

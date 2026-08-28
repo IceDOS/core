@@ -463,6 +463,8 @@ icedos rebuild [FLAGS] [--build-args <extra rebuild args...>]
 
 With no flags this is a `switch`: it builds your configuration and activates it now. After a switch that changed the kernel or initrd, IceDOS offers to reboot. Each successful rebuild also snapshots your `config.toml` and generated flake files into a timestamped `.cache/` folder whenever they change — that's what `configuration rollback` restores.
 
+Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher API rate limits, private `github:` inputs). A literal token is resolved first: `--github-token <token>`, then the `ICEDOS_GITHUB_TOKEN` env var. Otherwise a token file is used: `--github-token-path <path>`, the `ICEDOS_GITHUB_TOKEN_PATH` env var, or the `icedos.system.githubTokenPath` option (default `/etc/icedos-github-token`). A token file your user can't read is fetched with `sudo cat` — you'll be asked for your sudo password once (on a terminal); in non-interactive sessions the rebuild falls back to running without the token. The toolset wrapper resolves the same file before invoking the orchestrator and exports `NIX_CONFIG`, so nix calls that precede it (e.g. a stale-lock `nix run` re-resolving `github:` inputs) authenticate as well. Avoid `icedos.system.githubToken` (a literal token in `config.toml`): it gets baked into the world-readable nix store, and every rebuild warns about it.
+
 #### Action flags — *what kind of build*
 
 | Flag | Effect | Typical use |
@@ -496,6 +498,8 @@ With no flags this is a `switch`: it builds your configuration and activates it 
 | `--logs` | Verbose logging + full traces — use when a build fails. |
 | `--builder <host>` | Build the system on a remote host. |
 | `--target <host>` | Deploy/activate the built system on a remote host (pairs with `--builder`). |
+| `--github-token <token>` | Use this literal GitHub token for nix's `github.com` fetches. Wins over every file-based source. (Visible in the process list while the rebuild runs.) |
+| `--github-token-path <path>` | Use `<path>` (a file containing a GitHub token) for nix's `github.com` fetches. Overrides `ICEDOS_GITHUB_TOKEN_PATH` and `icedos.system.githubTokenPath`. |
 | `--nh-args ...` | Forward extra args to `nh os` (place after other flags; consumes until `--build-args`). |
 | `--build-args ...` | Forward all remaining args to the final rebuild command. **Must be last.** |
 | `--genflake-only` | *(advanced)* Generate and lock the state flake, then exit without building. |
