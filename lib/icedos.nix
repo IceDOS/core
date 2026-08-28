@@ -452,7 +452,7 @@ let
           url =
             let
               storeDir = builtins.path {
-                # `-subflake` marker: build.sh classifies sub-flake roots by this
+                # `-subflake` marker: the build orchestrator classifies sub-flake roots by this
                 # exact suffix, so a store-path root input is never mistaken for one.
                 name = "${subFlakeName}-subflake";
                 path = (pkgs.writeTextDir "flake.nix" text).outPath;

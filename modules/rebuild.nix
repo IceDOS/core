@@ -135,7 +135,7 @@ in
         [ "$DRY" = "1" ] && args=("--genflake-only" "''${args[@]}")
 
         # Strip --update-hooks early so every dispatch path (--dir, normal)
-        # sees clean args — under DRY it would be rejected by build.sh.
+        # sees clean args — under DRY it would be rejected by the build orchestrator.
         if [ "$DRY" = "1" ]; then
           filtered=()
           for arg in "''${args[@]}"; do

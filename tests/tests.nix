@@ -734,7 +734,7 @@ in
   );
 
   # --- module-input sub-flakes: _getModuleInputs / _checkDuplicateModuleInputs ----
-  # The root's `-subflake` suffix is load-bearing: build.sh keys on it.
+  # The root's `-subflake` suffix is load-bearing: the build orchestrator keys on it.
   subFlakeNameAagl = expectEq "icedos-github_icedos_hardware-aagl" miAagl.subFlakeName;
   subFlakeRootDeclIsStorePath = expectOk (
     lib.strings.hasPrefix "path:/nix/store/" miAagl.input.value.url
@@ -1241,40 +1241,53 @@ in
       system.channels = [
         { name = "icedos-github_icedos_apps-aagl"; }
       ];
-    })._checkSubFlakeReservedNames [
-      {
-        _repoInfo = { url = "github:icedos/apps"; };
-        meta.name = "aagl";
-        inputs.foo.url = "github:x/y";
-      }
-    ]
+    })._checkSubFlakeReservedNames
+      [
+        {
+          _repoInfo = {
+            url = "github:icedos/apps";
+          };
+          meta.name = "aagl";
+          inputs.foo.url = "github:x/y";
+        }
+      ]
   );
 
   # ExtraFlake name matches a sub-flake name → abort.
   subFlakeReservedCollisionWithExtraFlake = expectThrow (
     (mkIcedos {
       system.extraFlakes = [
-        { name = "icedos-github_icedos_apps-aagl"; url = "u"; }
+        {
+          name = "icedos-github_icedos_apps-aagl";
+          url = "u";
+        }
       ];
-    })._checkSubFlakeReservedNames [
-      {
-        _repoInfo = { url = "github:icedos/apps"; };
-        meta.name = "aagl";
-        inputs.foo.url = "github:x/y";
-      }
-    ]
+    })._checkSubFlakeReservedNames
+      [
+        {
+          _repoInfo = {
+            url = "github:icedos/apps";
+          };
+          meta.name = "aagl";
+          inputs.foo.url = "github:x/y";
+        }
+      ]
   );
 
   # Repo input name matches a sub-flake name → abort.
   subFlakeReservedCollisionWithRepo = expectThrow (
     (mkIcedos { })._checkSubFlakeReservedNames [
       {
-        _repoInfo = { url = "github:icedos/apps"; };
+        _repoInfo = {
+          url = "github:icedos/apps";
+        };
         meta.name = "aagl";
         inputs.foo.url = "github:x/y";
       }
       {
-        _repoInfo = { url = "github:icedos/apps-aagl"; };
+        _repoInfo = {
+          url = "github:icedos/apps-aagl";
+        };
         meta.name = "default";
       }
     ]
@@ -1284,13 +1297,16 @@ in
   subFlakeReservedNoCollision = expectOk (
     (mkIcedos {
       system.channels = [ { name = "mychannel"; } ];
-    })._checkSubFlakeReservedNames [
-      {
-        _repoInfo = { url = "github:icedos/apps"; };
-        meta.name = "aagl";
-        inputs.foo.url = "github:x/y";
-      }
-    ]
+    })._checkSubFlakeReservedNames
+      [
+        {
+          _repoInfo = {
+            url = "github:icedos/apps";
+          };
+          meta.name = "aagl";
+          inputs.foo.url = "github:x/y";
+        }
+      ]
   );
 
   # --- _resolveFlakeRevisionLocked / _resolveFlakeRevisionNested (inputs.nix) ---
@@ -1518,7 +1534,9 @@ in
   # --- _repoSelected (--update-repos-select matching, inputs.nix) ------
   repoSelectByUrl = expectOk (helpers._repoSelected [ "github:icedos/apps" ] repoSelectAppsName);
 
-  repoSelectByUrlWithRef = expectOk (helpers._repoSelected [ "github:icedos/apps/main" ] repoSelectAppsName);
+  repoSelectByUrlWithRef = expectOk (
+    helpers._repoSelected [ "github:icedos/apps/main" ] repoSelectAppsName
+  );
 
   repoSelectByInputName = expectOk (helpers._repoSelected [ repoSelectAppsName ] repoSelectAppsName);
 

@@ -421,7 +421,7 @@ let
   userConfigRaw = toJSON userConfig;
 
   # Sub-flake texts leave this stage only as the root inputs' store paths; nothing
-  # else is exported (build.sh reads the resulting flake.lock).
+  # else is exported (the build orchestrator reads the resulting flake.lock).
 in
 assert isFirstBuildGuard;
 assert extraFlakeNameGuard;

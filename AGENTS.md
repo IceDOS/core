@@ -36,7 +36,7 @@ needed regardless. And **never run a plain `icedos rebuild`** (that is a `switch
 
 | Repo | Kind | Purpose |
 |---|---|---|
-| **core** | framework | This repo. CLI (`icedos`), the `lib/` library, base modules, `build.sh`, flake-generation engine. The bible. |
+| **core** | framework | This repo. CLI (`icedos`), the `lib/` library, base modules, the `build/` Python orchestrator, flake-generation engine. The bible. |
 | `apps` | module repo | ~70 application modules (`btop`, `steam`, `me3`, `sunshine`, …). Per-module dirs. |
 | `hardware` | module repo | Kernel, graphics (`radeon`/`nvidia`), `pipewire`, `bluetooth`, `zram`, … |
 | `desktop` | module repo | Cross-DE desktop glue: `gdm`, `stylix`, `displays`, portals, `entries`, `session`. |
@@ -60,12 +60,12 @@ icedos.* options                       modules/options.nix declares the schema
         │  lib/genflake.nix            (evalModules → validate every value)
         ▼
 generated .state/flake.nix             (inputs masked, modules resolved & imported)
-        │  build.sh                    (rsync to build dir)
+        │  build/                      (copy to build dir)
         ▼
 nh os <switch|boot|build|build-vm> path:.
 ```
 
-- **`build.sh`** — the orchestrator. Parses flags, runs flake generation
+- **`build/`** — the Python orchestrator. Parses flags, runs flake generation
   (`ICEDOS_STAGE=genflake nix eval … lib/genflake.nix`), refreshes `path:` inputs,
   formats the generated flake (`nixfmt`), then calls `nh`.
 - **`lib/genflake.nix`** — evaluates the merged config through `evalModules`
@@ -344,11 +344,11 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
   the parent's ambient inputs via `inputs.<sub>.inputs.<slot>.follows`; patched
   inputs become a `path:` node for the realised tree plus an upstream `<input>_source`
   node — see §5). `genflake.nix` emits the sub-flakes directly as the generated
-  `flake.nix`'s root `path:` inputs (no `subflakes.json` export — build.sh derives
+  `flake.nix`'s root `path:` inputs (no `subflakes.json` export — the build orchestrator derives
   sub-flake roots and their declared inputs from the resulting `flake.lock`), and
   `--update-repo-inputs-only` refreshes
   sub-flake inputs via `nix flake update "<sub>/<input>" --refresh`. All lock steps run
-  against a **detached** copy of the state flake — `build.sh` rsyncs `.state` into a temp
+  against a **detached** copy of the state flake — the build orchestrator copies `.state` into a temp
   dir (`mktemp`) and copies only the resulting `flake.lock` back, because a git flake
   refuses to lock/refresh untracked `path:` inputs (`nix` says "git add ..."): locking in
   `.state` would force every new or changed module input to be staged/committed. Sub-flakes
@@ -394,7 +394,7 @@ schema, not values).
 
 `evaluatedConfig` (a `toJSON` of the whole genflake-stage eval) is not tryEval-rescuable
 and would throw if forced on a no-default custom option the user never sets — nothing
-in-tree forces it (build.sh only consumes `optionsDoc`/`modulesDoc`/`userConfigRaw`, and
+in-tree forces it (the `build/` orchestrator only consumes `optionsDoc`/`modulesDoc`/`userConfigRaw`, and
 the index's `renderValue` tryEvals each option individually), so that stays latent.
 
 Example (`configs/*.toml`):
@@ -442,8 +442,19 @@ This is how you (the agent) validate edits **safely**. Paths are placeholders.
 at your checkout, and enable/configure the module you touched) → run `icedos rebuild --build`
 **from wherever you are**. No `cd`, no `sudo`, no activation. You never switch — the user does.
 
-Core lib tests run as a flake check: `nix flake check` in the core repo evaluates
-`tests/tests.nix` and fails if any result is not "ok" (or the eval throws).
+`nix flake check` in the core repo runs three checks:
+
+| Check | What it does |
+|---|---|
+| `lib-tests` | Evaluates `tests/tests.nix`; fails if any result is not "ok" (or the eval throws). |
+| `python-tests` | `unittest` over `build/tests/` — the orchestrator's arg parsing, `flake.lock` reading, and GitHub-token precedence, all pure functions needing no build. |
+| `nixfmt-check` | `nixfmt --check` over every `*.nix`; without it a commit lands unformatted and the next one absorbs the reformat. |
+
+Run it **without `--no-build`**: `lib-tests` reaches `builtins.path`/`readDir` on a
+sub-flake root (the IFD noted in `lib/icedos.nix`), so `--no-build` refuses the store
+write and reports `path '<hash>-…-subflake' is not valid` — an artefact of the flag,
+not a real failure.
+
 Core's `flake.lock` is gitignored and generated on demand (it is a library flake
 consumed via flake inputs, and a committed lock would pin core's own inputs —
 `nixpkgs`, `cache-server` — for consumers without `follows`).
@@ -564,8 +575,10 @@ icedos.system.toolset.commands = [{
   command tree (`toolset.{mkBashCompletion,mkZshCompletion,mkFishCompletion}` →
   `/share/{bash-completion,zsh,fish}/…`). Authors never write completion code.
 - **Reference tools by store path.** Command scripts run from `environment.systemPackages`,
-  where the build PATH (`jq`, `nh`, `nixfmt`, …) is **absent** — splice `${pkgs.jq}/bin/jq`,
-  not bare `jq`. (Only `build.sh` itself runs with those on PATH.)
+  where the build PATH (`nh`, `nixfmt`, `jsonfmt`, …) is **absent** — splice
+  `${pkgs.jq}/bin/jq`, not bare `jq`. `jq` is not on the build PATH either (the Python
+  orchestrator parses JSON itself), so this holds everywhere — there is no context in
+  which a bare `jq` resolves. (Only the `build/` orchestrator runs with those on PATH.)
 - **No `compgen`** — `writeShellScript` bash lacks it (see §9); parse args with
   `while`/`case` + `nullglob` arrays.
 - **Two built-in extension points:**
@@ -619,12 +632,12 @@ Environment a hook can rely on:
 | `ICEDOS_CONFIG_ROOT` | build app (`flake.nix`) | the config root. |
 | `ICEDOS_STATE_DIR` | build app | the `.state` dir. |
 | `ICEDOS_ROOT` | build app | the core store path. |
-| `ICEDOS_BUILD_DIR` | `build.sh` | temp build dir — set **after** `build.sh` starts, so **not** available in `preRebuild`/`preUpdate` (they run before it). |
+| `ICEDOS_BUILD_DIR` | `build/` | temp build dir — set **after** the orchestrator starts, so **not** available in `preRebuild`/`preUpdate` (they run before it). |
 | `ICEDOS_HOOKS_ONLY=1` | `--update-hooks` only | tells `pre/postUpdate` that no HM activation follows, so they must complete standalone. |
 | `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` / `ICEDOS_UPDATE_MODULE_INPUTS` / `ICEDOS_UPDATE_REPOS_SELECT` | eval-internal | don't depend on these in runtime hooks. |
 
 Order (`modules/rebuild.nix`): `--update-hooks` short-circuit (pre+postUpdate, then
-exit) → `preRebuild` → `preUpdate` (only with `--update`) → `build.sh` → `postUpdate`
+exit) → `preRebuild` → `preUpdate` (only with `--update`) → `build/` → `postUpdate`
 (only with `--update`) → config snapshot → `postRebuild` → reboot check. `preUpdate`/
 `postUpdate` fire only with `--update`; run them alone (no build) via
 `icedos rebuild --update-hooks` (e.g. `flatpak update`).

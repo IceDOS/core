@@ -241,7 +241,7 @@ modules = [ "btop", "steam" ]          # which modules to enable
 # patches = [ "patches/apps.patch" ]      # patch the whole repo source
 ```
 
-`url` accepts any Nix flake reference — `github:`, `gitlab:`, `git+https://…`, or a local `path:/…`, not just GitHub. (`overrideUrl` is a separate knob for *swapping* a repo's source during local testing while keeping its lock identity — you don't need it just to load a `path:` repo.) A local `path:` must be **absolute**: lock steps run against a detached copy of the state flake (see `build.sh`), so a relative `path:./…` would resolve against that temp dir, not `.state`.
+`url` accepts any Nix flake reference — `github:`, `gitlab:`, `git+https://…`, or a local `path:/…`, not just GitHub. (`overrideUrl` is a separate knob for *swapping* a repo's source during local testing while keeping its lock identity — you don't need it just to load a `path:` repo.) A local `path:` must be **absolute**: lock steps run against a detached copy of the state flake (see `build/`), so a relative `path:./…` would resolve against that temp dir, not `.state`.
 
 ### `config.toml` at a glance
 

@@ -50,14 +50,11 @@
                 with pkgs;
                 makeBinPath [
                   git
-                  jq
                   jsonfmt
                   nh
                   nix
                   nixfmt
-                  rsync
-                  toml2json
-                  util-linux
+                  python3
                 ]
               }:$PATH"
 
@@ -73,7 +70,10 @@
               echo "cd \"$PWD\"" >>"$ICEDOS_STATE_DIR/build.sh"
               echo "nix run path:. -- \"\$@\"" >>"$ICEDOS_STATE_DIR/build.sh"
 
-              bash "${self}/build.sh" "$@"
+              export PYTHONPATH="${self}''${PYTHONPATH:+:$PYTHONPATH}"
+
+              # -P keeps cwd off sys.path, so a stray build/ dir can't shadow the package.
+              python3 -P -m build "$@"
             ''
           );
         in
@@ -115,11 +115,15 @@
           };
         };
 
-      # Eval-only lib tests (`tests/tests.nix`) as a flake check. Any result
-      # value other than "ok" fails the derivation.
+      # Eval-only lib tests (`tests/tests.nix`), the `build/` unit tests, and a
+      # formatting gate, all as flake checks.
       checks =
         let
           inherit (nixpkgs) lib;
+
+          # Source checks run on one system, not every exposed one: nixfmt is a
+          # Haskell build that cannot bootstrap on some (`armv6l` GHC).
+          sourceCheckSystem = "x86_64-linux";
         in
         lib.genAttrs lib.systems.flakeExposed (
           system:
@@ -153,6 +157,33 @@
                   ++ [ "exit 1" ]
                 )
             );
+          }
+          // lib.optionalAttrs (system == sourceCheckSystem) {
+            # `build/` is pure-python; the orchestrator's arg parsing, lock
+            # reading, and token precedence are all testable without a build.
+            python-tests =
+              pkgs.runCommand "icedos-python-tests"
+                {
+                  nativeBuildInputs = [ pkgs.python3 ];
+                }
+                ''
+                  # ${self} is read-only, so bytecode must not be written beside it.
+                  export PYTHONDONTWRITEBYTECODE=1
+                  cd ${self}
+                  python3 -m unittest discover -s build/tests -t . 2>&1 | tee "$out"
+                '';
+
+            # Enforce formatting here: an unformatted commit would otherwise land
+            # and the next one silently absorb the reformat.
+            nixfmt-check =
+              pkgs.runCommand "icedos-nixfmt-check"
+                {
+                  nativeBuildInputs = [ pkgs.nixfmt ];
+                }
+                ''
+                  nixfmt --check $(find ${self} -name '*.nix')
+                  echo 'nixfmt: all formatted' > "$out"
+                '';
           }
         );
     };
