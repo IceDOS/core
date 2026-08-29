@@ -173,6 +173,15 @@ in
                   fi
                 fi
 
+                # Exit 130 = interrupted. The orchestrator already reported which
+                # phase it died in, and whether activation could have started.
+                exit_if_interrupted() {
+                  if [ "$1" -eq 130 ]; then
+                    log_warn "rebuild interrupted — rerun to resume"
+                    exit 130
+                  fi
+                }
+
                 if [ -n "$REBUILD_DIR" ]; then
                   if [ ! -d "$REBUILD_DIR" ]; then
                     echo -e "${redString "error"}: directory '$REBUILD_DIR' does not exist"
@@ -184,7 +193,9 @@ in
                   fi
                   cd "$REBUILD_DIR"
                   env "''${tokenEnv[@]}" nix run path:. -- "''${args[@]}"
-                  exit $?
+                  rc=$?
+                  exit_if_interrupted "$rc"
+                  exit "$rc"
                 fi
 
                 require_config_owner "${configurationLocation}/.." "${configurationLocation}" "''${ORIG_ARGS[@]}"
@@ -203,7 +214,9 @@ in
                       ;;
                   esac
                   env "''${tokenEnv[@]}" nix run path:. -- "''${args[@]}"
-                  exit $?
+                  rc=$?
+                  exit_if_interrupted "$rc"
+                  exit "$rc"
                 fi
 
                 cd "${configurationLocation}" || die "no permission to enter '${configurationLocation}'; run it as the owning user or fix the permissions."
@@ -311,6 +324,7 @@ in
                 if [ "$DRY" = "1" ]; then
                   log_step "dry run — generating flake..."
                   env "''${tokenEnv[@]}" bash ./build.sh "''${args[@]}"; rc=$?
+                  exit_if_interrupted "$rc"
                   if [ "$rc" -eq 0 ]; then
                     log_ok "dry run — flake generated and inputs locked (module eval not checked)"
                   fi
@@ -328,6 +342,7 @@ in
                 env "''${tokenEnv[@]}" bash ./build.sh "''${args[@]}"
                 BUILD_STATUS=$?
 
+                exit_if_interrupted "$BUILD_STATUS"
                 if [ "$BUILD_STATUS" -ne 0 ]; then
                   echo -e "${redString "error"}: build failed with exit code $BUILD_STATUS"
                   exit "$BUILD_STATUS"

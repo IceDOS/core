@@ -64,7 +64,7 @@ let
         cacheKey =
           if coreKey == null then null else hop (lock.nodes.${coreKey}.inputs or { }) "cache-server";
         locked = if cacheKey == null then { } else (lock.nodes.${cacheKey} or { }).locked or { };
-        tree = builtins.fetchTree {
+        tree = fetchTree {
           inherit (locked)
             type
             owner
@@ -75,7 +75,7 @@ let
       in
       if
         (icedosLib.ICEDOS_STAGE != "genflake")
-        || !((config.system.cache.pinInputs or false))
+        || !(config.system.cache.pinInputs or false)
         || (locked.type or "") != "github"
       then
         { }

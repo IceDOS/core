@@ -11,6 +11,27 @@ from .context import BuildEnv
 from .options import Options
 from .util import sync_dir
 
+# Actions where `nh` reaches activation and mutates the running system, so an
+# interrupt can leave it half-switched. `build`/`build-vm` only realise a closure.
+ACTIVATING_ACTIONS = frozenset({"switch", "boot"})
+
+
+# Templates rather than adjacent literals: implicit concatenation is disallowed.
+_INTERRUPTED_ACTIVATING = """\
+interrupted during `nh os {action}` — the system may be partially activated; \
+check `systemctl --failed` and the current generation before rerunning"""
+
+_INTERRUPTED_BUILD_ONLY = "interrupted during `nh os {action}` — nothing was activated"
+
+
+def _interrupted_during_nh(action: str) -> None:
+    template = (
+        _INTERRUPTED_ACTIVATING
+        if action in ACTIVATING_ACTIONS
+        else _INTERRUPTED_BUILD_ONLY
+    )
+    print(template.format(action=action), file=sys.stderr)
+
 
 def build(env: BuildEnv, opts: Options) -> None:
     build_dir = Path(tempfile.mkdtemp(prefix="icedos-build-", suffix="-0"))
@@ -41,12 +62,18 @@ def build(env: BuildEnv, opts: Options) -> None:
         *opts.trace,
         *opts.global_build_args,
     ]
-    proc = subprocess.run(
-        cmd,
-        cwd=build_dir,
-        pass_fds=(lock_file.fileno(),),
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=build_dir,
+            pass_fds=(lock_file.fileno(),),
+            check=False,
+        )
+    except KeyboardInterrupt:
+        # Reported here, not in __main__: only this frame knows the build reached
+        # `nh`, so only it can say whether activation could have started.
+        _interrupted_during_nh(opts.action)
+        raise SystemExit(130) from None
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
 

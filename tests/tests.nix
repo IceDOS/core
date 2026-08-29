@@ -13,10 +13,10 @@ let
     stringStartsWith = prefix: str: lib.strings.hasPrefix prefix str;
     # Track the real constants so a constants.nix change fails the test instead
     # of silently passing; the rest of icedosLib is lazy, so it never evaluates.
+    GITHUB_TOKEN_PATH = (import ../lib/constants.nix { }).GITHUB_TOKEN_PATH;
     ICEDOS_STAGE = (import ../lib/constants.nix { }).ICEDOS_STAGE;
     ICEDOS_STATE_DIR = (import ../lib/constants.nix { }).ICEDOS_STATE_DIR;
     INPUTS_PREFIX = (import ../lib/constants.nix { }).INPUTS_PREFIX;
-    GITHUB_TOKEN_PATH = (import ../lib/constants.nix { }).GITHUB_TOKEN_PATH;
     generateAttrPath = throw "generateAttrPath is not stubbed in tests";
   };
 
