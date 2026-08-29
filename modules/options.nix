@@ -181,7 +181,7 @@ in
 
         cache = {
           enable = mkBoolOption { default = false; };
-          url = mkStrOption { default = "https://icedos.mirrors.knp.one/icedos"; };
+          url = mkStrOption { default = "https://icedos.fyi"; };
 
           key = mkStrOption {
             # `inputs.icedos-core` exists only at build stage, and forcing a missing
