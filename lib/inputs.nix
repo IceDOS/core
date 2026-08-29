@@ -231,8 +231,117 @@ rec {
           ;
       };
 
+  # Rev cache-server last built for a leaf input, "" when untracked/unmatched.
+  # Pure: `revs` is cache-server's published tracked-inputs.json (name -> rev |
+  # { rev; repo; }). Key match mirrors its tracked-revs.py: exact node key, else a
+  # "-<name>" suffixed one. The optional `repo` guard ("scheme:owner/repo") only
+  # exists in the newer { rev; repo; } format and must equal the url's host repo;
+  # older string entries pin on the name alone.
+  _cacheRevLookup =
+    {
+      name,
+      url,
+      revs,
+    }:
+    let
+      inherit (builtins)
+        attrNames
+        elemAt
+        head
+        filter
+        length
+        match
+        ;
+
+      _entryOf =
+        value:
+        if builtins.isString value then
+          {
+            rev = value;
+            repo = "";
+          }
+        else
+          {
+            rev = value.rev or "";
+            repo = value.repo or "";
+          };
+
+      keys = filter (k: k == name || lib.hasSuffix "-${name}" k) (attrNames revs);
+
+      # "scheme:owner/repo" of `url`, "" when it is not a github/gitlab/sourcehut url.
+      urlRepo =
+        let
+          m = match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)(.*)" url;
+        in
+        if m == null then "" else "${elemAt m 0}:${elemAt m 1}/${elemAt m 2}";
+
+      # `{ rev; repo; }` entries name their own repo, so one naming this url is
+      # unambiguous even when several keys share the "-<name>" suffix.
+      repoMatched = filter (k: urlRepo != "" && (_entryOf revs.${k}).repo == urlRepo) keys;
+
+      # Several entries may claim the same repo (a publish-side mistake). That is
+      # only unambiguous while they agree on the rev.
+      repoMatchedRevs = lib.unique (map (k: (_entryOf revs.${k}).rev) repoMatched);
+
+      # Exact key wins, then a repo-guarded match, then a lone string suffix;
+      # the rest is ambiguous (same leaf in different repos), so refuse.
+      key =
+        if builtins.elem name keys then
+          name
+        else if length repoMatchedRevs == 1 then
+          head repoMatched
+        else if repoMatched != [ ] then
+          null
+        else if length keys == 1 then
+          head keys
+        else
+          null;
+
+      entry =
+        if key == null then
+          {
+            rev = "";
+            repo = "";
+          }
+        else
+          _entryOf revs.${key};
+    in
+    if entry.rev == "" || (entry.repo != "" && entry.repo != urlRepo) then "" else entry.rev;
+
+  # Splice a PRE-FORMED revision suffix onto a url that may already carry a query:
+  # a path segment goes before the query, a query param joins it with `&`.
+  _appendRevSuffix =
+    baseUrl: suffix:
+    if suffix == "" then
+      baseUrl
+    else
+      let
+        m = builtins.match "([^?]*)[?](.*)" baseUrl;
+        stem = if m == null then baseUrl else builtins.elemAt m 0;
+        # A bare trailing `?` is an empty query: drop it rather than emit `?&`.
+        rawQuery = if m == null then "" else builtins.elemAt m 1;
+        hasQuery = rawQuery != "";
+        query = if hasQuery then "?${rawQuery}" else "";
+      in
+      if !(lib.hasPrefix "?" suffix) then
+        "${stem}${suffix}${query}"
+      else if hasQuery then
+        "${stem}${query}&${lib.removePrefix "?" suffix}"
+      else
+        "${stem}${suffix}";
+
+  # Same, for a BARE rev: `separator` is "/" for github/gitlab/sourcehut and
+  # "?rev=" for git schemes, which spell revs as a query parameter.
+  _appendRev =
+    {
+      baseUrl,
+      rev,
+      separator ? "/",
+    }:
+    _appendRevSuffix baseUrl (if rev == "" then "" else "${separator}${rev}");
+
   # `scheme:owner/repo/<ref>` -> { baseUrl; ref; } for github/gitlab/sourcehut;
-  # any other shape passes through with `ref = null`.
+  # anything else has `ref = null`. baseUrl keeps its query — compose with `_appendRev`.
   _parseFlakeUrl =
     url:
     let

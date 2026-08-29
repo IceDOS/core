@@ -2878,7 +2878,247 @@ in
           })
         )).x.service
       );
+
+  # --- _cacheRevLookup (inputs.nix) ---
+  # Pure cache-channel lookup: exact key, else a "-<name>" suffixed node key.
+  cacheRevExactKey = expectEq "abc" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        plasmazones = "abc";
+      };
+    }
+  );
+
+  cacheRevSuffixedKey = expectEq "abc" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        "icedos-github_icedos_kde-plasmazones" = "abc";
+      };
+    }
+  );
+
+  # Exact key wins over a suffixed one.
+  cacheRevExactWinsOverSuffix = expectEq "e" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        "x-plasmazones" = "s";
+        plasmazones = "e";
+      };
+    }
+  );
+
+  # { rev; repo; } entries guard the host repo; string entries pin on name alone.
+  cacheRevRepoMatch = expectEq "abc" (
+    helpers._cacheRevLookup {
+      name = "jovian";
+      url = "github:jovian-experiments/jovian-nixos";
+      revs = {
+        jovian = {
+          rev = "abc";
+          repo = "github:jovian-experiments/jovian-nixos";
+        };
+      };
+    }
+  );
+
+  cacheRevRepoMismatch = expectEq "" (
+    helpers._cacheRevLookup {
+      name = "jovian";
+      url = "github:someone/else";
+      revs = {
+        jovian = {
+          rev = "abc";
+          repo = "github:jovian-experiments/jovian-nixos";
+        };
+      };
+    }
+  );
+
+  cacheRevRepoMismatchNonHostUrl = expectEq "" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "path:/local/tree";
+      revs = {
+        plasmazones = {
+          rev = "abc";
+          repo = "github:fuddlesworth/PlasmaZones";
+        };
+      };
+    }
+  );
+
+  cacheRevUntracked = expectEq "" (
+    helpers._cacheRevLookup {
+      name = "nixpkgs";
+      url = "github:nixos/nixpkgs";
+      revs = {
+        plasmazones = "abc";
+      };
+    }
+  );
+
+  # Two modules in different repos can share a leaf name; a string entry carries no
+  # repo to disambiguate, so pick neither rather than pin one to the other's rev.
+  cacheRevAmbiguousSuffixRefuses = expectEq "" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        "icedos-github_icedos_kde-plasmazones" = "kde";
+        "icedos-github_icedos_desktop-plasmazones" = "desktop";
+      };
+    }
+  );
+
+  # Same ambiguity, but the `{ rev; repo; }` entries name their repo: the one
+  # matching the url wins, not the lexicographically first key.
+  cacheRevAmbiguousSuffixRepoDisambiguates = expectEq "kde" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        "icedos-github_icedos_kde-plasmazones" = {
+          rev = "kde";
+          repo = "github:fuddlesworth/PlasmaZones";
+        };
+        "icedos-github_icedos_desktop-plasmazones" = {
+          rev = "desktop";
+          repo = "github:someone/other";
+        };
+      };
+    }
+  );
+
+  # _appendRev (inputs.nix): `_parseFlakeUrl`'s baseUrl keeps the query string, so a
+  # rev must be spliced in front of it — concatenating would bury it inside `?dir=`.
+  appendRevPlain = expectEq "github:o/r/deadbeef" (
+    helpers._appendRev {
+      baseUrl = "github:o/r";
+      rev = "deadbeef";
+    }
+  );
+
+  appendRevEmptyRevIsIdentity = expectEq "github:o/r?dir=x" (
+    helpers._appendRev {
+      baseUrl = "github:o/r?dir=x";
+      rev = "";
+    }
+  );
+
+  appendRevBeforeQuery = expectEq "github:o/r/deadbeef?dir=x" (
+    helpers._appendRev {
+      baseUrl = "github:o/r?dir=x";
+      rev = "deadbeef";
+    }
+  );
+
+  # End to end over the shape that actually reaches the cache pin.
+  appendRevOnParsedUrlWithRefAndQuery = expectEq "github:o/r/deadbeef?dir=x" (
+    helpers._appendRev {
+      inherit (helpers._parseFlakeUrl "github:o/r/main?dir=x") baseUrl;
+      rev = "deadbeef";
+    }
+  );
+
+  # Git schemes spell the rev as a query parameter, so they extend the query
+  # instead of gaining a path segment.
+  appendRevGitScheme = expectEq "git+https://e.com/r.git?rev=deadbeef" (
+    helpers._appendRev {
+      baseUrl = "git+https://e.com/r.git";
+      rev = "deadbeef";
+      separator = "?rev=";
+    }
+  );
+
+  appendRevGitSchemeWithQuery = expectEq "git+https://e.com/r.git?dir=x&rev=deadbeef" (
+    helpers._appendRev {
+      baseUrl = "git+https://e.com/r.git?dir=x";
+      rev = "deadbeef";
+      separator = "?rev=";
+    }
+  );
+
+  # _appendRevSuffix (inputs.nix): `_getRevisionFromLock` returns a pre-formed
+  # suffix, so the lock path needs the same query awareness as the bare-rev path.
+  appendRevSuffixEmptyIsIdentity = expectEq "github:o/r?dir=x" (
+    helpers._appendRevSuffix "github:o/r?dir=x" ""
+  );
+
+  appendRevSuffixPathSegment = expectEq "github:o/r/deadbeef" (
+    helpers._appendRevSuffix "github:o/r" "/deadbeef"
+  );
+
+  # The lock's "/<rev>" must land before the query, not inside it.
+  appendRevSuffixPathSegmentBeforeQuery = expectEq "github:o/r/deadbeef?dir=x" (
+    helpers._appendRevSuffix "github:o/r?dir=x" "/deadbeef"
+  );
+
+  # narHash pins are query params; with no existing query they start one.
+  appendRevSuffixNarHash = expectEq "github:o/r?narHash=sha256-x" (
+    helpers._appendRevSuffix "github:o/r" "?narHash=sha256-x"
+  );
+
+  # ...and with one already present they must join it, not open a second `?`.
+  appendRevSuffixNarHashJoinsQuery = expectEq "github:o/r?dir=x&narHash=sha256-x" (
+    helpers._appendRevSuffix "github:o/r?dir=x" "?narHash=sha256-x"
+  );
+
+  appendRevSuffixGitRevJoinsQuery = expectEq "git+https://e.com/r.git?dir=x&rev=deadbeef" (
+    helpers._appendRevSuffix "git+https://e.com/r.git?dir=x" "?rev=deadbeef"
+  );
+
+  # Two entries claiming the same repo are only unambiguous while they agree.
+  cacheRevRepoMatchedDisagreeRefuses = expectEq "" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        "icedos-a-plasmazones" = {
+          rev = "one";
+          repo = "github:fuddlesworth/PlasmaZones";
+        };
+        "icedos-b-plasmazones" = {
+          rev = "two";
+          repo = "github:fuddlesworth/PlasmaZones";
+        };
+      };
+    }
+  );
+
   # modules/options.nix defaults `githubTokenPath` to this and README/AGENTS.md
   # quote the path, so a drift here must fail rather than pass silently.
   githubTokenPathConstant = expectEq "/etc/icedos-github-token" icedosLib.GITHUB_TOKEN_PATH;
+
+  # A bare trailing `?` is an empty query: no stray `?` after a path splice...
+  appendRevSuffixBareQuestionMarkPathSegment = expectEq "github:o/r/deadbeef" (
+    helpers._appendRevSuffix "github:o/r?" "/deadbeef"
+  );
+
+  # ...and no `?&` when the suffix is itself a query param.
+  appendRevSuffixBareQuestionMarkQueryParam = expectEq "github:o/r?narHash=sha256-x" (
+    helpers._appendRevSuffix "github:o/r?" "?narHash=sha256-x"
+  );
+
+  cacheRevRepoMatchedAgreeIsFine = expectEq "same" (
+    helpers._cacheRevLookup {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        "icedos-a-plasmazones" = {
+          rev = "same";
+          repo = "github:fuddlesworth/PlasmaZones";
+        };
+        "icedos-b-plasmazones" = {
+          rev = "same";
+          repo = "github:fuddlesworth/PlasmaZones";
+        };
+      };
+    }
+  );
 }

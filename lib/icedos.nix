@@ -44,6 +44,44 @@ let
       }) repositories
     );
 
+    # cache-server's published tracked-inputs.json (name -> rev | { rev; repo; }).
+    # Resolved through the state lock chain root -> icedos-config -> icedos ->
+    # cache-server, so it matches the tree the build evaluates. Genflake-only: the
+    # revs are baked into the generated sub-flake text, keeping the pure build
+    # stage free of fetches. Empty on a first build (no state lock yet), which
+    # resolves fresh and self-heals on the next run.
+    _cacheTrackedRevs =
+      let
+        lock = icedosLib._readFlakeLock;
+        hop =
+          attrs: name:
+          let
+            v = attrs.${name} or null;
+          in
+          if builtins.isString v then v else null;
+        cfgKey = if lock == null then null else hop (lock.nodes.root.inputs or { }) "icedos-config";
+        coreKey = if cfgKey == null then null else hop (lock.nodes.${cfgKey}.inputs or { }) "icedos";
+        cacheKey =
+          if coreKey == null then null else hop (lock.nodes.${coreKey}.inputs or { }) "cache-server";
+        locked = if cacheKey == null then { } else (lock.nodes.${cacheKey} or { }).locked or { };
+        tree = builtins.fetchTree {
+          inherit (locked)
+            type
+            owner
+            repo
+            rev
+            ;
+        };
+      in
+      if
+        (icedosLib.ICEDOS_STAGE != "genflake")
+        || !((config.system.cache.pinInputs or false))
+        || (locked.type or "") != "github"
+      then
+        { }
+      else
+        builtins.fromJSON (builtins.readFile "${tree}/tracked-inputs.json");
+
     # Patch a flake source into a realised, context-free store path usable as a
     # locked `path:` input (readDir realises it; --raw genflake forbids context).
     _mkPatchedSource =
@@ -353,7 +391,38 @@ let
                 inputName = "${i}_source";
               };
 
-              _patchSrcRev = if _patchSrcLockRev != "" then _patchSrcLockRev else _patchSrcInlineRef;
+              # Rev cache-server last built for this leaf input, "" when untracked
+              # or the url is not a github/gitlab/sourcehut reference.
+              _cachePin =
+                let
+                  url = inputs.${i}.url or "";
+                  rev = icedosLib._cacheRevLookup {
+                    inherit url;
+                    name = i;
+                    revs = _cacheTrackedRevs;
+                  };
+                in
+                if
+                  rev == ""
+                  || !(builtins.elem (head (lib.splitString ":" url)) [
+                    "github"
+                    "gitlab"
+                    "sourcehut"
+                  ])
+                then
+                  ""
+                else
+                  "/${rev}";
+
+              # Lock rev wins (this config already resolved it), then the cache
+              # pin (upstream published a newer built rev), then the author's ref.
+              _patchSrcRev =
+                if _patchSrcLockRev != "" then
+                  _patchSrcLockRev
+                else if _cachePin != "" then
+                  _cachePin
+                else
+                  _patchSrcInlineRef;
 
               _patchSrcUrl = "${_patchSrcParsed.baseUrl}${_patchSrcRev}";
 
@@ -385,7 +454,14 @@ let
                   [
                     {
                       name = i;
-                      value = decl;
+                      value =
+                        if _cachePin == "" then
+                          decl
+                        else
+                          decl
+                          // {
+                            url = "${(icedosLib._parseFlakeUrl inputs.${i}.url).baseUrl}${_cachePin}";
+                          };
                     }
                   ];
 
