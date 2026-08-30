@@ -64,23 +64,42 @@ let
         cacheKey =
           if coreKey == null then null else hop (lock.nodes.${coreKey}.inputs or { }) "cache-server";
         locked = if cacheKey == null then { } else (lock.nodes.${cacheKey} or { }).locked or { };
-        tree = fetchTree {
-          inherit (locked)
-            type
-            owner
-            repo
-            rev
-            ;
-        };
+        # `host` only appears on self-hosted forges; without it a GitHub
+        # Enterprise node would silently be fetched from github.com.
+        tree = fetchTree (
+          {
+            inherit (locked)
+              type
+              owner
+              repo
+              rev
+              ;
+          }
+          // lib.optionalAttrs (locked ? host) { inherit (locked) host; }
+        );
       in
-      if
-        (icedosLib.ICEDOS_STAGE != "genflake")
-        || !(config.system.cache.pinInputs or false)
-        || (locked.type or "") != "github"
-      then
+      if (icedosLib.ICEDOS_STAGE != "genflake") || !(config.system.cache.pinInputs or false) then
         { }
+      # First build: no state lock to resolve the channel through. Documented to
+      # self-heal on the next run, so it stays quiet.
+      else if lock == null then
+        { }
+      # The remaining empty results are NOT expected steady state, and `pinInputs`
+      # has no other symptom than "no cache hits" — so say so rather than no-op.
+      else if cacheKey == null then
+        builtins.trace
+          "warning: icedos.system.cache.pinInputs is set, but the state lock has no root -> icedos-config -> icedos -> cache-server chain; inputs will resolve fresh"
+          { }
+      else if (locked.type or "") != "github" then
+        builtins.trace
+          "warning: icedos.system.cache.pinInputs is set, but the locked cache-server input is type '${locked.type or ""}', not github; inputs will resolve fresh"
+          { }
       else
-        builtins.fromJSON (builtins.readFile "${tree}/tracked-inputs.json");
+      # Pre-`tracked-inputs.json` channel publishes resolve fresh and self-heal.
+      if builtins.pathExists "${tree}/tracked-inputs.json" then
+        builtins.fromJSON (builtins.readFile "${tree}/tracked-inputs.json")
+      else
+        { };
 
     # Patch a flake source into a realised, context-free store path usable as a
     # locked `path:` input (readDir realises it; --raw genflake forbids context).
@@ -180,7 +199,7 @@ let
           else
             "";
 
-        flakeUrl = "${baseUrl}${flakeRev}";
+        flakeUrl = icedosLib._appendRevSuffix baseUrl flakeRev;
 
         # Fresh at genflake, the locked input at build — where a patched repo's
         # input already IS the patched tree (see `fetchUrl`).
@@ -246,7 +265,7 @@ let
           name = icedosLib.mkInputName { parts = [ url ]; };
 
           value = {
-            url = "${fetchUrl}${flakeRev}";
+            url = icedosLib._appendRevSuffix fetchUrl flakeRev;
           };
         }
       ) (filter shouldIncludeAsInput modules);
@@ -383,7 +402,7 @@ let
 
               # Pre-lock fallback pin (the author's `github:o/r/<ref>`); once the
               # lock has the rev it wins, so a first build self-heals next run.
-              _patchSrcInlineRef = if _patchSrcParsed.ref != null then "/${_patchSrcParsed.ref}" else "";
+              _patchSrcInlineRef = if _patchSrcParsed.ref != null then _patchSrcParsed.ref else "";
 
               _patchSrcLockRev = icedosLib._resolveFlakeRevisionNested {
                 url = _patchSrcParsed.baseUrl;
@@ -391,8 +410,8 @@ let
                 inputName = "${i}_source";
               };
 
-              # Rev cache-server last built for this leaf input, "" when untracked
-              # or the url is not a github/gitlab/sourcehut reference.
+              # Bare rev cache-server last built for this leaf input, "" when
+              # untracked or not a forge url (git-scheme revs are out of scope).
               _cachePin =
                 let
                   url = inputs.${i}.url or "";
@@ -412,19 +431,18 @@ let
                 then
                   ""
                 else
-                  "/${rev}";
+                  rev;
 
-              # Lock rev wins (this config already resolved it), then the cache
-              # pin (upstream published a newer built rev), then the author's ref.
-              _patchSrcRev =
+              # Lock rev wins, then the cache pin, then the author's ref; only the
+              # lock hands back a pre-formed suffix, the other two are bare revs.
+              _patchSrcUrl =
                 if _patchSrcLockRev != "" then
-                  _patchSrcLockRev
-                else if _cachePin != "" then
-                  _cachePin
+                  icedosLib._appendRevSuffix _patchSrcParsed.baseUrl _patchSrcLockRev
                 else
-                  _patchSrcInlineRef;
-
-              _patchSrcUrl = "${_patchSrcParsed.baseUrl}${_patchSrcRev}";
+                  icedosLib._appendRev {
+                    inherit (_patchSrcParsed) baseUrl;
+                    rev = if _cachePin != "" then _cachePin else _patchSrcInlineRef;
+                  };
 
               patchedInputSource = _mkPatchedSource {
                 name = "${subFlakeName}-${i}-patched";
@@ -460,7 +478,10 @@ let
                         else
                           decl
                           // {
-                            url = "${(icedosLib._parseFlakeUrl inputs.${i}.url).baseUrl}${_cachePin}";
+                            url = icedosLib._appendRev {
+                              inherit (_patchSrcParsed) baseUrl;
+                              rev = _cachePin;
+                            };
                           };
                     }
                   ];
