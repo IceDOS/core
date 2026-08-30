@@ -188,7 +188,11 @@ in
             # attr throws uncatchably — so guard the presence check.
             default =
               if inputs ? icedos-core then
-                readFile "${inputs.icedos-core.inputs.cache-server}/nix-public.pem"
+                # Editors/publish steps may leave a trailing newline, which would
+                # split the trusted-public-keys line in the generated nix.conf.
+                lib.removeSuffix "\n" (
+                  lib.trim (readFile "${inputs.icedos-core.inputs.cache-server}/nix-public.pem")
+                )
               else
                 "";
           };
