@@ -2913,6 +2913,28 @@ in
     }
   );
 
+  # The key lookup behind _cacheRevLookup, also feeding the declared-ref export.
+  cacheTrackedKeyExact = expectEq "plasmazones" (
+    helpers._cacheTrackedKey {
+      name = "plasmazones";
+      url = "github:fuddlesworth/PlasmaZones";
+      revs = {
+        plasmazones = "abc";
+      };
+    }
+  );
+
+  cacheTrackedKeyAmbiguous = expectEq "" (
+    helpers._cacheTrackedKey {
+      name = "plasmazones";
+      url = "";
+      revs = {
+        "a-plasmazones" = "x";
+        "b-plasmazones" = "y";
+      };
+    }
+  );
+
   # { rev; repo; } entries guard the host repo; string entries pin on name alone.
   cacheRevRepoMatch = expectEq "abc" (
     helpers._cacheRevLookup {
@@ -2994,6 +3016,46 @@ in
       };
     }
   );
+
+  # The remembered-pin preference behind _cachePin: a custom pin wins only
+  # while it differs from the cache rev, and an untracked input pins nothing.
+  cachePinRevSavedWins = expectEq "saved" (
+    helpers._cachePinRev {
+      rev = "cache";
+      savedRev = "saved";
+    }
+  );
+  cachePinRevAgrees = expectEq "cache" (
+    helpers._cachePinRev {
+      rev = "cache";
+      savedRev = "cache";
+    }
+  );
+  cachePinRevNoSaved = expectEq "cache" (
+    helpers._cachePinRev {
+      rev = "cache";
+      savedRev = "";
+    }
+  );
+  cachePinRevUntracked = expectEq "" (
+    helpers._cachePinRev {
+      rev = "";
+      savedRev = "saved";
+    }
+  );
+
+  # `?ref=` folds into `ref` and out of the query, so a baked rev replaces it.
+  parseFlakeUrlQueryRef = expectEq "main" ((helpers._parseFlakeUrl "github:o/r?ref=main").ref);
+  parseFlakeUrlQueryRefBaseUrl = expectEq "github:o/r" (
+    (helpers._parseFlakeUrl "github:o/r?ref=main").baseUrl
+  );
+  parseFlakeUrlQueryRefMixedRef = expectEq "main" (
+    (helpers._parseFlakeUrl "github:o/r?dir=x&ref=main").ref
+  );
+  parseFlakeUrlQueryRefMixedBaseUrl = expectEq "github:o/r?dir=x" (
+    (helpers._parseFlakeUrl "github:o/r?dir=x&ref=main").baseUrl
+  );
+  parseFlakeUrlRevQueryNoRef = expectEq null ((helpers._parseFlakeUrl "github:o/r?rev=abc").ref);
 
   # _appendRev (inputs.nix): `_parseFlakeUrl`'s baseUrl keeps the query string, so a
   # rev must be spliced in front of it — concatenating would bury it inside `?dir=`.

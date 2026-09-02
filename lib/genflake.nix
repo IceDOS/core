@@ -420,6 +420,14 @@ let
   # The complete merged config set for the webui, not just config.toml.
   userConfigRaw = toJSON userConfig;
 
+  # Cache-server's tracked revs (empty unless `pinInputs` is set), for
+  # `--unpin-inputs` to diff against upstream master revs.
+  pinRevs = icedosLib._cacheTrackedRevs;
+
+  # Tracked key -> author-declared url ref, so a re-pin targets the declared
+  # branch; the state lock's `original` has lost it once a rev is baked in.
+  pinRefs = modulesFromConfig.pinRefs;
+
   # Sub-flake texts leave this stage only as the root inputs' store paths; nothing
   # else is exported (the build orchestrator reads the resulting flake.lock).
 
@@ -441,6 +449,8 @@ assert githubTokenStoreWarning;
     flakeInputsNix
     optionsDoc
     modulesDoc
+    pinRevs
+    pinRefs
     userConfigRaw
     ;
 

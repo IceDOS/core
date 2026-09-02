@@ -8,6 +8,7 @@ from pathlib import Path
 from .context import from_environment
 from .genflake import export_search_index, generate_flake
 from .options import Options, parse_args
+from .pins import UNPINNED_FILE, expire_unpinned, unpin_inputs
 from .runner import build
 from .update import maybe_re_exec_update_core, prepare_lock, refresh_config_root_paths
 from .util import warn
@@ -111,6 +112,23 @@ def main(argv: list[str] | None = None) -> int:
 
     refresh_config_root_paths(env, opts)
     maybe_re_exec_update_core(env, opts, previous_arguments)
+
+    # --dry/--genflake-only must not mutate state: no expiry, no prompts.
+    mutating = not opts.genflake_only
+    if (
+        mutating
+        and (env.state_dir / UNPINNED_FILE).exists()
+        and not (opts.unpin_inputs or opts.unpin_all)
+    ):
+        # Best-effort case-4 expiry; runs only while a remembered pin exists.
+        expire_unpinned(env, trace)
+
+    # Runs before genflake, which bakes the pins into the sub-flake urls.
+    if opts.unpin_inputs or opts.unpin_all:
+        if mutating:
+            unpin_inputs(env, opts, trace)
+        else:
+            warn("warning: --unpin-input* have no effect together with --genflake-only/--dry")
 
     generate_flake(
         env,
