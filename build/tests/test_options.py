@@ -64,15 +64,36 @@ class ParseArgsTest(unittest.TestCase):
 
     def test_repos_select_rejects_a_following_flag(self):
         with self.assertRaises(SystemExit):
-            _parse(["--update-repos-select", "--logs"])
+            _ = _parse(["--update-repos-select", "--logs"])
 
     def test_repos_select_rejects_an_empty_list(self):
         with self.assertRaises(SystemExit):
-            _parse(["--update-repos-select", "   "])
+            _ = _parse(["--update-repos-select", "   "])
+
+    def test_unpin_inputs_splits_on_whitespace(self):
+        opts, _ = _parse(["--unpin-inputs", "plasmazones jovian"])
+        self.assertEqual(opts.unpin_inputs, ["plasmazones", "jovian"])
+
+    def test_unpin_inputs_rejects_a_following_flag(self):
+        with self.assertRaises(SystemExit):
+            _ = _parse(["--unpin-inputs", "--logs"])
+
+    def test_unpin_inputs_rejects_an_empty_list(self):
+        with self.assertRaises(SystemExit):
+            _ = _parse(["--unpin-inputs", "   "])
+
+    def test_unpin_inputs_all_sets_only_the_flag(self):
+        opts, _ = _parse(["--unpin-inputs-all"])
+        self.assertTrue(opts.unpin_all)
+        self.assertEqual(opts.unpin_inputs, [])
+
+    def test_unpin_inputs_all_rejects_combination_with_list(self):
+        with self.assertRaises(SystemExit):
+            _ = _parse(["--unpin-inputs-all", "--unpin-inputs", "x"])
 
     def test_state_inputs_rejects_a_following_flag(self):
         with self.assertRaises(SystemExit):
-            _parse(["--update-state-inputs", "--logs"])
+            _ = _parse(["--update-state-inputs", "--logs"])
 
     def test_builder_and_target_map_to_nh_flags(self):
         opts, _ = _parse(["--builder", "b.example", "--target", "t.example"])
@@ -83,11 +104,11 @@ class ParseArgsTest(unittest.TestCase):
 
     def test_github_token_requires_a_value(self):
         with self.assertRaises(SystemExit):
-            _parse(["--github-token"])
+            _ = _parse(["--github-token"])
 
     def test_github_token_path_requires_a_value(self):
         with self.assertRaises(SystemExit):
-            _parse(["--github-token-path"])
+            _ = _parse(["--github-token-path"])
 
     def test_github_token_flags_are_captured(self):
         opts, _ = _parse(["--github-token", "tok", "--github-token-path", "/p"])
@@ -96,8 +117,8 @@ class ParseArgsTest(unittest.TestCase):
 
     def test_unknown_arg_exits(self):
         with self.assertRaises(SystemExit):
-            _parse(["--nope"])
+            _ = _parse(["--nope"])
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

@@ -24,6 +24,10 @@ let
 
   inherit (config) icedos;
   inherit (icedos) configurationLocation;
+
+  # The unpin flags only work when the pin machinery is active; the help block
+  # is baked at build time, so it can reflect the config.
+  cachePinsActive = icedos.system.cache.enable && icedos.system.cache.pinInputs;
   inherit (icedos.system.toolset.rebuild) hooks;
 
   inherit (hooks)
@@ -81,6 +85,10 @@ in
                   echo "  --update-repos-only       update repos only before rebuild"
                   echo "  --update-repos-select <list> update specific repos (space-separated urls) before rebuild"
                   echo "  --update-repo-inputs-only update repo inputs only before rebuild"
+                  ${optionalString cachePinsActive ''
+                    echo "  --unpin-inputs <list>     offer to re-pin cache-pinned module inputs to master (space-separated names)"
+                    echo "  --unpin-inputs-all        offer to re-pin every cache-tracked module input to master"
+                  ''}
                   echo "  --build-vm                build a VM test image"
                   echo "  --run-vm                  build and run a VM test image"
                   echo "  --genflake-only           generate .state/flake.nix and exit (--dry's underlying mechanism)"

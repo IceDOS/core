@@ -4,12 +4,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 
 from build import lockfile
+from build.util import JSON
 
 # A state lock with one sub-flake root, a nested local path input, a nested store
 # path input, a plain github root input, and follows entries (lists, not keys).
-LOCK = {
+LOCK: dict[str, JSON] = {
     "nodes": {
         "root": {
             "inputs": {
@@ -37,18 +39,25 @@ LOCK = {
 }
 
 
+def _lock_with_sub_node_path(path: str) -> dict[str, JSON]:
+    lock = cast("dict[str, JSON]", json.loads(json.dumps(LOCK)))
+    node = cast("dict[str, JSON]", lock["nodes"])
+    sub = cast("dict[str, JSON]", node["sub-node"])
+    locked = cast("dict[str, JSON]", sub["locked"])
+    locked["path"] = path
+    return lock
+
+
 class SubflakeTest(unittest.TestCase):
     def test_requires_store_prefix_and_name_suffix(self):
         self.assertEqual(lockfile.subflakes_from_lock(LOCK), ["sub"])
 
     def test_store_path_without_the_suffix_is_not_a_subflake(self):
-        lock = json.loads(json.dumps(LOCK))
-        lock["nodes"]["sub-node"]["locked"]["path"] = "/nix/store/hash-sub"
+        lock = _lock_with_sub_node_path("/nix/store/hash-sub")
         self.assertEqual(lockfile.subflakes_from_lock(lock), [])
 
     def test_local_path_is_not_a_subflake(self):
-        lock = json.loads(json.dumps(LOCK))
-        lock["nodes"]["sub-node"]["locked"]["path"] = "/home/u/sub-subflake"
+        lock = _lock_with_sub_node_path("/home/u/sub-subflake")
         self.assertEqual(lockfile.subflakes_from_lock(lock), [])
 
 
@@ -89,7 +98,12 @@ class RootInputsTest(unittest.TestCase):
 
 class MalformedTest(unittest.TestCase):
     def test_every_helper_tolerates_an_empty_lock(self):
-        for lock in ({}, {"nodes": {}}, {"nodes": {"root": {}}}):
+        empty_locks: list[dict[str, JSON]] = [
+            {},
+            {"nodes": {}},
+            {"nodes": {"root": {}}},
+        ]
+        for lock in empty_locks:
             self.assertEqual(lockfile.path_nodes(lock), [])
             self.assertEqual(lockfile.path_inputs(lock), [])
             self.assertEqual(lockfile.subflakes_from_lock(lock), [])
@@ -124,4 +138,4 @@ class LoadLockTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()
