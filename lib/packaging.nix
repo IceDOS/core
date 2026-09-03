@@ -1,34 +1,28 @@
 {
-  icedosLib,
   lib,
-  self,
   ...
 }:
 
 let
   inherit (lib) optionalString;
 in
-rec {
+{
   # Shell-snippet builders for `installPhase`/`postFixup` bodies, passed to a
   # `package.nix` explicitly via `callPackage ./package.nix { inherit ... }`.
   packaging = {
-    # Extracts an AppImage into $out. `extractedDir` is what it unpacks to
-    # ("AppDir", "squashfs-root"); `steamRun` wraps it in a glibc envelope.
+    # Unpacks an AppImage into $out. `extractedDir` is the scratch dir the image
+    # is unpacked to, which `preMove`/`moveSubdir` are then relative to.
     extractAppImage =
       {
+        appimageTools,
         src,
         extractedDir ? "AppDir",
         moveSubdir ? null,
-        steamRun ? null,
         preMove ? "",
       }:
       ''
+        ${appimageTools.appimage-exec}/bin/appimage-exec.sh -x ${extractedDir} ${src}
         mkdir -p $out
-        cp ${src} $TMPDIR/image.AppImage
-        chmod +x $TMPDIR/image.AppImage
-        ${
-          optionalString (steamRun != null) "${steamRun}/bin/steam-run "
-        }$TMPDIR/image.AppImage --appimage-extract
         ${preMove}
         mv ${extractedDir}/${optionalString (moveSubdir != null) "${moveSubdir}/"}* $out
       '';
