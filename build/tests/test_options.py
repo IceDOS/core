@@ -94,6 +94,11 @@ class ParseArgsTest(unittest.TestCase):
         self.assertEqual(opts.github_token, "tok")
         self.assertEqual(opts.github_token_path, "/p")
 
+    def test_github_ssh_flag_is_captured(self):
+        opts, _ = _parse(["--github-ssh"])
+        self.assertTrue(opts.github_ssh)
+        self.assertFalse(_parse([])[0].github_ssh)
+
     def test_unknown_arg_exits(self):
         with self.assertRaises(SystemExit):
             _parse(["--nope"])

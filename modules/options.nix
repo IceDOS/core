@@ -243,6 +243,10 @@ in
         # per-run overrides: --github-token-path or ICEDOS_GITHUB_TOKEN_PATH.
         githubTokenPath = mkStrOption { default = icedosLib.GITHUB_TOKEN_PATH; };
 
+        # Opt-in: emit `github:` input urls as `git+ssh://` so the ssh key (not
+        # the token) authenticates fetches. Per-run override: --github-ssh.
+        githubViaSsh = mkBoolOption { default = false; };
+
         # Framework-owned; baked by genflake (users get `forceFirstBuild`). No
         # default: readOnly rejects a second definition.
         isFirstBuild = mkBoolOption {

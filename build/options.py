@@ -20,6 +20,7 @@ class Options:
     repos_select: list[str] = field(default_factory=list)
     github_token: str | None = None
     github_token_path: str | None = None
+    github_ssh: bool = False
     nh_build_args: list[str] = field(default_factory=list)
     global_build_args: list[str] = field(default_factory=list)
     logs: bool = False
@@ -141,6 +142,9 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
                 _die("error: --github-token-path requires a path")
             opts.github_token_path = argv[i + 1]
             i += 2
+        elif arg == "--github-ssh":
+            opts.github_ssh = True
+            i += 1
         elif arg == "--logs":
             opts.logs = True
             i += 1

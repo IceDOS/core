@@ -358,6 +358,42 @@ rec {
         ref = builtins.elemAt match 3;
       };
 
+  # Git-scheme ref spelling: `?rev=` only for a 40-hex rev (any case), else
+  # `?ref=` — a bare one is refs/heads/<ref>, so tags need /refs/tags/<tag>.
+  _revSeparator = ref: if builtins.match "[0-9a-fA-F]{40}" ref != null then "?rev=" else "?ref=";
+
+  # Advisory-only: bare refs that look like tags/short revs (semver-ish or
+  # hexish) trace a warning; never alters the emitted url.
+  _ambigRef =
+    ref:
+    let
+      hexish = builtins.match "[0-9a-fA-F]{4,39}" ref;
+    in
+    (hexish != null && builtins.match "[0-9a-fA-F]*[0-9][0-9a-fA-F]*" ref != null)
+    || builtins.match "[vV]?[0-9]+([.][0-9]+)+" ref != null;
+
+  # Opt-in ssh transport: `github:` -> `git+ssh://git@github.com/...`; emission
+  # only — names/lock keys keep the original url, non-github urls pass unchanged.
+  _githubUrlToGitSsh =
+    url:
+    let
+      parsed = _parseFlakeUrl url;
+      base = builtins.match "github:([^/?]+)/([^/?]+)(.*)" parsed.baseUrl;
+      sshBase = "git+ssh://git@github.com/${builtins.elemAt base 0}/${builtins.elemAt base 1}${builtins.elemAt base 2}";
+    in
+    if base == null then
+      url
+    else if parsed.ref == null then
+      sshBase
+    else
+      let
+        sshUrl = _appendRevSuffix sshBase "${_revSeparator parsed.ref}${parsed.ref}";
+      in
+      # warnIf traces when the ref looks pinned, then returns the url untouched.
+      lib.warnIf (_ambigRef parsed.ref)
+        "githubViaSsh: ref ${parsed.ref} of ${sshUrl} maps to refs/heads/<ref> over ssh; spell tags refs/tags/<tag>, short revs as full 40-hex"
+        sshUrl;
+
   # Generate a unique key for a module (url/name combination).
   _getModuleKey = url: name: "${url}/${name}";
 

@@ -97,6 +97,10 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["NIX_CONFIG"] = BASE_NIX_CONFIG
     if opts.logs:
         os.environ["ICEDOS_LOGGING"] = "1"
+    if opts.github_ssh:
+        # Read by the genflake eval, baked into the generated flake as
+        # githubViaSsh; the build stage consumes that value, so sites agree.
+        os.environ["ICEDOS_GITHUB_SSH"] = "1"
 
     env = from_environment()
     trace = opts.trace

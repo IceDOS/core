@@ -39,10 +39,12 @@ let
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STATE_DIR
+    _githubUrlToGitSsh
     _loadModulesFromRepo
     _parseFlakeUrl
     _repoSelected
     _selectedRepos
+    githubViaSsh
     injectIfExists
     mkInputName
     modulesFromConfig
@@ -148,7 +150,10 @@ let
       ];
     };
 
-    value = { inherit (e) url; };
+    value = {
+      # Transport switch: overlay names stay keyed to the original url.
+      url = if githubViaSsh then _githubUrlToGitSsh e.url else e.url;
+    };
   }) (filter isOverlayUrlMode overlayChannels);
 
   # extraFlake names become root inputs, so a collision with a channel, overlay,
@@ -190,7 +195,11 @@ let
     name = "nixpkgs";
 
     value = {
-      url = icedos.system.nixpkgsChannel or "github:nixos/nixpkgs/nixos-unstable";
+      url =
+        let
+          channel = icedos.system.nixpkgsChannel or "github:nixos/nixpkgs/nixos-unstable";
+        in
+        if githubViaSsh then _githubUrlToGitSsh channel else channel;
     };
   };
 
@@ -198,7 +207,11 @@ let
     name = "home-manager";
 
     value = {
-      url = "github:nix-community/home-manager";
+      url =
+        if githubViaSsh then
+          _githubUrlToGitSsh "github:nix-community/home-manager"
+        else
+          "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -212,7 +225,9 @@ let
     extraModulesInputs
     ++ (map (c: {
       inherit (c) name;
-      value = { inherit (c) url; };
+      value = {
+        url = if githubViaSsh then _githubUrlToGitSsh c.url else c.url;
+      };
     }) channels)
     ++ overlayInputs
     ++ [
