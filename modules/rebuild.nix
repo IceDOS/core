@@ -69,6 +69,8 @@ in
                   echo "  --github-token <token>    literal GitHub token for nix github.com fetches"
                   echo "  --github-token-path <path>"
                   echo "                            file holding a GitHub token for nix github.com fetches"
+                  echo "  --github-ssh              fetch GitHub inputs over git+ssh with the ssh key"
+                  echo "                            instead of the token (per-run ICEDOS_GITHUB_SSH)"
                   echo "  --dir <dir>               use alternate config directory"
                   echo "  --update                  update everything (core, nixpkgs, repos, repo inputs) + run update hooks"
                   echo "  --update-hooks            run update hooks only (pre+post), no build"
@@ -153,23 +155,40 @@ in
 
                 # Resolve the token before any nix call: a stale lock makes `nix run` hit
                 # the GitHub API before the orchestrator can set NIX_CONFIG itself.
-                tokenFile="''${ICEDOS_GITHUB_TOKEN_PATH:-${icedosLib.GITHUB_TOKEN_PATH}}"
                 tokenEnv=()
-                if [ -z "''${ICEDOS_GITHUB_TOKEN:-}" ] && [ -f "$tokenFile" ]; then
-                  token="$(cat "$tokenFile" 2>/dev/null || sudo -n cat "$tokenFile" 2>/dev/null || true)"
-                  if [ -z "$token" ] && [ -t 0 ]; then
-                    token="$(sudo cat "$tokenFile" 2>/dev/null)" || true
-                  fi
-                  if [ -n "$token" ]; then
-                    # Prefixed onto each build invocation, never exported: hooks are
-                    # user-authored scripts and must not inherit a live credential.
-                    tokenEnv=(
-                      "ICEDOS_GITHUB_TOKEN=$token"
-                      "NIX_CONFIG=''${NIX_CONFIG:+"$NIX_CONFIG
+                # Under --github-ssh (env, --github-ssh arg, or resolved config bool) the token
+                # machinery is idle, so skip the read — no sudo prompt for a feature that's off.
+                needToken=1
+                [ "''${ICEDOS_GITHUB_SSH:-}" = "1" ] && needToken=0
+                printf '%s\0' "''${args[@]}" | grep -qEz -- '^--github-ssh$' && needToken=0
+                # Config bool: config root config.toml (one level up from the state
+                # dir) or an extra {CONFIG_DIRS}/*.toml; env/arg routes cover --dir.
+                grep -Eqs '^[[:space:]]*githubViaSsh[[:space:]]*=[[:space:]]*true' "${configurationLocation}/../config.toml" && needToken=0
+                shopt -s nullglob
+                # /dev/null guarantees an operand so grep never reads the tty (hang)
+                # when a config dir has no .toml files.
+                for d in "''${CONFIG_DIRS[@]}"; do
+                  grep -Eqs '^[[:space:]]*githubViaSsh[[:space:]]*=[[:space:]]*true' "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml /dev/null && needToken=0
+                done
+                shopt -u nullglob
+                if [ "$needToken" = "1" ]; then
+                  tokenFile="''${ICEDOS_GITHUB_TOKEN_PATH:-${icedosLib.GITHUB_TOKEN_PATH}}"
+                  if [ -z "''${ICEDOS_GITHUB_TOKEN:-}" ] && [ -f "$tokenFile" ]; then
+                    token="$(cat "$tokenFile" 2>/dev/null || sudo -n cat "$tokenFile" 2>/dev/null || true)"
+                    if [ -z "$token" ] && [ -t 0 ]; then
+                      token="$(sudo cat "$tokenFile" 2>/dev/null)" || true
+                    fi
+                    if [ -n "$token" ]; then
+                      # Prefixed onto each build invocation, never exported: hooks are
+                      # user-authored scripts and must not inherit a live credential.
+                      tokenEnv=(
+                        "ICEDOS_GITHUB_TOKEN=$token"
+                        "NIX_CONFIG=''${NIX_CONFIG:+"$NIX_CONFIG
         "}access-tokens = github.com=$token"
-                    )
-                  else
-                    log_warn "cannot read $tokenFile; github api calls will be unauthenticated"
+                      )
+                    else
+                      log_warn "cannot read $tokenFile; github api calls will be unauthenticated"
+                    fi
                   fi
                 fi
 

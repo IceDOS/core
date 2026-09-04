@@ -194,6 +194,52 @@ let
     ];
   };
 
+  # Mirror `miMod` with the transport switch on, so the gated emission sites
+  # (perInput decl, _patchSrcUrl, emitBase/flakeRev) run in rewrote form.
+  miModSsh =
+    inputs:
+    let
+      r =
+        (mkIcedos {
+          system.githubViaSsh = true;
+        })._getModuleInputs
+          [
+            {
+              _repoInfo = {
+                url = "github:icedos/hardware";
+              };
+              meta = {
+                name = "probe";
+              };
+              inherit inputs;
+            }
+          ];
+    in
+    builtins.head r;
+
+  miSshBase = miModSsh {
+    base = {
+      url = "github:x/base";
+    };
+  };
+  miSshRef = miModSsh {
+    fooref = {
+      url = "github:x/foo/main";
+    };
+  };
+  miSshRev = miModSsh {
+    barrev = {
+      url = "github:x/bar/0123456789abcdef0123456789abcdef01234567";
+    };
+  };
+
+  # `_modulesToInputs`' gated emitUrl/flakeRev paths under the transport switch.
+  miInputsSsh =
+    info:
+    (builtins.head (
+      (mkIcedos { system.githubViaSsh = true; })._modulesToInputs [ { _repoInfo = info; } ]
+    )).value.url;
+
   opaqueOrKey = icedos._opaqueOrKey;
   dedupe = icedos._dedupeNixosModules;
 
@@ -2021,6 +2067,101 @@ in
           }
         ]
       );
+
+  # Flag off (the default): a ref-carrying github url stays verbatim, ref and all.
+  efInputsOffKeepsOriginal =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "github:jovian-experiments/jovian-nixos/main";
+            inputs = {
+              nixpkgs = {
+                follows = "nixpkgs";
+              };
+            };
+          };
+        }
+      ]
+      (
+        (mkIcedos { }).extraFlakeInputs [
+          {
+            name = "jovian";
+            url = "github:jovian-experiments/jovian-nixos/main";
+            inputs = {
+              nixpkgs = {
+                follows = "nixpkgs";
+              };
+            };
+          }
+        ]
+      );
+
+  # Flag on: the same ref becomes a `?ref=` query on the ssh url (branch
+  # semantics; F1). A refs/tags/... ref passes through unchanged.
+  efInputsGitHubViaSshRef =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "git+ssh://git@github.com/jovian-experiments/jovian-nixos?ref=main";
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          [
+            {
+              name = "jovian";
+              url = "github:jovian-experiments/jovian-nixos/main";
+            }
+          ]
+      );
+
+  # Transport switch rewrites the emitted url, keeps the name and `inputs`.
+  efInputsGitHubViaSsh =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "git+ssh://git@github.com/jovian-experiments/jovian-nixos";
+            inputs = {
+              nixpkgs = {
+                follows = "nixpkgs";
+              };
+            };
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          efIcedos.extraFlakes
+      );
+
+  # Non-github extra flake urls stay verbatim under the switch.
+  efInputsGitHubViaSshNonGithub =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "u";
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          efBare.extraFlakes
+      );
   # Masked-input entries carry the bare name in both fields (the
   # `_createMaskedInputs` contract).
   efMasked = expectEq [
@@ -3120,5 +3261,117 @@ in
         };
       };
     }
+  );
+
+  # --- _githubUrlToGitSsh (`github:` -> `git+ssh://` transport switch) -----
+  githubToGitSshPlainRepo = expectEq "git+ssh://git@github.com/o/r" (
+    helpers._githubUrlToGitSsh "github:o/r"
+  );
+
+  githubToGitSshBranchRef = expectEq "git+ssh://git@github.com/o/r?ref=main" (
+    helpers._githubUrlToGitSsh "github:o/r/main"
+  );
+
+  # 40-hex segments are revs, spelled `?rev=` for the git fetcher.
+  githubToGitSshHexRev = expectEq "git+ssh://git@github.com/o/r?rev=0123456789abcdef0123456789abcdef01234567" (
+    helpers._githubUrlToGitSsh "github:o/r/0123456789abcdef0123456789abcdef01234567"
+  );
+
+  # The ref land after the query, joined with `&` like every other suffix.
+  githubToGitSshRefJoinsQuery = expectEq "git+ssh://git@github.com/o/r?dir=sub&ref=main" (
+    helpers._githubUrlToGitSsh "github:o/r/main?dir=sub"
+  );
+
+  githubToGitSshQueryKept = expectEq "git+ssh://git@github.com/o/r?dir=sub" (
+    helpers._githubUrlToGitSsh "github:o/r?dir=sub"
+  );
+
+  # Owner-only or non-github urls must pass through untouched (nix would reject
+  # the mangled form, so the helper must not invent structure).
+  githubToGitSshOwnerOnlyPassesThrough = expectEq "github:o" (helpers._githubUrlToGitSsh "github:o");
+
+  githubToGitSshNonGithubPassesThrough = expectEq "git+https://e.com/r.git" (
+    helpers._githubUrlToGitSsh "git+https://e.com/r.git"
+  );
+
+  githubToGitSshPathPassesThrough = expectEq "path:/home/ice/apps" (
+    helpers._githubUrlToGitSsh "path:/home/ice/apps"
+  );
+
+  # --- _revSeparator / F1+F2 ref classification -----------------------------
+  # A full 40-hex rev is `?rev=`, Nix's revRegex accepts any hex case (F2).
+  revSeparatorLowerHex = expectEq "?rev=" (
+    helpers._revSeparator "0123456789abcdef0123456789abcdef01234567"
+  );
+  revSeparatorUpperHex = expectEq "?rev=" (
+    helpers._revSeparator "0123456789ABCDEF0123456789ABCDEF01234567"
+  );
+  # Any other name is `?ref=`; nix expands a bare one to refs/heads/<name>, so
+  # a refs/tags/... ref must stay fully qualified to keep tag semantics.
+  revSeparatorBranch = expectEq "?ref=" (helpers._revSeparator "main");
+  revSeparatorQualifiedTag = expectEq "?ref=" (helpers._revSeparator "refs/tags/v1.2.3");
+
+  # Uppercase 40-hex github refs are revs, not branches (F2).
+  githubToGitSshUpperHexRev = expectEq "git+ssh://git@github.com/o/r?rev=0123456789ABCDEF0123456789ABCDEF01234567" (
+    helpers._githubUrlToGitSsh "github:o/r/0123456789ABCDEF0123456789ABCDEF01234567"
+  );
+
+  # A refs/...-qualified tag passes through the helper unchanged, so the git
+  # fetcher keeps tag (not refs/heads/) semantics (F1/F3).
+  githubToGitSshQualifiedTag = expectEq "git+ssh://git@github.com/o/r?ref=refs/tags/v1.2.3" (
+    helpers._githubUrlToGitSsh "github:o/r/refs/tags/v1.2.3"
+  );
+
+  # --- githubViaSsh on module-input sub-flakes (F3) -------------------------
+  subFlakeSshPlain = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/x/base" miSshBase.text
+    && !lib.strings.hasInfix "github:x/base" miSshBase.text
+  );
+  # Branch/tag name -> `?ref=`; 40-hex rev -> `?rev=` on the ssh base.
+  subFlakeSshRef = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/x/foo?ref=main" miSshRef.text
+  );
+  subFlakeSshRev = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/x/bar?rev=0123456789abcdef0123456789abcdef01234567" miSshRev.text
+  );
+
+  # F4: `_modulesToInputs` flag-on emission — rev/narHash/path cases under ssh.
+  miInputsSshBase = expectEq "git+ssh://git@github.com/icedos/hardware" (miInputsSsh {
+    url = "github:icedos/hardware";
+  });
+  miInputsSshBranch = expectEq "git+ssh://git@github.com/x/foo?ref=main" (miInputsSsh {
+    url = "github:x/foo/main";
+  });
+  miInputsSshRevUrl =
+    expectEq "git+ssh://git@github.com/x/bar?rev=0123456789abcdef0123456789abcdef01234567"
+      (miInputsSsh {
+        url = "github:x/bar/0123456789abcdef0123456789abcdef01234567";
+      });
+  miInputsSshRevAttr =
+    expectEq "git+ssh://git@github.com/x/hw?rev=0123456789abcdef0123456789abcdef01234567"
+      (miInputsSsh {
+        url = "github:x/hw";
+        rev = "0123456789abcdef0123456789abcdef01234567";
+      });
+  miInputsSshNarHash =
+    expectEq "git+ssh://git@github.com/x/hw?narHash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      (miInputsSsh {
+        url = "github:x/hw";
+        narHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      });
+  miInputsSshPathPassthrough = expectEq "path:/nix/store/abc" (miInputsSsh {
+    url = "path:/nix/store/abc";
+    narHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  });
+  # _ambigRef pinning: silent for branch names/tags/full revs, warn for pinned-looking.
+  ambigRefSilent = expectOk (
+    !helpers._ambigRef "main"
+    && !helpers._ambigRef "nixos-unstable"
+    && !helpers._ambigRef "refs/tags/v1.2.3"
+    && !helpers._ambigRef "0123456789abcdef0123456789abcdef01234567"
+    && !helpers._ambigRef "abcdef"
+  );
+  ambigRefWarns = expectOk (
+    helpers._ambigRef "v1.2.3" && helpers._ambigRef "abc1234" && helpers._ambigRef "24.11"
   );
 }

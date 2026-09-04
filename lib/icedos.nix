@@ -26,6 +26,10 @@ let
   finalIcedosLib = icedosLib // rec {
     repositories = config.repositories or [ ];
 
+    # Opt-in: rewrite `github:` input urls to `git+ssh://` so ssh keys (not the
+    # token) authenticate fetches. Resolved at genflake, baked into the flake.
+    githubViaSsh = (config.system.githubViaSsh or false) || builtins.getEnv "ICEDOS_GITHUB_SSH" == "1";
+
     # repo baseUrl -> `fetchOptionalDependencies`: the flag applies to every
     # module of that repo, including transitively pulled ones.
     repoFetchOptional = builtins.listToAttrs (
@@ -184,8 +188,12 @@ let
         inherit (fetchParsed) baseUrl;
         inlineRef = fetchParsed.ref;
 
+        # Emission-only: names and lock keys stay keyed to the original url; the
+        # rewritten form appears only where the flake text spells the target.
+        emitBase = if githubViaSsh then icedosLib._githubUrlToGitSsh baseUrl else baseUrl;
+
         lockRev = icedosLib._resolveFlakeRevision {
-          url = baseUrl;
+          url = emitBase;
           inherit repoName;
         };
 
@@ -195,11 +203,14 @@ let
           if lockRev != "" then
             lockRev
           else if inlineRef != null then
-            if icedosLib._urlIsGitScheme baseUrl then "?rev=${inlineRef}" else "/${inlineRef}"
+            if icedosLib._urlIsGitScheme emitBase then
+              "${icedosLib._revSeparator inlineRef}${inlineRef}"
+            else
+              "/${inlineRef}"
           else
             "";
 
-        flakeUrl = icedosLib._appendRevSuffix baseUrl flakeRev;
+        flakeUrl = icedosLib._appendRevSuffix emitBase flakeRev;
 
         # Fresh at genflake, the locked input at build — where a patched repo's
         # input already IS the patched tree (see `fetchUrl`).
@@ -253,10 +264,12 @@ let
           # Original `url` names the input (stable across overrideUrl toggles);
           # `fetchUrl` (override-applied) is what the flake actually fetches.
           fetchUrl = _repoInfo.fetchUrl or url;
+          # Emission spelling of the fetch target (transport switch).
+          emitUrl = if githubViaSsh then icedosLib._githubUrlToGitSsh fetchUrl else fetchUrl;
           flakeRev =
             if (hasAttr "rev" _repoInfo) then
-              if icedosLib._urlIsGitScheme fetchUrl then "?rev=${_repoInfo.rev}" else "/${_repoInfo.rev}"
-            else if (hasAttr "narHash" _repoInfo) && !(icedosLib.stringStartsWith "path:" fetchUrl) then
+              if icedosLib._urlIsGitScheme emitUrl then "?rev=${_repoInfo.rev}" else "/${_repoInfo.rev}"
+            else if (hasAttr "narHash" _repoInfo) && !(icedosLib.stringStartsWith "path:" emitUrl) then
               "?narHash=${_repoInfo.narHash}"
             else
               "";
@@ -265,7 +278,7 @@ let
           name = icedosLib.mkInputName { parts = [ url ]; };
 
           value = {
-            url = icedosLib._appendRevSuffix fetchUrl flakeRev;
+            url = icedosLib._appendRevSuffix emitUrl flakeRev;
           };
         }
       ) (filter shouldIncludeAsInput modules);
@@ -389,23 +402,52 @@ let
               patches = patchesFor i;
               hasPatches = patches != [ ];
 
+              # Emission spelling (transport switch): ref-stripped base so lock
+              # `original.url` matches; the original url drives name/cache keys.
+              srcUrl = inputs.${i}.url or "";
+              emitSrcBase =
+                if githubViaSsh then
+                  icedosLib._githubUrlToGitSsh _patchSrcParsed.baseUrl
+                else
+                  _patchSrcParsed.baseUrl;
+
               # `override` is dead but still stripped: an old pinned repo would
               # otherwise leak the key into the sub-flake and fail opaquely.
-              decl = removeAttrs inputs.${i} [
-                "override"
-                "patches"
-              ];
+              # Ref-free ssh base + inline ref as query suffix, so a lock-less
+              # (`_cachePin == ""`) input still pins the author's ref.
+              decl =
+                removeAttrs
+                  (
+                    inputs.${i}
+                    // (lib.optionalAttrs githubViaSsh (
+                      lib.optionalAttrs (emitSrcBase != _patchSrcParsed.baseUrl) {
+                        url =
+                          if _patchSrcParsed.ref != null then
+                            icedosLib._appendRev {
+                              baseUrl = emitSrcBase;
+                              rev = _patchSrcParsed.ref;
+                              separator = icedosLib._revSeparator _patchSrcParsed.ref;
+                            }
+                          else
+                            emitSrcBase;
+                      }
+                    ))
+                  )
+                  [
+                    "override"
+                    "patches"
+                  ];
 
               # The patched `src` and the `_source` url bake the same locked rev,
               # so a sub-flake re-lock cannot disagree with the realised tree.
-              _patchSrcParsed = icedosLib._parseFlakeUrl inputs.${i}.url;
+              _patchSrcParsed = icedosLib._parseFlakeUrl srcUrl;
 
               # Pre-lock fallback pin (the author's `github:o/r/<ref>`); once the
               # lock has the rev it wins, so a first build self-heals next run.
               _patchSrcInlineRef = if _patchSrcParsed.ref != null then _patchSrcParsed.ref else "";
 
               _patchSrcLockRev = icedosLib._resolveFlakeRevisionNested {
-                url = _patchSrcParsed.baseUrl;
+                url = emitSrcBase;
                 inherit subFlakeName;
                 inputName = "${i}_source";
               };
@@ -437,11 +479,19 @@ let
               # lock hands back a pre-formed suffix, the other two are bare revs.
               _patchSrcUrl =
                 if _patchSrcLockRev != "" then
-                  icedosLib._appendRevSuffix _patchSrcParsed.baseUrl _patchSrcLockRev
+                  icedosLib._appendRevSuffix emitSrcBase _patchSrcLockRev
                 else
+                  let
+                    _patchSrcRev = if _cachePin != "" then _cachePin else _patchSrcInlineRef;
+                    # github pins use a path segment; git-scheme pins use query
+                    # params: `?rev=` for a 40-hex hash, `?ref=` for a name.
+                    separator =
+                      if icedosLib._urlIsGitScheme emitSrcBase then icedosLib._revSeparator _patchSrcRev else "/";
+                  in
                   icedosLib._appendRev {
-                    inherit (_patchSrcParsed) baseUrl;
-                    rev = if _cachePin != "" then _cachePin else _patchSrcInlineRef;
+                    baseUrl = emitSrcBase;
+                    rev = _patchSrcRev;
+                    inherit separator;
                   };
 
               patchedInputSource = _mkPatchedSource {
@@ -479,8 +529,10 @@ let
                           decl
                           // {
                             url = icedosLib._appendRev {
-                              inherit (_patchSrcParsed) baseUrl;
+                              baseUrl = emitSrcBase;
                               rev = _cachePin;
+                              separator =
+                                if icedosLib._urlIsGitScheme emitSrcBase then icedosLib._revSeparator _cachePin else "/";
                             };
                           };
                     }
@@ -907,10 +959,20 @@ let
       flakes:
       map (f: {
         name = f.name;
-        value = removeAttrs f [
-          "name"
-          "modulesToLoad"
-        ];
+        value =
+          removeAttrs
+            (
+              f
+              // (lib.optionalAttrs githubViaSsh (
+                lib.optionalAttrs ((f.url or "") != "") {
+                  url = icedosLib._githubUrlToGitSsh f.url;
+                }
+              ))
+            )
+            [
+              "name"
+              "modulesToLoad"
+            ];
       }) flakes;
 
     # Masked entries exposing each extra flake under its bare `name`, in the
