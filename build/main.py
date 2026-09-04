@@ -97,6 +97,16 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["NIX_CONFIG"] = BASE_NIX_CONFIG
     if opts.logs:
         os.environ["ICEDOS_LOGGING"] = "1"
+    # Read by the genflake eval, which bakes the resolved value into the
+    # generated flake (the env var does not reach the build stage's pure eval).
+    # "0" is not the same as unset: it overrides a config.toml `true`. With no
+    # flag the variable is REMOVED rather than left alone, so a value exported
+    # in the user's shell cannot silently override the option on every later
+    # rebuild — the flags are the only way to reach it.
+    if opts.github_ssh is None:
+        os.environ.pop("ICEDOS_GITHUB_SSH", None)
+    else:
+        os.environ["ICEDOS_GITHUB_SSH"] = "1" if opts.github_ssh else "0"
 
     env = from_environment()
     trace = opts.trace

@@ -194,6 +194,63 @@ let
     ];
   };
 
+  # Mirror `miMod` with the transport switch on, so the gated emission sites
+  # (perInput decl, _patchSrcUrl, emitBase/flakeRev) run in rewrote form.
+  miModSsh =
+    inputs:
+    let
+      r =
+        (mkIcedos {
+          system.githubViaSsh = true;
+        })._getModuleInputs
+          [
+            {
+              _repoInfo = {
+                url = "github:icedos/hardware";
+              };
+              meta = {
+                name = "probe";
+              };
+              inherit inputs;
+            }
+          ];
+    in
+    builtins.head r;
+
+  miSshBase = miModSsh {
+    base = {
+      url = "github:x/base";
+    };
+  };
+  miSshRef = miModSsh {
+    fooref = {
+      url = "github:x/foo/main";
+    };
+  };
+  miSshRev = miModSsh {
+    barrev = {
+      url = "github:x/bar/0123456789abcdef0123456789abcdef01234567";
+    };
+  };
+  # A nested `inputs.<j>.url` override is a real fetch, so it must move too.
+  miSshNested = miModSsh {
+    nested = {
+      url = "github:x/base";
+      inputs.nixpkgs.url = "github:private/nixpkgs";
+    };
+  };
+
+  # `_modulesToInputs`' gated emitUrl/flakeRev paths under the transport switch.
+  miInputsSsh =
+    info:
+    (builtins.head (
+      (mkIcedos { system.githubViaSsh = true; })._modulesToInputs [ { _repoInfo = info; } ]
+    )).value.url;
+
+  # Same, flag off: what a user who never opted in gets emitted.
+  miInputsPlain =
+    info: (builtins.head ((mkIcedos { })._modulesToInputs [ { _repoInfo = info; } ])).value.url;
+
   opaqueOrKey = icedos._opaqueOrKey;
   dedupe = icedos._dedupeNixosModules;
 
@@ -2127,6 +2184,101 @@ in
           }
         ]
       );
+
+  # Flag off (the default): a ref-carrying github url stays verbatim, ref and all.
+  efInputsOffKeepsOriginal =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "github:jovian-experiments/jovian-nixos/main";
+            inputs = {
+              nixpkgs = {
+                follows = "nixpkgs";
+              };
+            };
+          };
+        }
+      ]
+      (
+        (mkIcedos { }).extraFlakeInputs [
+          {
+            name = "jovian";
+            url = "github:jovian-experiments/jovian-nixos/main";
+            inputs = {
+              nixpkgs = {
+                follows = "nixpkgs";
+              };
+            };
+          }
+        ]
+      );
+
+  # Flag on: the same ref becomes a `?ref=` query on the ssh url (branch
+  # semantics; F1). A refs/tags/... ref passes through unchanged.
+  efInputsGitHubViaSshRef =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "git+ssh://git@github.com/jovian-experiments/jovian-nixos?ref=main";
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          [
+            {
+              name = "jovian";
+              url = "github:jovian-experiments/jovian-nixos/main";
+            }
+          ]
+      );
+
+  # Transport switch rewrites the emitted url, keeps the name and `inputs`.
+  efInputsGitHubViaSsh =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "git+ssh://git@github.com/jovian-experiments/jovian-nixos";
+            inputs = {
+              nixpkgs = {
+                follows = "nixpkgs";
+              };
+            };
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          efIcedos.extraFlakes
+      );
+
+  # Non-github extra flake urls stay verbatim under the switch.
+  efInputsGitHubViaSshNonGithub =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "u";
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          efBare.extraFlakes
+      );
   # Masked-input entries carry the bare name in both fields (the
   # `_createMaskedInputs` contract).
   efMasked = expectEq [
@@ -3424,5 +3576,757 @@ in
 
   tipsResizeTrap = expectOk (
     lib.strings.hasInfix "trap _icedos_tip_winch WINCH" (tipsHead [ "one" ])
+  );
+
+  # --- _githubUrlToGitSsh (`github:` -> `git+ssh://` transport switch) -----
+  githubToGitSshPlainRepo = expectEq "git+ssh://git@github.com/o/r" (
+    helpers._githubUrlToGitSsh "github:o/r"
+  );
+
+  githubToGitSshBranchRef = expectEq "git+ssh://git@github.com/o/r?ref=main" (
+    helpers._githubUrlToGitSsh "github:o/r/main"
+  );
+
+  # 40-hex segments are revs, spelled `?rev=` for the git fetcher — and a bare
+  # `?rev=` only resolves from HEAD, so the rewrite itself adds `allRefs=1`
+  # (genflake's channels/overlays and extraFlakeInputs emit this verbatim).
+  githubToGitSshHexRev = expectEq "git+ssh://git@github.com/o/r?rev=0123456789abcdef0123456789abcdef01234567&allRefs=1" (
+    helpers._githubUrlToGitSsh "github:o/r/0123456789abcdef0123456789abcdef01234567"
+  );
+
+  # The ref land after the query, joined with `&` like every other suffix.
+  githubToGitSshRefJoinsQuery = expectEq "git+ssh://git@github.com/o/r?dir=sub&ref=main" (
+    helpers._githubUrlToGitSsh "github:o/r/main?dir=sub"
+  );
+
+  githubToGitSshQueryKept = expectEq "git+ssh://git@github.com/o/r?dir=sub" (
+    helpers._githubUrlToGitSsh "github:o/r?dir=sub"
+  );
+
+  # Owner-only or non-github urls must pass through untouched (nix would reject
+  # the mangled form, so the helper must not invent structure).
+  githubToGitSshOwnerOnlyPassesThrough = expectEq "github:o" (helpers._githubUrlToGitSsh "github:o");
+
+  githubToGitSshNonGithubPassesThrough = expectEq "git+https://e.com/r.git" (
+    helpers._githubUrlToGitSsh "git+https://e.com/r.git"
+  );
+
+  githubToGitSshPathPassesThrough = expectEq "path:/home/ice/apps" (
+    helpers._githubUrlToGitSsh "path:/home/ice/apps"
+  );
+
+  # `github:` takes `host=` for GitHub Enterprise: ssh must point at THAT server
+  # (github.com would silently fetch the wrong one) and must not carry the param
+  # onward, since the git scheme folds an unknown param into the remote address.
+  githubToGitSshEnterpriseHost = expectEq "git+ssh://git@ghe.example.com/o/r" (
+    helpers._githubUrlToGitSsh "github:o/r?host=ghe.example.com"
+  );
+  githubToGitSshEnterpriseHostKeepsOtherParams = expectEq "git+ssh://git@ghe.example.com/o/r?dir=sub" (
+    helpers._githubUrlToGitSsh "github:o/r?host=ghe.example.com&dir=sub"
+  );
+  githubToGitSshEnterpriseHostWithRef = expectEq "git+ssh://git@ghe.example.com/o/r?ref=refs/heads/main" (
+    helpers._githubUrlToGitSsh "github:o/r/refs/heads/main?host=ghe.example.com"
+  );
+
+  # A ref may arrive as a query param instead of a path segment; it must be
+  # spelled once, by `_gitRefSuffix`, not passed through untouched.
+  githubToGitSshQueryRef = expectEq "git+ssh://git@github.com/o/r?ref=refs/heads/dev" (
+    helpers._githubUrlToGitSsh "github:o/r?ref=refs/heads/dev"
+  );
+  githubToGitSshQueryRefHexBecomesRev = expectEq "git+ssh://git@github.com/o/r?rev=0123456789abcdef0123456789abcdef01234567&allRefs=1" (
+    helpers._githubUrlToGitSsh "github:o/r?rev=0123456789abcdef0123456789abcdef01234567"
+  );
+
+  # --- _revSeparator / F1+F2 ref classification -----------------------------
+  # A full 40-hex rev is `?rev=`, Nix's revRegex accepts any hex case (F2).
+  revSeparatorLowerHex = expectEq "?rev=" (
+    helpers._revSeparator "0123456789abcdef0123456789abcdef01234567"
+  );
+  revSeparatorUpperHex = expectEq "?rev=" (
+    helpers._revSeparator "0123456789ABCDEF0123456789ABCDEF01234567"
+  );
+  # Any other name is `?ref=`; nix expands a bare one to refs/heads/<name>, so
+  # a refs/tags/... ref must stay fully qualified to keep tag semantics.
+  revSeparatorBranch = expectEq "?ref=" (helpers._revSeparator "main");
+  revSeparatorQualifiedTag = expectEq "?ref=" (helpers._revSeparator "refs/tags/v1.2.3");
+
+  # Uppercase 40-hex github refs are revs, not branches (F2).
+  githubToGitSshUpperHexRev = expectEq "git+ssh://git@github.com/o/r?rev=0123456789ABCDEF0123456789ABCDEF01234567&allRefs=1" (
+    helpers._githubUrlToGitSsh "github:o/r/0123456789ABCDEF0123456789ABCDEF01234567"
+  );
+
+  # A named ref is already a resolvable pin: no `allRefs` piled on top.
+  githubToGitSshBranchNoAllRefs = expectOk (
+    !lib.strings.hasInfix "allRefs" (helpers._githubUrlToGitSsh "github:o/r/main")
+  );
+
+  # An `extraFlakes` entry is emitted verbatim, so its rev pin must be reachable.
+  efInputsGitHubViaSshHexRevAllRefs =
+    expectEq
+      [
+        {
+          name = "jovian";
+          value = {
+            url = "git+ssh://git@github.com/o/r?rev=0123456789abcdef0123456789abcdef01234567&allRefs=1";
+          };
+        }
+      ]
+      (
+        (mkIcedos {
+          system.githubViaSsh = true;
+        }).extraFlakeInputs
+          [
+            {
+              name = "jovian";
+              url = "github:o/r/0123456789abcdef0123456789abcdef01234567";
+            }
+          ]
+      );
+
+  # A refs/...-qualified tag passes through the helper unchanged, so the git
+  # fetcher keeps tag (not refs/heads/) semantics (F1/F3).
+  githubToGitSshQualifiedTag = expectEq "git+ssh://git@github.com/o/r?ref=refs/tags/v1.2.3" (
+    helpers._githubUrlToGitSsh "github:o/r/refs/tags/v1.2.3"
+  );
+
+  # --- githubViaSsh on module-input sub-flakes (F3) -------------------------
+  subFlakeSshPlain = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/x/base" miSshBase.text
+    && !lib.strings.hasInfix "github:x/base" miSshBase.text
+  );
+  # Branch/tag name -> `?ref=`; 40-hex rev -> `?rev=` on the ssh base.
+  subFlakeSshRef = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/x/foo?ref=main" miSshRef.text
+  );
+  subFlakeSshRev = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/x/bar?rev=0123456789abcdef0123456789abcdef01234567" miSshRev.text
+  );
+
+  # The nested override moves transport with its parent; leaving it on `github:`
+  # would send a private nested input out over unauthenticated https.
+  subFlakeSshNested = expectOk (
+    lib.strings.hasInfix "git+ssh://git@github.com/private/nixpkgs" miSshNested.text
+    && !lib.strings.hasInfix "github:private/nixpkgs" miSshNested.text
+  );
+
+  # F4: `_modulesToInputs` flag-on emission — rev/narHash/path cases under ssh.
+  miInputsSshBase = expectEq "git+ssh://git@github.com/icedos/hardware" (miInputsSsh {
+    url = "github:icedos/hardware";
+  });
+  miInputsSshBranch = expectEq "git+ssh://git@github.com/x/foo?ref=main" (miInputsSsh {
+    url = "github:x/foo/main";
+  });
+  # An author-written 40-hex ref can sit on any branch, so it falls back to
+  # `allRefs=1`: a bare `?rev=` is only resolvable from HEAD.
+  miInputsSshRevUrl =
+    expectEq "git+ssh://git@github.com/x/bar?rev=0123456789abcdef0123456789abcdef01234567&allRefs=1"
+      (miInputsSsh {
+        url = "github:x/bar/0123456789abcdef0123456789abcdef01234567";
+      });
+  # ...but `_repoInfo.rev` with no author ref is the rev nix just resolved from
+  # this url's default branch, so `HEAD` finds it and `allRefs` would fetch every
+  # branch, tag and refs/pull/* of the repo for nothing.
+  miInputsSshRevAttr =
+    expectEq "git+ssh://git@github.com/x/hw?rev=0123456789abcdef0123456789abcdef01234567"
+      (miInputsSsh {
+        url = "github:x/hw";
+        rev = "0123456789abcdef0123456789abcdef01234567";
+      });
+  # ...but `fetchRef` (config.toml's inline ref, carried out of
+  # `_loadModulesFromRepo`) narrows it to the branch the rev actually lives on.
+  miInputsSshRevWithFetchRef =
+    expectEq "git+ssh://git@github.com/x/hw?rev=0123456789abcdef0123456789abcdef01234567&ref=dev"
+      (miInputsSsh {
+        url = "github:x/hw";
+        fetchRef = "dev";
+        rev = "0123456789abcdef0123456789abcdef01234567";
+      });
+  # A 40-hex `fetchRef` is a rev, not a branch, so it cannot narrow anything.
+  miInputsSshRevWithHexFetchRef =
+    expectEq "git+ssh://git@github.com/x/hw?rev=0123456789abcdef0123456789abcdef01234567&allRefs=1"
+      (miInputsSsh {
+        url = "github:x/hw";
+        fetchRef = "0123456789ABCDEF0123456789ABCDEF01234567";
+        rev = "0123456789abcdef0123456789abcdef01234567";
+      });
+  # Reachability is gated on the switch: a `git+…` url the user wrote themselves
+  # emits exactly as it did before, so nothing re-locks (or starts fetching every
+  # ref) for a feature they never enabled.
+  miInputsPlainGitSchemeNoAllRefs =
+    expectEq "git+https://e.com/r.git?rev=0123456789abcdef0123456789abcdef01234567"
+      (miInputsPlain {
+        url = "git+https://e.com/r.git";
+        rev = "0123456789abcdef0123456789abcdef01234567";
+      });
+  # ...and the switch does not change that: a url it never rewrote must not
+  # start fetching every ref because a DIFFERENT input moved to ssh.
+  miInputsSshGitSchemePassthroughUntouched =
+    expectEq "git+https://e.com/r.git?rev=0123456789abcdef0123456789abcdef01234567"
+      (miInputsSsh {
+        url = "git+https://e.com/r.git";
+        rev = "0123456789abcdef0123456789abcdef01234567";
+      });
+
+  # A git-scheme url has no `narHash` query param — nix folds it into the REMOTE
+  # url and emits something `git ls-remote` cannot resolve. Unpinned beats
+  # unfetchable, so the pin is dropped once the url is git-scheme...
+  miInputsSshNarHash = expectEq "git+ssh://git@github.com/x/hw" (miInputsSsh {
+    url = "github:x/hw";
+    narHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  });
+  # ...including a `git+` url the user wrote themselves, where the same nix
+  # behaviour applies with the switch off.
+  miInputsPlainGitSchemeNarHashDropped = expectEq "git+https://e.com/r.git" (miInputsPlain {
+    url = "git+https://e.com/r.git";
+    narHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  });
+  # A `github:` url does carry a real `narHash` attribute, so that pin stays.
+  miInputsPlainNarHashKept =
+    expectEq "github:x/hw?narHash=sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      (miInputsPlain {
+        url = "github:x/hw";
+        narHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      });
+  miInputsSshPathPassthrough = expectEq "path:/nix/store/abc" (miInputsSsh {
+    url = "path:/nix/store/abc";
+    narHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  });
+  # _ambigRef: only a `refs/...`-qualified ref or a full 40-hex rev is
+  # unambiguous over ssh; everything else silently becomes refs/heads/<ref>.
+  ambigRefSilent = expectOk (
+    !helpers._ambigRef "refs/tags/v1.2.3"
+    && !helpers._ambigRef "refs/heads/main"
+    && !helpers._ambigRef "0123456789abcdef0123456789abcdef01234567"
+    && !helpers._ambigRef "0123456789ABCDEF0123456789ABCDEF01234567"
+  );
+  # Tags whose names are not semver-shaped are the case the old heuristic
+  # missed, so they must warn alongside the semver-ish and hexish ones.
+  ambigRefWarns = expectOk (
+    helpers._ambigRef "v1.2.3"
+    && helpers._ambigRef "abc1234"
+    && helpers._ambigRef "24.11"
+    && helpers._ambigRef "stable-24.05"
+    && helpers._ambigRef "release"
+    && helpers._ambigRef "main"
+  );
+
+  # A lock node with only a narHash on a git-scheme url yields NO pin: nix folds
+  # an unknown query param into the remote url, so `?narHash=` would be
+  # unfetchable. The `github:` spelling keeps its pin.
+  revFromLockNarHashGitSchemeDropped = expectEq "" (
+    helpers._getRevisionFromLock {
+      repoName = "apps";
+      url = "git+ssh://git@github.com/icedos/apps";
+      lock = mockLock { type = "git"; } { narHash = "sha256-x"; };
+    }
+  );
+  revFromLockNarHashGithubKept = expectEq "?narHash=sha256-x" (
+    helpers._getRevisionFromLock {
+      repoName = "apps";
+      url = "github:icedos/apps";
+      lock = mockLock { type = "github"; } { narHash = "sha256-x"; };
+    }
+  );
+
+  # --- _gitRefSuffix (the one place a ref is spelled onto a git url) --------
+  gitRefSuffixHexIsRev = expectEq "?rev=0123456789abcdef0123456789abcdef01234567" (
+    helpers._gitRefSuffix { ref = "0123456789abcdef0123456789abcdef01234567"; }
+  );
+  gitRefSuffixNameIsRef = expectEq "?ref=main" (helpers._gitRefSuffix { ref = "main"; });
+  gitRefSuffixQualifiedTag = expectEq "?ref=refs/tags/v1.2.3" (
+    helpers._gitRefSuffix { ref = "refs/tags/v1.2.3"; }
+  );
+
+  # --- _urlHasParam / _withRevReachable (bare `?rev=` reachability) ---------
+  urlHasParamNoQuery = expectOk (!helpers._urlHasParam "rev" "github:o/r");
+  urlHasParamFirst = expectOk (helpers._urlHasParam "rev" "git+ssh://h/r?rev=abc&dir=x");
+  urlHasParamLater = expectOk (helpers._urlHasParam "ref" "git+ssh://h/r?dir=x&ref=main");
+  # Prefix match only: `refs=` is not `ref=`, and `dir=` is not `rev=`.
+  urlHasParamNotASubstring = expectOk (!helpers._urlHasParam "ref" "git+ssh://h/r?refs=main");
+
+  # Non-git schemes spell revs as a path segment and are unaffected.
+  withRevReachableGithubUntouched = expectEq "github:o/r/deadbeef" (
+    helpers._withRevReachable {
+      url = "github:o/r/deadbeef";
+      ref = "main";
+    }
+  );
+  # No rev pin -> nothing to reach.
+  withRevReachableNoRev = expectEq "git+ssh://git@github.com/o/r?ref=main" (
+    helpers._withRevReachable { url = "git+ssh://git@github.com/o/r?ref=main"; }
+  );
+  # A rev with a known branch resolves against that branch...
+  withRevReachableAddsRef = expectEq "git+ssh://git@github.com/o/r?rev=abc&ref=dev" (
+    helpers._withRevReachable {
+      url = "git+ssh://git@github.com/o/r?rev=abc";
+      ref = "dev";
+    }
+  );
+  # ...and with none, `allRefs=1` is the only way nix can find a rev whose
+  # provenance is unknown.
+  withRevReachableFallsBackToAllRefs = expectEq "git+ssh://git@github.com/o/r?rev=abc&allRefs=1" (
+    helpers._withRevReachable {
+      url = "git+ssh://git@github.com/o/r?rev=abc";
+      allRefsFallback = true;
+    }
+  );
+  # Without that flag the rev is one nix resolved from this very url, so it is
+  # reachable from HEAD and must stay a cheap single-branch fetch.
+  withRevReachableNoFallbackStaysBare = expectEq "git+ssh://git@github.com/o/r?rev=abc" (
+    helpers._withRevReachable { url = "git+ssh://git@github.com/o/r?rev=abc"; }
+  );
+  # A known branch beats the fallback: narrow, never all-refs.
+  withRevReachableRefBeatsAllRefs = expectEq "git+ssh://git@github.com/o/r?rev=abc&ref=dev" (
+    helpers._withRevReachable {
+      url = "git+ssh://git@github.com/o/r?rev=abc";
+      ref = "dev";
+      allRefsFallback = true;
+    }
+  );
+  # An explicit ref/allRefs already resolves: never add a second one.
+  withRevReachableRefAlreadyPresent = expectEq "git+ssh://git@github.com/o/r?rev=abc&ref=dev" (
+    helpers._withRevReachable {
+      url = "git+ssh://git@github.com/o/r?rev=abc&ref=dev";
+      ref = "other";
+    }
+  );
+  withRevReachableAllRefsAlreadyPresent = expectEq "git+ssh://git@github.com/o/r?rev=abc&allRefs=1" (
+    helpers._withRevReachable { url = "git+ssh://git@github.com/o/r?rev=abc&allRefs=1"; }
+  );
+
+  # The quiet variant rewrites identically; only the warning is suppressed, so
+  # IceDOS' own default nixpkgs channel does not nag about a ref nobody wrote.
+  githubToGitSshQuietMatchesLoud = expectOk (
+    helpers._githubUrlToGitSshQuiet "github:nixos/nixpkgs/nixos-unstable"
+    == helpers._githubUrlToGitSsh "github:nixos/nixpkgs/nixos-unstable"
+  );
+
+  # --- _mapInputUrls (own url + nested `inputs.<j>.url` overrides) ----------
+  mapInputUrlsTopLevel = expectEq { url = "git+ssh://git@github.com/o/r"; } (
+    helpers._mapInputUrls helpers._githubUrlToGitSsh { url = "github:o/r"; }
+  );
+  # The nested override is a real fetch, so it must move transport too.
+  mapInputUrlsNested =
+    expectEq
+      {
+        url = "git+ssh://git@github.com/o/r";
+        inputs = {
+          nixpkgs = {
+            url = "git+ssh://git@github.com/private/nixpkgs";
+          };
+        };
+      }
+      (
+        helpers._mapInputUrls helpers._githubUrlToGitSsh {
+          url = "github:o/r";
+          inputs = {
+            nixpkgs = {
+              url = "github:private/nixpkgs";
+            };
+          };
+        }
+      );
+  # A follows-only entry has no url and must survive untouched.
+  mapInputUrlsFollowsUntouched =
+    expectEq
+      {
+        url = "git+ssh://git@github.com/o/r";
+        inputs = {
+          nixpkgs = {
+            follows = "nixpkgs";
+          };
+        };
+      }
+      (
+        helpers._mapInputUrls helpers._githubUrlToGitSsh {
+          url = "github:o/r";
+          inputs = {
+            nixpkgs = {
+              follows = "nixpkgs";
+            };
+          };
+        }
+      );
+  # Other keys are carried through, and a non-github url passes unchanged.
+  mapInputUrlsKeepsOtherKeys =
+    expectEq
+      {
+        url = "u";
+        flake = false;
+      }
+      (
+        helpers._mapInputUrls helpers._githubUrlToGitSsh {
+          url = "u";
+          flake = false;
+        }
+      );
+
+  # --- _canonicalRepoUrl (transport-agnostic repo identity) -----------------
+  # Both spellings of the same repo collapse to one host-qualified key.
+  canonicalRepoUrlSsh = expectEq "repo:github.com/o/r" (
+    helpers._canonicalRepoUrl "git+ssh://git@github.com/o/r"
+  );
+  canonicalRepoUrlSshDotGit = expectEq "repo:github.com/o/r" (
+    helpers._canonicalRepoUrl "git+ssh://git@github.com/o/r.git"
+  );
+  canonicalRepoUrlPassesThrough = expectEq "repo:github.com/o/r" (
+    helpers._canonicalRepoUrl "github:o/r"
+  );
+  # Remaining params are kept (a `?dir=` subflake is a different input) but
+  # sorted, since the two spellings need not order them the same way.
+  canonicalRepoUrlKeepsTail = expectEq "repo:github.com/o/r?dir=sub" (
+    helpers._canonicalRepoUrl "git+ssh://git@github.com/o/r?dir=sub"
+  );
+  # `host=` is part of the identity, not a leftover param: a GitHub Enterprise
+  # repo must match its own ssh spelling and NOT the github.com one.
+  canonicalRepoUrlEnterpriseGithub = expectEq "repo:ghe.example.com/o/r" (
+    helpers._canonicalRepoUrl "github:o/r?host=ghe.example.com"
+  );
+  canonicalRepoUrlEnterpriseSsh = expectEq "repo:ghe.example.com/o/r" (
+    helpers._canonicalRepoUrl "git+ssh://git@ghe.example.com/o/r"
+  );
+  canonicalRepoUrlEnterpriseParamOrderAgnostic = expectOk (
+    helpers._canonicalRepoUrl "github:o/r?host=ghe.example.com&dir=sub"
+    == helpers._canonicalRepoUrl "git+ssh://git@ghe.example.com/o/r?dir=sub"
+  );
+  canonicalRepoUrlNonForgePassesThrough = expectEq "git+https://e.com/r.git" (
+    helpers._canonicalRepoUrl "git+https://e.com/r.git"
+  );
+  # Identity is WHICH repo, not which revision of it: nix hoists ref/rev/allRefs
+  # out of the url into separate `original` fields, so keeping them in the key
+  # would compare against an `original` that no longer spells them.
+  canonicalRepoUrlIgnoresPinParams = expectEq "repo:github.com/o/r" (
+    helpers._canonicalRepoUrl "git+ssh://git@github.com/o/r?rev=abc&ref=dev&allRefs=1"
+  );
+  # ...but `?dir=` names a different input and must stay part of the identity.
+  canonicalRepoUrlKeepsDir = expectEq "repo:github.com/o/r?dir=sub" (
+    helpers._canonicalRepoUrl "git+ssh://git@github.com/o/r?dir=sub&rev=abc"
+  );
+
+  # A `?dir=` input keeps its pin: nix hoists `dir` into `original`, so the lock
+  # side has to put it back or the pin is lost on every rebuild.
+  revLockedDirSubflakeKeepsPin = expectEq "?rev=abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps?dir=sub";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            dir = "sub";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+  # A different subdirectory is a different input.
+  revLockedDirMismatchDropsPin = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps?dir=other";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            dir = "sub";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+
+  # --- _urlRef (a ref may be a path segment or a query param) ---------------
+  urlRefPathSegment = expectEq "main" (helpers._urlRef "github:o/r/main");
+  urlRefQueryParam = expectEq "dev" (helpers._urlRef "github:o/r?ref=dev");
+  urlRefQualified = expectEq "refs/tags/v1.2.3" (helpers._urlRef "github:o/r/refs/tags/v1.2.3");
+  urlRefNone = expectEq null (helpers._urlRef "github:o/r?dir=sub");
+
+  # --- _lockRefConfirmedLocked ---------------------------------------------
+  # Only a lock that RECORDS the ref can vouch that the rev came from it.
+  lockRefConfirmedWhenRecorded = expectOk (
+    helpers._lockRefConfirmedLocked {
+      nodeKey = "apps";
+      ref = "dev";
+      lock = mockLock { ref = "dev"; } { rev = "abc"; };
+    }
+  );
+  # Our own rev-pinned emission records no ref, so it confirms nothing — the
+  # config's current ref may have been edited since.
+  lockRefUnconfirmedWhenRevPinned = expectOk (
+    !helpers._lockRefConfirmedLocked {
+      nodeKey = "apps";
+      ref = "dev";
+      lock = mockLock { rev = "abc"; } { rev = "abc"; };
+    }
+  );
+  lockRefUnconfirmedWhenChanged = expectOk (
+    !helpers._lockRefConfirmedLocked {
+      nodeKey = "apps";
+      ref = "main";
+      lock = mockLock { ref = "dev"; } { rev = "abc"; };
+    }
+  );
+
+  # A GitHub Enterprise repo must keep its pin across a transport flip, exactly
+  # like a github.com one — the ssh rewrite honours `host=`, so the identity has
+  # to as well or `--no-github-ssh` silently re-resolves it to the branch tip.
+  revLockedEnterpriseFlipKeepsPin = expectEq "/abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps?host=ghe.example.com";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "git";
+            url = "ssh://git@ghe.example.com/icedos/apps";
+            rev = "abc";
+          }
+          {
+            type = "git";
+            url = "ssh://git@ghe.example.com/icedos/apps";
+            rev = "abc";
+          };
+    }
+  );
+  # ...and a DIFFERENT host must still be a different repo.
+  revLockedEnterpriseWrongHostDropsPin = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps?host=ghe.example.com";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+
+  # Flipping githubViaSsh must NOT drop the pin: the rev is the same, only the
+  # transport changed, so a plain rebuild would otherwise re-resolve the tip.
+  revLockedGithubNodeMatchesSshUrl = expectEq "?rev=abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+  # ...and the same on the way back, where the lock holds the ssh spelling.
+  revLockedSshNodeMatchesGithubUrl = expectEq "/abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "git";
+            url = "ssh://git@github.com/icedos/apps";
+          }
+          {
+            type = "git";
+            url = "ssh://git@github.com/icedos/apps";
+            rev = "abc";
+          };
+    }
+  );
+  # An inline-ref edit must drop the pin: the lock's rev was resolved from the
+  # OLD ref, and pairing it with the new one emits a `?rev=` the git fetcher
+  # cannot reach ("Cannot find Git revision ... in ref 'HEAD'"). Dropping it lets
+  # nix re-resolve, which is what the `github:` transport effectively did.
+  revLockedRefRemovedDropsPin = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps";
+      nodeKey = "apps";
+      ref = null;
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            ref = "dev";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+  revLockedRefChangedDropsPin = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps";
+      nodeKey = "apps";
+      ref = "main";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            ref = "dev";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+  # ...and an unchanged ref keeps it, so the common case still avoids a re-fetch.
+  revLockedRefUnchangedKeepsPin = expectEq "?rev=abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps";
+      nodeKey = "apps";
+      ref = "dev";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            ref = "dev";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+  # A ref newly ADDED to a previously ref-less entry drops it too — that lock
+  # node is not a rev-pinned emission (no `rev` in `original`), so its missing
+  # ref really does mean "the config had none".
+  revLockedRefAddedDropsPin = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      ref = "dev";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+
+  # ...but IceDOS' OWN rev-pinned emission records `rev` and no `ref`, and that
+  # absence must NOT read as "the ref changed": doing so unpins, re-resolves the
+  # branch tip, re-pins, and unpins again on alternating rebuilds.
+  revLockedRevPinnedOriginalKeepsPin = expectEq "/abc" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "github:icedos/apps";
+      nodeKey = "apps";
+      ref = "dev";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
+  );
+  # The git-scheme spelling keeps ref AND rev, so an edit is still caught.
+  revLockedGitSchemeRefChangedDropsPin = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/apps";
+      nodeKey = "apps";
+      ref = "main";
+      lock =
+        mockLock
+          {
+            type = "git";
+            url = "ssh://git@github.com/icedos/apps";
+            ref = "dev";
+            rev = "abc";
+          }
+          {
+            type = "git";
+            url = "ssh://git@github.com/icedos/apps";
+            rev = "abc";
+          };
+    }
+  );
+
+  # A genuinely different repo must still drop the pin.
+  revLockedSshNodeRejectsOtherRepo = expectEq "" (
+    helpers._resolveFlakeRevisionLocked {
+      url = "git+ssh://git@github.com/icedos/other";
+      nodeKey = "apps";
+      lock =
+        mockLock
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+          }
+          {
+            type = "github";
+            owner = "icedos";
+            repo = "apps";
+            rev = "abc";
+            narHash = "h0";
+          };
+    }
   );
 }

@@ -243,6 +243,18 @@ in
         # per-run overrides: --github-token-path or ICEDOS_GITHUB_TOKEN_PATH.
         githubTokenPath = mkStrOption { default = icedosLib.GITHUB_TOKEN_PATH; };
 
+        # Opt-in: emit `github:` input urls as `git+ssh://` so the ssh key (not
+        # the token) authenticates fetches. Per-run override: --github-ssh /
+        # --no-github-ssh.
+        #
+        # Resolved from the RAW config (config.toml) plus those flags, before
+        # the module system runs — the urls it controls are written by genflake.
+        # Setting it from a NixOS module therefore changes nothing: genflake
+        # re-applies the resolved value at a priority above `mkForce`, so the
+        # evaluated option never disagrees with the urls actually emitted, and a
+        # module definition loses quietly rather than erroring.
+        githubViaSsh = mkBoolOption { default = false; };
+
         # Framework-owned; baked by genflake (users get `forceFirstBuild`). No
         # default: readOnly rejects a second definition.
         isFirstBuild = mkBoolOption {

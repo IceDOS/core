@@ -39,10 +39,13 @@ let
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STATE_DIR
+    _githubUrlToGitSsh
+    _githubUrlToGitSshQuiet
     _loadModulesFromRepo
     _parseFlakeUrl
     _repoSelected
     _selectedRepos
+    githubViaSsh
     injectIfExists
     mkInputName
     modulesFromConfig
@@ -148,7 +151,10 @@ let
       ];
     };
 
-    value = { inherit (e) url; };
+    value = {
+      # Transport switch: overlay names stay keyed to the original url.
+      url = if githubViaSsh then _githubUrlToGitSsh e.url else e.url;
+    };
   }) (filter isOverlayUrlMode overlayChannels);
 
   # extraFlake names become root inputs, so a collision with a channel, overlay,
@@ -190,7 +196,22 @@ let
     name = "nixpkgs";
 
     value = {
-      url = icedos.system.nixpkgsChannel or "github:nixos/nixpkgs/nixos-unstable";
+      url =
+        let
+          default = "github:nixos/nixpkgs/nixos-unstable";
+          channel = icedos.system.nixpkgsChannel or default;
+        in
+        if !githubViaSsh then
+          channel
+        # IceDOS' own default is a branch the user never wrote, so nagging them
+        # to qualify it is noise. The test is on the VALUE, so a config that
+        # spells the default out is exempt too — it names the same known-good
+        # branch, and the emitted url is identical either way. Any other channel
+        # still gets the warning.
+        else if channel == default then
+          _githubUrlToGitSshQuiet channel
+        else
+          _githubUrlToGitSsh channel;
     };
   };
 
@@ -198,7 +219,11 @@ let
     name = "home-manager";
 
     value = {
-      url = "github:nix-community/home-manager";
+      url =
+        if githubViaSsh then
+          _githubUrlToGitSsh "github:nix-community/home-manager"
+        else
+          "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -212,7 +237,9 @@ let
     extraModulesInputs
     ++ (map (c: {
       inherit (c) name;
-      value = { inherit (c) url; };
+      value = {
+        url = if githubViaSsh then _githubUrlToGitSsh c.url else c.url;
+      };
     }) channels)
     ++ overlayInputs
     ++ [
@@ -248,6 +275,13 @@ let
       })
       # No default (readOnly), so `toJSON evaluated` would throw without this.
       { icedos.system.isFirstBuild = isFirstBuild; }
+
+      # `--github-ssh`/`--no-github-ssh` override the option, so re-apply the
+      # resolved value: a module (or `icedos config get`) reading this must not
+      # see `false` while every emitted url is `git+ssh://`. Priority 10 beats
+      # even a user's `mkForce` (50), so a module-set value is the documented
+      # no-op instead of an opaque "conflicting definition values".
+      { icedos.system.githubViaSsh = lib.mkOverride 10 githubViaSsh; }
 
       # Computed from the RAW config, so injecting it here cannot recurse.
       {
@@ -477,6 +511,10 @@ assert githubTokenStoreWarning;
             inherit lib pkgs inputs;
             config = icedos;
             enableLogging = ${boolToString icedosLib.ENABLE_LOGGING};
+            # Baked, not re-read from the env: ICEDOS_GITHUB_SSH does not reach
+            # the build stage's pure eval, and a disagreement there would mean
+            # evaluating urls that differ from the ones emitted below.
+            githubViaSsh = ${boolToString githubViaSsh};
             self = toString inputs.icedos-core;
           };
 
@@ -592,6 +630,7 @@ assert githubTokenStoreWarning;
               ) overlayChannels}
 
               { icedos.system.isFirstBuild = ${boolToString isFirstBuild}; }
+              ({ lib, ... }: { icedos.system.githubViaSsh = lib.mkOverride 10 ${boolToString githubViaSsh}; })
 
               ${concatStringsSep "\n" (map (text: "(${text})") nixosModulesText)}
 
