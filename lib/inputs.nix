@@ -237,7 +237,24 @@ rec {
   # "-<name>" suffixed one. The optional `repo` guard ("scheme:owner/repo") only
   # exists in the newer { rev; repo; } format and must equal the url's host repo;
   # older string entries pin on the name alone.
-  _cacheRevLookup =
+  # `{ rev; repo; }` view of a tracked-inputs.json entry (string or attrset).
+  _cacheEntryOf =
+    value:
+    if builtins.isString value then
+      {
+        rev = value;
+        repo = "";
+      }
+    else
+      {
+        rev = value.rev or "";
+        repo = value.repo or "";
+      };
+
+  # The tracked key this input matches: exact, else a lone "-<name>" suffix
+  # guarded by the url's repo; "" when none or ambiguous. _cacheRevLookup and
+  # the declared-ref export (_cachePin's tracked-ref map) share this matching.
+  _cacheTrackedKey =
     {
       name,
       url,
@@ -253,19 +270,6 @@ rec {
         match
         ;
 
-      _entryOf =
-        value:
-        if builtins.isString value then
-          {
-            rev = value;
-            repo = "";
-          }
-        else
-          {
-            rev = value.rev or "";
-            repo = value.repo or "";
-          };
-
       keys = filter (k: k == name || lib.hasSuffix "-${name}" k) (attrNames revs);
 
       # "scheme:owner/repo" of `url`, "" when it is not a github/gitlab/sourcehut url.
@@ -277,11 +281,11 @@ rec {
 
       # `{ rev; repo; }` entries name their own repo, so one naming this url is
       # unambiguous even when several keys share the "-<name>" suffix.
-      repoMatched = filter (k: urlRepo != "" && (_entryOf revs.${k}).repo == urlRepo) keys;
+      repoMatched = filter (k: urlRepo != "" && (_cacheEntryOf revs.${k}).repo == urlRepo) keys;
 
       # Several entries may claim the same repo (a publish-side mistake). That is
       # only unambiguous while they agree on the rev.
-      repoMatchedRevs = lib.unique (map (k: (_entryOf revs.${k}).rev) repoMatched);
+      repoMatchedRevs = lib.unique (map (k: (_cacheEntryOf revs.${k}).rev) repoMatched);
 
       # Exact key wins, then a repo-guarded match, then a lone string suffix;
       # the rest is ambiguous (same leaf in different repos), so refuse.
@@ -296,15 +300,42 @@ rec {
           head keys
         else
           null;
+    in
+    if key == null then "" else key;
+
+  # A remembered custom pin wins while the cache still tracks the input and
+  # its rev differs; otherwise the cache rev (or no pin) applies.
+  _cachePinRev =
+    { rev, savedRev }:
+    if rev != "" && savedRev != "" && savedRev != rev then savedRev else rev;
+
+  _cacheRevLookup =
+    {
+      name,
+      url,
+      revs,
+    }:
+    let
+      inherit (builtins) elemAt match;
+
+      urlRepo =
+        let
+          m = match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)(.*)" url;
+        in
+        if m == null then "" else "${elemAt m 0}:${elemAt m 1}/${elemAt m 2}";
+
+      key = _cacheTrackedKey {
+        inherit name url revs;
+      };
 
       entry =
-        if key == null then
+        if key == "" then
           {
             rev = "";
             repo = "";
           }
         else
-          _entryOf revs.${key};
+          _cacheEntryOf revs.${key};
     in
     if entry.rev == "" || (entry.repo != "" && entry.repo != urlRepo) then "" else entry.rev;
 
@@ -346,16 +377,37 @@ rec {
     url:
     let
       match = builtins.match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)/([^?]+)(.*)" url;
+      # `?ref=` spelling, possibly among other query params. Folding it into
+      # `ref` (and out of the query) means a later baked rev REPLACES the branch
+      # instead of stacking with it — nix rejects both at once.
+      qref = builtins.match "(github|gitlab|sourcehut):([^/?]+)/([^/?]+)[?]([^#]*)" url;
     in
-    if match == null then
-      {
-        baseUrl = url;
-        ref = null;
-      }
-    else
+    if match != null then
       {
         baseUrl = "${builtins.elemAt match 0}:${builtins.elemAt match 1}/${builtins.elemAt match 2}${builtins.elemAt match 4}";
         ref = builtins.elemAt match 3;
+      }
+    else if qref != null then
+      let
+        params = builtins.filter builtins.isString (builtins.split "&" (builtins.elemAt qref 3));
+        refParams = builtins.filter (p: builtins.match "ref=.+" p != null) params;
+        rest = builtins.filter (p: builtins.match "ref=.+" p == null) params;
+        kept = concatStringsSep "&" rest;
+      in
+      {
+        baseUrl = "${builtins.elemAt qref 0}:${builtins.elemAt qref 1}/${builtins.elemAt qref 2}${
+          lib.optionalString (kept != "") "?${kept}"
+        }";
+        ref =
+          if refParams == [ ] then
+            null
+          else
+            builtins.head (builtins.match "ref=(.*)" (builtins.head refParams));
+      }
+    else
+      {
+        baseUrl = url;
+        ref = null;
       };
 
   # Generate a unique key for a module (url/name combination).

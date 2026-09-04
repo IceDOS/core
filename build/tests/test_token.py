@@ -12,10 +12,6 @@ from build import main as build_main
 from build.options import Options
 
 
-def _opts(**kwargs) -> Options:
-    return Options(**kwargs)
-
-
 @contextlib.contextmanager
 def _env(**values: str | None):
     # None removes the variable; everything else is set for the block.
@@ -31,15 +27,15 @@ class TokenFilePathTest(unittest.TestCase):
     def test_flag_beats_env_beats_default(self):
         with _env(ICEDOS_GITHUB_TOKEN_PATH="/from/env"):
             self.assertEqual(
-                build_main._token_file_path(_opts(github_token_path="/from/flag")),
+                build_main._token_file_path(Options(github_token_path="/from/flag")),
                 Path("/from/flag"),
             )
             self.assertEqual(
-                build_main._token_file_path(_opts()), Path("/from/env")
+                build_main._token_file_path(Options()), Path("/from/env")
             )
         with _env(ICEDOS_GITHUB_TOKEN_PATH=None):
             self.assertEqual(
-                build_main._token_file_path(_opts()),
+                build_main._token_file_path(Options()),
                 Path(build_main.DEFAULT_TOKEN_PATH),
             )
 
@@ -53,7 +49,7 @@ class ResolveTokenTest(unittest.TestCase):
                 ICEDOS_GITHUB_TOKEN="from-env", ICEDOS_GITHUB_TOKEN_PATH=str(path)
             ):
                 self.assertEqual(
-                    build_main._resolve_token(_opts(github_token="from-flag")),
+                    build_main._resolve_token(Options(github_token="from-flag")),
                     "from-flag",
                 )
 
@@ -64,14 +60,14 @@ class ResolveTokenTest(unittest.TestCase):
             with _env(
                 ICEDOS_GITHUB_TOKEN="from-env", ICEDOS_GITHUB_TOKEN_PATH=str(path)
             ):
-                self.assertEqual(build_main._resolve_token(_opts()), "from-env")
+                self.assertEqual(build_main._resolve_token(Options()), "from-env")
 
     def test_falls_through_to_the_file(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "token"
             _ = path.write_text("from-file\n")
             with _env(ICEDOS_GITHUB_TOKEN=None, ICEDOS_GITHUB_TOKEN_PATH=str(path)):
-                self.assertEqual(build_main._resolve_token(_opts()), "from-file")
+                self.assertEqual(build_main._resolve_token(Options()), "from-file")
 
     def test_blank_literals_do_not_shadow_the_file(self):
         with tempfile.TemporaryDirectory() as d:
@@ -79,7 +75,7 @@ class ResolveTokenTest(unittest.TestCase):
             _ = path.write_text("from-file\n")
             with _env(ICEDOS_GITHUB_TOKEN="   ", ICEDOS_GITHUB_TOKEN_PATH=str(path)):
                 self.assertEqual(
-                    build_main._resolve_token(_opts(github_token="  ")), "from-file"
+                    build_main._resolve_token(Options(github_token="  ")), "from-file"
                 )
 
 
@@ -142,11 +138,11 @@ class ReadTokenFileTest(unittest.TestCase):
 class NixConfigTest(unittest.TestCase):
     def test_base_config_only_without_a_token(self):
         with _env(ICEDOS_GITHUB_TOKEN=None, ICEDOS_GITHUB_TOKEN_PATH="/nonexistent"):
-            self.assertEqual(build_main._nix_config(_opts()), build_main.BASE_NIX_CONFIG)
+            self.assertEqual(build_main._nix_config(Options()), build_main.BASE_NIX_CONFIG)
 
     # NIX_CONFIG is nix.conf content, so the token has to land on its own line.
     def test_token_is_appended_on_its_own_line(self):
-        config = build_main._nix_config(_opts(github_token="tok"))
+        config = build_main._nix_config(Options(github_token="tok"))
         self.assertEqual(
             config.splitlines(),
             [build_main.BASE_NIX_CONFIG, "access-tokens = github.com=tok"],
@@ -154,4 +150,4 @@ class NixConfigTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

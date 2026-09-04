@@ -18,6 +18,8 @@ class Options:
     update_repos_inputs: bool = False
     state_inputs: list[str] = field(default_factory=list)
     repos_select: list[str] = field(default_factory=list)
+    unpin_inputs: list[str] = field(default_factory=list)
+    unpin_all: bool = False
     github_token: str | None = None
     github_token_path: str | None = None
     nh_build_args: list[str] = field(default_factory=list)
@@ -37,6 +39,10 @@ error: --update-repos-select requires a space-separated list of repo urls
 _ERR_STATE_INPUTS = """\
 error: --update-state-inputs requires a space-separated list of input names
   usage: --update-state-inputs "nixpkgs home-manager\""""
+
+_ERR_UNPIN_INPUTS = """\
+error: --unpin-inputs requires a space-separated list of tracked input names
+  usage: --unpin-inputs "plasmazones jovian\""""
 
 
 def _die(message: str) -> NoReturn:
@@ -110,6 +116,14 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
                 _die(_ERR_STATE_INPUTS)
             opts.state_inputs.extend(_take_list(arg, argv[i + 1]))
             i += 2
+        elif arg == "--unpin-inputs":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                _die(_ERR_UNPIN_INPUTS)
+            opts.unpin_inputs.extend(_take_list(arg, argv[i + 1]))
+            i += 2
+        elif arg == "--unpin-inputs-all":
+            opts.unpin_all = True
+            i += 1
         elif arg == "--ask":
             opts.nh_build_args.append("-a")
             i += 1
@@ -146,5 +160,8 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
             i += 1
         else:
             _die(f"Unknown arg: {arg}")
+
+    if opts.unpin_all and opts.unpin_inputs:
+        _die("error: --unpin-inputs-all cannot be combined with --unpin-inputs")
 
     return opts, previous_arguments

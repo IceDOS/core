@@ -8,7 +8,7 @@ from .context import BuildEnv
 from .util import JSON, capture, run, write_json, write_text
 
 
-def _nix_eval_json(env: BuildEnv, apply: str, trace: list[str]) -> str:
+def nix_eval_json(env: BuildEnv, apply: str, trace: list[str]) -> str:
     cmd = [
         "nix",
         "eval",
@@ -27,7 +27,7 @@ def export_search_index(env: BuildEnv, trace: list[str]) -> None:
     cache = env.state_dir / ".cache"
     _ = cache.mkdir(parents=True, exist_ok=True)
 
-    search_docs = _nix_eval_json(
+    search_docs = nix_eval_json(
         env, "g: { inherit (g) optionsDoc modulesDoc; }", trace
     )
     docs = cast("dict[str, JSON]", json.loads(search_docs))
@@ -42,7 +42,7 @@ def export_search_index(env: BuildEnv, trace: list[str]) -> None:
             write_json(cache / filename, value)
         run(["jsonfmt", str(cache / filename), "-w"], check=True)
 
-    user_config = _nix_eval_json(env, "g: g.userConfigRaw", trace)
+    user_config = nix_eval_json(env, "g: g.userConfigRaw", trace)
     write_json(cache / "config.json", cast(JSON, json.loads(user_config)))
     run(["jsonfmt", str(cache / "config.json"), "-w"], check=True)
 

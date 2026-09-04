@@ -199,7 +199,8 @@ in
 
           # Pin tracked leaf inputs to the revs cache-server last built (its
           # `tracked-inputs.json`), so rebuilds consume cached closures instead of
-          # resolving fresh upstream revs. Needs one built cycle before it can pin.
+          # resolving fresh upstream revs. Needs one built cycle before it can
+          # pin; the pin machinery also requires `enable`.
           pinInputs = mkBoolOption { default = false; };
 
           priority = mkNumberOption { default = 100; };

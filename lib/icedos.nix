@@ -44,6 +44,11 @@ let
       }) repositories
     );
 
+    # The whole pin machinery (cache revs + remembered custom pins) requires
+    # the cache itself to be enabled, not just the pinInputs opt-in.
+    _cachePinsActive =
+      (config.system.cache.enable or false) && (config.system.cache.pinInputs or false);
+
     # cache-server's published tracked-inputs.json (name -> rev | { rev; repo; }).
     # Resolved through the state lock chain root -> icedos-config -> icedos ->
     # cache-server, so it matches the tree the build evaluates. Genflake-only: the
@@ -78,7 +83,7 @@ let
           // lib.optionalAttrs (locked ? host) { inherit (locked) host; }
         );
       in
-      if (icedosLib.ICEDOS_STAGE != "genflake") || !(config.system.cache.pinInputs or false) then
+      if (icedosLib.ICEDOS_STAGE != "genflake") || !_cachePinsActive then
         { }
       # First build: no state lock to resolve the channel through. Documented to
       # self-heal on the next run, so it stays quiet.
@@ -100,6 +105,19 @@ let
         builtins.fromJSON (builtins.readFile "${tree}/tracked-inputs.json")
       else
         { };
+
+    # Remembered custom pins from --unpin-inputs (.state/unpinned-inputs.json,
+    # name -> { rev; repo; }); genflake-only, baked in place of the cache pin.
+    _unpinnedRevs =
+      let
+        file = "${icedosLib.ICEDOS_STATE_DIR}/unpinned-inputs.json";
+      in
+      if (icedosLib.ICEDOS_STAGE != "genflake") || !_cachePinsActive then
+        { }
+      else if !(pathExists file) then
+        { }
+      else
+        builtins.fromJSON (builtins.readFile file);
 
     # Patch a flake source into a realised, context-free store path usable as a
     # locked `path:` input (readDir realises it; --raw genflake forbids context).
@@ -410,20 +428,27 @@ let
                 inputName = "${i}_source";
               };
 
-              # Bare rev cache-server last built for this leaf input, "" when
-              # untracked or not a forge url (git-scheme revs are out of scope).
+              # Pin for this leaf input, "" when untracked/non-forge; a
+              # remembered custom pin wins while the cache is tracking it and
+              # differs from its rev.
+              _trackedUrl = inputs.${i}.url or "";
+
               _cachePin =
                 let
-                  url = inputs.${i}.url or "";
+                  url = _trackedUrl;
                   rev = icedosLib._cacheRevLookup {
                     inherit url;
                     name = i;
                     revs = _cacheTrackedRevs;
                   };
+                  savedRev = icedosLib._cacheRevLookup {
+                    inherit url;
+                    name = i;
+                    revs = _unpinnedRevs;
+                  };
                 in
                 if
-                  rev == ""
-                  || !(builtins.elem (head (lib.splitString ":" url)) [
+                  !(builtins.elem (head (lib.splitString ":" url)) [
                     "github"
                     "gitlab"
                     "sourcehut"
@@ -431,7 +456,7 @@ let
                 then
                   ""
                 else
-                  rev;
+                  icedosLib._cachePinRev { inherit rev savedRev; };
 
               # Lock rev wins, then the cache pin, then the author's ref; only the
               # lock hands back a pre-formed suffix, the other two are bare revs.
@@ -508,12 +533,31 @@ let
                     else
                       [ i ]
                   );
+              # The input's tracked key (same matching _cacheRevLookup uses)
+              # mapped to the author's declared url ref, so --unpin-inputs can
+              # re-pin the declared branch instead of the remote's HEAD. Both
+              # spellings count: `scheme:o/r/<ref>` and `scheme:o/r?ref=<ref>`.
+              pinRefEntries =
+                let
+                  key = icedosLib._cacheTrackedKey {
+                    name = i;
+                    url = _trackedUrl;
+                    revs = _cacheTrackedRevs;
+                  };
+                  # Parse `_trackedUrl`, not `_patchSrcParsed`: a url-less
+                  # follows-only input is legal here (key "" makes it moot),
+                  # and _parseFlakeUrl folds both ref spellings into `ref`.
+                  parsed = icedosLib._parseFlakeUrl _trackedUrl;
+                  ref = if parsed.ref != null then parsed.ref else "";
+                in
+                if key == "" then { } else { "${key}" = ref; };
             in
             {
               inherit
                 decls
                 hasPatches
                 maskedEntries
+                pinRefEntries
                 ;
             };
         in
@@ -576,6 +620,9 @@ let
           };
 
           masked = flatten (map (i: (perInput i).maskedEntries) inputNames);
+
+          # Tracked key -> declared url ref, for the --unpin-inputs flow.
+          pinRefs = foldl' (acc: e: acc // e) { } (map (i: (perInput i).pinRefEntries) inputNames);
         }
       ) modulesWithInputs;
 
@@ -1058,6 +1105,9 @@ let
             value = r.text;
           }) moduleSubFlakes
         );
+
+        # Tracked key -> author-declared url ref, for the --unpin-inputs flow.
+        pinRefs = foldl' (acc: r: acc // r.pinRefs) { } moduleSubFlakes;
       in
       {
         inherit
@@ -1065,6 +1115,7 @@ let
           nixosModules
           nixosModulesText
           options
+          pinRefs
           subFlakes
           ;
       };
@@ -1596,6 +1647,7 @@ let
 
           # Names are unique per declaring module, so a plain merge is exact.
           subFlakes = externalOutputs.subFlakes // extraOutputs.subFlakes;
+          pinRefs = externalOutputs.pinRefs // extraOutputs.pinRefs;
           options = externalOutputs.options ++ extraOutputs.options;
           nixosModulesText = externalOutputs.nixosModulesText ++ extraOutputs.nixosModulesText;
         };

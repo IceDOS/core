@@ -462,7 +462,7 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
 | Check | What it does |
 |---|---|
 | `lib-tests` | Evaluates `tests/tests.nix`; fails if any result is not "ok" (or the eval throws). |
-| `python-tests` | `unittest` over `build/tests/` — the orchestrator's arg parsing, `flake.lock` reading, and GitHub-token precedence, all pure functions needing no build. |
+| `python-tests` | `unittest` over `build/tests/` — the orchestrator's arg parsing, `flake.lock` reading, and GitHub-token precedence, all pure functions needing no build.
 | `nixfmt-check` | `nixfmt --check` over every `*.nix`; without it a commit lands unformatted and the next one absorbs the reformat. |
 
 Run it **without `--no-build`**: `lib-tests` reaches `builtins.path`/`readDir` on a
@@ -509,8 +509,36 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
 
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
 `--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-repos`,
-`--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--update-hooks`, `--ask`,
-`--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
+`--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--unpin-inputs "..."`,
+`--unpin-inputs-all`, `--update-hooks`, `--ask`, `--builder <host>`, `--logs`, `--nh-args …`,
+`--build-args …` (must be last).
+
+**Unpin path (`--unpin-inputs` / `--unpin-inputs-all`, needs `system.cache.enable` +
+`system.cache.pinInputs`).** The orchestrator (`build/pins.py`) diffs each named
+cache-pinned input's `tracked-inputs.json` rev (exposed by genflake as `pinRevs`)
+against the input's upstream rev (`git ls-remote`): the declared url ref
+(genflake exports it as `pinRefs`, since the state lock loses it once a rev is
+baked in; both the `<ref>` path segment and the `?ref=` query spelling count),
+else the remote HEAD. It then asks (TTY only) whether to re-pin.
+Each accepted re-pin is remembered in
+`.state/unpinned-inputs.json`; genflake bakes that rev into the sub-flake url in
+place of the cache pin (`_unpinnedRevs` + the saved-pin branch of `_cachePin` in
+`lib/icedos.nix` — still a pin, just a custom one). The whole pin machinery,
+cache revs included, is gated on `_cachePinsActive` = `enable` && `pinInputs`;
+`--unpin-inputs-all` covers every cache-tracked module-leaf input the config
+locks (state-lock membership via `_lock_leaf`; root-declared repo-level tracked
+names are skipped, and `--unpin-inputs` rejects them). A remembered pin is
+dropped automatically once the cache-server's rev reaches or passes it
+(`git merge-base --is-ancestor` in a throwaway blobless clone; unknown ancestry
+keeps the pin), so steady state always returns to the cache-server's pins — plain
+rebuilds run that cleanup themselves (`expire_unpinned`, only when the state file
+exists, at the cost of one extra genflake evaluation per such rebuild).
+`--genflake-only` /
+`--dry` runs skip both unpin paths entirely. Patched module inputs reach the
+custom rev only via their lock bypass
+(`--update-repo-inputs-only`/`--update`), matching the cache-pin path. The
+rebuild help only lists the flags when the gate is on. Deleting
+the state file reverts to cache pins immediately.
 
 ## 8. Hard rules (do not violate)
 
