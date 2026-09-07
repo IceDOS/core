@@ -232,4 +232,8 @@ in
       '';
     }
   ];
+
+  icedos.system.tips.list = [
+    "icedos status shows your system info, disk use, and health checks."
+  ];
 }

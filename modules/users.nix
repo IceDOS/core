@@ -93,4 +93,8 @@ in
       ]
     ) users
   );
+
+  icedos.system.tips.list = [
+    "Each user gets their own packages and settings in toml config files."
+  ];
 }

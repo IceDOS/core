@@ -110,6 +110,7 @@ in
             if [ -z "$RUN_ARG" ]; then
               echo "$OUT"
             else
+              command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip
               exec "$OUT/bin/$RUN_ARG" "''${BIN_ARGS[@]}"
             fi
           '';
@@ -185,6 +186,7 @@ in
                 setsid -f "$@" </dev/null >/dev/null 2>&1
                 exit 0
               fi
+              command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip
               exec "$@"
             }
 
@@ -234,8 +236,27 @@ in
 
     {
       command = "repair";
-      script = "nix-store --verify --check-contents --repair";
-      help = "repair nix store";
+      help = "verify the nix store and re-fetch damaged paths (elevates with sudo)";
+
+      script = ''
+        if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
+          echo "Usage: icedos repair"
+          echo "Verifies every path in the nix store and re-fetches damaged ones."
+          echo "Repairing is root-only, so this elevates with sudo when needed."
+          exit 0
+        fi
+
+        [ "$#" -gt 0 ] && die "unknown arg: $1"
+
+        # The daemon rejects repairPath for untrusted users with a bare
+        # "operation is not supported by store 'daemon'", so elevate first.
+        if [ "$(id -u)" -eq 0 ]; then
+          nix-store --verify --check-contents --repair
+        else
+          log_step "repairing the nix store (needs root)..."
+          /run/wrappers/bin/sudo nix-store --verify --check-contents --repair
+        fi
+      '';
     }
 
     {
@@ -281,4 +302,10 @@ in
   };
 
   nixpkgs.config = icedosLib.pkgs.mkConfig config.icedos;
+
+  icedos.system.tips.list = [
+    "icedos pkgs list shows everything in your system, dependencies included."
+    "icedos pkgs run <package> runs an app once without installing it."
+    "icedos repair re-downloads damaged files in the package store."
+  ];
 }

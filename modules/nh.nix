@@ -432,7 +432,7 @@ in
           ${cacheCleanScript} $CACHE_ARGS --preview
           _summary_clean=$(mktemp) || die "mktemp failed"
           _summary_cache=$(mktemp) || die "mktemp failed"
-          trap "rm -f '$_summary_clean' '$_summary_cache'" EXIT
+          trap "rm -f '$_summary_clean' '$_summary_cache'; command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip" EXIT
           ${cleanExtra} --remove --summary-file "$_summary_clean"
           ${cacheCleanScript} $CACHE_ARGS --remove --summary-file "$_summary_cache"
           cat "$_summary_clean"
@@ -470,4 +470,8 @@ in
       ++ runHooksAsUsers "postGc" postGc;
     };
   };
+
+  icedos.system.tips.list = [
+    "icedos gc frees disk space by removing old system versions and junk."
+  ];
 }

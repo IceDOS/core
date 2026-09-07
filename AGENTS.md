@@ -119,7 +119,7 @@ Exposed to every module as **`icedosLib`**.
 |---|---|
 | `lib/options/helpers.nix` | The `mk*Option` family: `mkBoolOption`, `mkStrOption`, `mkStrListOption`, `mkNumberOption`, `mkEnumOption`, `mkIntBetweenOption`, `mkFloatBetweenOption`, `mkNullableOption`, `mkListOption`, `mkAttrsOfOption`, `mkSubmodule{,List,Attrs}Option`, `mkRecordOption`, `mkUsersOption`. |
 | `lib/options/validate.nix` | `validate.{int,float,enum,str,nonEmpty,list,requires,abort}` — rich, path-aware error messages. |
-| `lib/bash.nix` | `bash.{prelude,exportSystemPath,genHelpFlags,mkFlags,blueString,dimBlueString,greenString,dimGreenString,purpleString,dimPurpleString,redString,dimRedString,yellowString,dimYellowString,configSet,gcTimerCheckSnippet,requireConfigOwner}` — runtime shell helpers shared between Nix-embedded scripts and `prelude.sh` (color vars + the `*String` builders that emit `$(...)`-interpolated escape sequences — the **only** way the dispatcher/completions add color to command help text; `log_*`/`die`/`is_help_flag`; `bash.requireConfigOwner` is the permission guard for executing the baked `configurationLocation` — capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script). Also `injectIfExists` (emits `(<file>)` when a path exists — used by genflake for `/etc/nixos/extras.nix`). |
+| `lib/bash.nix` | `bash.{prelude,exportSystemPath,genHelpFlags,mkFlags,blueString,dimBlueString,greenString,dimGreenString,purpleString,dimPurpleString,redString,dimRedString,yellowString,dimYellowString,configSet,gcTimerCheckSnippet,requireConfigOwner,printTip}` — runtime shell helpers shared between Nix-embedded scripts and `prelude.sh` (color vars + the `*String` builders that emit `$(...)`-interpolated escape sequences — the **only** way the dispatcher/completions add color to command help text; `log_*`/`die`/`is_help_flag`; `CLR_LINE` — line-erase prefix for printing over a progress line a child left behind, auto-stripped with the colours when stdout isn't a TTY; `bash.requireConfigOwner` is the permission guard for executing the baked `configurationLocation` — capture `ORIG_ARGS=("$@")` before arg parsing and only use where `$0` is the leaf command script; `bash.printTip` takes `config.icedos.system.tips` and returns `{ head, foot }` shell fragments for the tips bottom bar, both `""` when disabled or the list is empty — see §10). Also `injectIfExists` (emits `(<file>)` when a path exists — used by genflake for `/etc/nixos/extras.nix`). |
 | `lib/toolset.nix` | `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}` — the CLI dispatcher generator (used to build `icedos` itself and every subcommand attrset that has children) + the per-shell completion generators. |
 | `lib/users.nix` | `users.{getNormal,genDefaults,mkGroupInjector}`. |
 | `lib/color.nix` | `color.hexToRgbInts`. |
@@ -567,7 +567,7 @@ command is a `toolsetCommandType` submodule (`modules/options.nix`):
 |---|---|---|
 | `command` | string (required) | subcommand name; must match `[a-zA-Z0-9_-]+`. |
 | `help` | string (required) | one-line help, shown in the parent listing and `icedos --tree`. |
-| `script` | lines | inline bash. **Auto-prefixed with `bash.prelude`** (`modules/toolset.nix`), so `log_ok`/`log_warn`/`log_fail`/`log_info`/`log_step`/`die`/`is_help_flag` + colour vars are available. |
+| `script` | lines | inline bash. **Auto-prefixed with `bash.prelude`** (`modules/toolset.nix`), so `log_ok`/`log_warn`/`log_fail`/`log_info`/`log_step`/`die`/`is_help_flag` + colour vars and `CLR_LINE` are available. Top-level leaves named in `tipsCommands` (`modules/toolset.nix`, currently just `rebuild`) are additionally wrapped in `bash.printTip`'s `head`/`foot` — see "Tips bottom bar" below. |
 | `bin` | string | absolute path to an executable instead of `script` (e.g. a `pkgs.writeShellScript`). |
 | `commands` | list | nested subcommands — arbitrarily deep. |
 | `completion.files` | bool | offer file-path completion for this leaf's arguments. |
@@ -610,14 +610,59 @@ icedos.system.toolset.commands = [{
     installed as `xdg.desktopEntries`. Modules adding session actions gate their own
     entries on the same flag.
 
+### Tips bottom bar
+
+`icedos.system.tips.list` is a module-facing contribution list, like
+`sessionCommands`: every loaded module appends its own tips and NixOS list merging
+concatenates them, so a module advertises its own features and the user's
+`config.toml` adds machine-local ones. Entries are bare message strings (rendered
+with the lamp default, `💡: <message>`), or `{ title, message }` records — an
+explicit `title` renders `title: message`, and `title = ""` renders the message
+alone. **Gate a tip on the option it advertises** (`optionals <flag> [ … ]`, as
+`modules/{ssh,sudo,cache}.nix` do) or it will claim a feature the machine has
+turned off.
+
+`icedosLib.bash.printTip` turns that list into `{ head, foot }`, which
+`modules/toolset.nix` wraps around the top-level leaves listed in `tipsCommands` (currently
+just `rebuild`). `head` pins one random tip to the terminal's last row and confines
+output to a scroll region above it; `foot` restores the region while preserving the
+leaf's exit status. Both are `""` when `tips.enable` is false or the list is empty.
+
+Constraints on a wrapped leaf:
+
+- **Don't install your own `EXIT` trap** — it would replace `head`'s
+  `trap _icedos_tip EXIT` and leave the scroll region set. Compose instead:
+  `command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip` (see `modules/git.nix`,
+  `modules/nh.nix`).
+- **Finalize before any `exec`** with the same guarded call — `exec` replaces the
+  shell, so the `EXIT` trap never runs (`modules/nix.nix`, `modules/repl.nix`).
+  `tests/tests.nix` asserts that every `exec` across `rebuild`, `nix`, `repl`,
+  `git` and `nh` is preceded by it — the guarded count must equal the total.
+- **Don't erase to end of screen** (`\033[J`) in a redraw loop; it takes the pinned
+  bar with it. Erase only the rows you own, saving and restoring the cursor around
+  the walk with **DECSC/DECRC** — written `\e7`/`\e8`, since `printf %b` reads
+  `\0337` as a single octal byte. Not `\033[s`/`\033[u`: that pair is an ANSI.SYS
+  extension xterm honours only while DECLRMM is off, and a terminal that ignores it
+  leaves each later frame drawn below the last instead of over it.
+- `ICEDOS_TIP_ACTIVE` marks "a bar is pinned in this process tree", so nested
+  `icedos` calls and owner re-runs keep the outer bar. `bash.requireConfigOwner`
+  forwards it across the re-exec; `_icedos_tip` unsets it on restore.
+
+The bar is TTY-only. It needs the cursor row, so it asks the terminal with a DSR
+query; a terminal that does not answer within 200 ms gets the tip as a plain
+trailing line instead, and the reply is drained so a late answer cannot surface as
+stray keystrokes in a later `read`.
+
 ## 11. Hook authoring contract
 
 `icedos.system.toolset.rebuild.hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`
 and `icedos.system.gc.hooks.{preGc,postGc}` are lists of shell snippets. Each
 snippet is compiled to its **own** `pkgs.writeShellScript` with `bash.prelude` prepended
 (`modules/rebuild.nix`, `modules/nh.nix`), so it runs in a fresh shell with the same
-helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars; colours auto-strip
-when stdout isn't a TTY).
+helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars, `CLR_LINE`;
+colours and `CLR_LINE` auto-strip when stdout isn't a TTY). A hook runs in its own
+shell, so it never owns the tips bar — it inherits `ICEDOS_TIP_ACTIVE` from the
+rebuild that spawned it and must not pin one of its own.
 
 ### Execution identity — hooks don't run as root by default
 
