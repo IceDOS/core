@@ -26,23 +26,33 @@ let
   finalIcedosLib = icedosLib // rec {
     repositories = config.repositories or [ ];
 
-    # repo baseUrl -> `fetchOptionalDependencies`: the flag applies to every
-    # module of that repo, including transitively pulled ones.
-    repoFetchOptional = builtins.listToAttrs (
-      map (r: {
-        name = (icedosLib._parseFlakeUrl r.url).baseUrl;
-        value = r.fetchOptionalDependencies or false;
-      }) repositories
-    );
+    # A repo may be listed by several config files, so its per-repo flags fold
+    # over every entry; first-wins would tie them to config file name order.
+    _foldRepoFlag =
+      { get, default }:
+      foldl' (
+        acc: r:
+        let
+          inherit (icedosLib._parseFlakeUrl r.url) baseUrl;
+          # Once an entry set the non-default, no later entry can take it back.
+          value = if (acc.${baseUrl} or default) != default then !default else get r;
+        in
+        acc // { ${baseUrl} = value; }
+      ) { } repositories;
+
+    # repo baseUrl -> `fetchOptionalDependencies`: applies to every module of
+    # that repo, transitively pulled ones included. Opt-in, so any `true` wins.
+    repoFetchOptional = _foldRepoFlag {
+      get = r: r.fetchOptionalDependencies or false;
+      default = false;
+    };
 
     # repo baseUrl -> `fetchDependencies`. False = that repo's modules pull no
-    # declared dependencies at all; the listed modules still load.
-    repoFetchDeps = builtins.listToAttrs (
-      map (r: {
-        name = (icedosLib._parseFlakeUrl r.url).baseUrl;
-        value = r.fetchDependencies or true;
-      }) repositories
-    );
+    # declared dependencies; the listed modules still load. Any `false` wins.
+    repoFetchDeps = _foldRepoFlag {
+      get = r: r.fetchDependencies or true;
+      default = true;
+    };
 
     # cache-server's published tracked-inputs.json (name -> rev | { rev; repo; }).
     # Resolved through the state lock chain root -> icedos-config -> icedos ->

@@ -349,6 +349,11 @@ fetchOptionalDependencies = true          # also pull optionalDependencies
 modules = [ "btop", "steam", "me3" ]      # which modules to enable
 ```
 
+- A repo can be listed by several config files; `modules` lists concatenate.
+  `fetchDependencies` / `fetchOptionalDependencies` are keyed per repo baseUrl,
+  so `lib/icedos.nix:_foldRepoFlag` folds every entry into one value — the
+  non-default wins. Never rebuild these maps with `listToAttrs`: it keeps the
+  first duplicate, which would make the flag depend on config file name order.
 - `lib/icedos.nix:resolveExternalDependencyRecursively` walks each module's
   `meta.dependencies` so you only list what you directly want; deps come along.
 - A module's declared `inputs` live inside its per-module **input-namespace

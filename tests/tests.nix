@@ -483,6 +483,17 @@ let
       };
     };
   };
+
+  # Per-repo dependency flags, folded over every config entry naming that repo.
+  mkRepoFlags =
+    repositories:
+    let
+      i = mkIcedos { inherit repositories; };
+    in
+    {
+      optional = i.repoFetchOptional;
+      deps = i.repoFetchDeps;
+    };
 in
 {
   intHappy = expectOk (
@@ -1542,6 +1553,85 @@ in
   repoSelectByInputName = expectOk (helpers._repoSelected [ repoSelectAppsName ] repoSelectAppsName);
 
   repoSelectMiss = expectOk (!(helpers._repoSelected [ "github:other/repo" ] repoSelectAppsName));
+
+  # --- repoFetchOptional / repoFetchDeps (icedos.nix) --------------------
+  # One repo listed by several config files: the non-default flag wins wherever
+  # it sits in the list, so the result cannot depend on config file name order.
+  repoFlagsOptionalLastEntry =
+    expectEq
+      {
+        "github:icedos/apps" = true;
+      }
+      (mkRepoFlags [
+        { url = "github:icedos/apps"; }
+        {
+          url = "github:icedos/apps";
+          fetchOptionalDependencies = true;
+        }
+      ]).optional;
+
+  repoFlagsOptionalFirstEntry =
+    expectEq
+      {
+        "github:icedos/apps" = true;
+      }
+      (mkRepoFlags [
+        {
+          url = "github:icedos/apps";
+          fetchOptionalDependencies = true;
+        }
+        { url = "github:icedos/apps"; }
+      ]).optional;
+
+  repoFlagsOptionalUnsetStaysOff =
+    expectEq
+      {
+        "github:icedos/apps" = false;
+      }
+      (mkRepoFlags [
+        { url = "github:icedos/apps"; }
+        { url = "github:icedos/apps"; }
+      ]).optional;
+
+  repoFlagsDepsLastEntryOptsOut =
+    expectEq
+      {
+        "github:icedos/apps" = false;
+      }
+      (mkRepoFlags [
+        { url = "github:icedos/apps"; }
+        {
+          url = "github:icedos/apps";
+          fetchDependencies = false;
+        }
+      ]).deps;
+
+  repoFlagsDepsFirstEntryOptsOut =
+    expectEq
+      {
+        "github:icedos/apps" = false;
+      }
+      (mkRepoFlags [
+        {
+          url = "github:icedos/apps";
+          fetchDependencies = false;
+        }
+        { url = "github:icedos/apps"; }
+      ]).deps;
+
+  repoFlagsPerRepo =
+    expectEq
+      {
+        "github:icedos/apps" = false;
+        "github:icedos/kde" = true;
+      }
+      (mkRepoFlags [
+        { url = "github:icedos/apps"; }
+        {
+          url = "github:icedos/kde";
+          fetchOptionalDependencies = true;
+        }
+      ]).optional;
 
   # --- hasModule (scan.nix) ---------------------------------------------
 
