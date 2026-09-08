@@ -94,6 +94,13 @@ class ParseArgsTest(unittest.TestCase):
         self.assertEqual(opts.github_token, "tok")
         self.assertEqual(opts.github_token_path, "/p")
 
+    def test_github_ssh_flag_is_captured(self):
+        # Tri-state: unset must stay None so config.toml decides, and
+        # --no-github-ssh must be distinguishable from "not asked for".
+        self.assertTrue(_parse(["--github-ssh"])[0].github_ssh)
+        self.assertIs(_parse(["--no-github-ssh"])[0].github_ssh, False)
+        self.assertIsNone(_parse([])[0].github_ssh)
+
     def test_unknown_arg_exits(self):
         with self.assertRaises(SystemExit):
             _parse(["--nope"])

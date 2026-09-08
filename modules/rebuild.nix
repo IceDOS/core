@@ -69,6 +69,10 @@ in
                   echo "  --github-token <token>    literal GitHub token for nix github.com fetches"
                   echo "  --github-token-path <path>"
                   echo "                            file holding a GitHub token for nix github.com fetches"
+                  echo "  --github-ssh              fetch GitHub inputs over git+ssh with the ssh key"
+                  echo "                            instead of the token (per-run opt-in)"
+                  echo "  --no-github-ssh           force https for one run, overriding githubViaSsh"
+                  echo "                            (a transport flip re-locks unpinned inputs)"
                   echo "  --dir <dir>               use alternate config directory"
                   echo "  --update                  update everything (core, nixpkgs, repos, repo inputs) + run update hooks"
                   echo "  --update-hooks            run update hooks only (pre+post), no build"
@@ -153,6 +157,10 @@ in
 
                 # Resolve the token before any nix call: a stale lock makes `nix run` hit
                 # the GitHub API before the orchestrator can set NIX_CONFIG itself.
+                # --github-ssh does NOT skip this: only the GENERATED state flake's
+                # `github:` inputs move to ssh. The config flake's own inputs (icedos
+                # core included) still resolve over https, and this `nix run` is what
+                # re-resolves them on a stale lock.
                 tokenFile="''${ICEDOS_GITHUB_TOKEN_PATH:-${icedosLib.GITHUB_TOKEN_PATH}}"
                 tokenEnv=()
                 if [ -z "''${ICEDOS_GITHUB_TOKEN:-}" ] && [ -f "$tokenFile" ]; then
