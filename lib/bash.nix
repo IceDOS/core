@@ -1,7 +1,5 @@
 {
-  icedosLib,
   lib,
-  self,
   ...
 }:
 
@@ -17,9 +15,12 @@ let
     escapeShellArg
     fileContents
     max
+    replaceStrings
+    trim
     ;
+
 in
-rec {
+{
   # Runtime helpers shared by Nix-embedded scripts (prelude auto-prepended by
   # toolset.nix) and standalone .sh files that source lib/prelude.sh.
   bash = {
@@ -394,11 +395,11 @@ rec {
               owner_path="/run/wrappers/bin:$owner_home/.nix-profile/bin:$owner_home/.local/state/nix/profile/bin:/etc/profiles/per-user/$owner/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin"
               /run/current-system/sw/bin/runuser -u "$owner" -- \
                 /run/current-system/sw/bin/env -i "HOME=$owner_home" "USER=$owner" "LOGNAME=$owner" "PATH=$owner_path" \
-                ICEDOS_OWNER_RERUN=1 "$0" "$@"
+                ICEDOS_OWNER_RERUN=1 "ICEDOS_TIP_ACTIVE=''${ICEDOS_TIP_ACTIVE:-}" "$0" "$@"
             else
               # sudo resets the env, so pass the re-entry marker explicitly; only
               # the setuid wrapper path works here.
-              /run/wrappers/bin/sudo -u "$owner" -- /run/current-system/sw/bin/env ICEDOS_OWNER_RERUN=1 "$0" "$@"
+              /run/wrappers/bin/sudo -u "$owner" -- /run/current-system/sw/bin/env ICEDOS_OWNER_RERUN=1 "ICEDOS_TIP_ACTIVE=''${ICEDOS_TIP_ACTIVE:-}" "$0" "$@"
             fi
             rc=$?
             [ "$rc" -eq 0 ] && exit 0
@@ -417,6 +418,319 @@ rec {
         return 0
       }
     '';
+
+    # Bottom bar for toolset leaves: one random tip pinned to the last line and
+    # command output confined to the scroll region above it; TTY-only.
+    printTip =
+      tips:
+      let
+        # An empty or whitespace-only rendered message (e.g. `{ title = ""; message = " "; }`)
+        # would reserve a bar row and print nothing; skip such tips.
+        tipLines = builtins.filter (t: trim (oneLine (tipLine t)) != "") tips.list;
+        enabled = tips.enable && tipLines != [ ];
+        # The tip is printed onto one pinned row, so a newline from a `"""…"""`
+        # tip in config.toml would scroll the screen and tear the region open.
+        oneLine = replaceStrings [ "\n" "\r" "\t" ] [ " " " " " " ];
+        tipLine =
+          t:
+          if builtins.isString t then
+            "💡: ${t}"
+          else if !(t ? title) then
+            "💡: ${t.message}"
+          else if t.title == "" then
+            t.message
+          else
+            "${t.title}: ${t.message}";
+        head = ''
+          _icedos_tips=(
+            ${concatStringsSep "
+" (map (t: escapeShellArg (oneLine (tipLine t))) tipLines)}
+          )
+          _icedos_tip_shown=0
+          _icedos_tip_i=0
+          _icedos_bar=0
+          _icedos_tip_plain=0
+          _icedos_rows=
+          _icedos_cols=
+          _icedos_tip_rows=1
+          _icedos_cpr_row=
+          _icedos_cpr_col=
+          # A cursor-position reply that misses the timeout would otherwise
+          # surface as stray keystrokes in the next `read` a leaf runs.
+          _icedos_drain_tty() {
+            local junk
+            read -rs -t 0.05 -n 4096 junk </dev/tty 2>/dev/null
+            read -rs -t 0.05 -n 4096 junk </dev/tty 2>/dev/null
+            return 0
+          }
+          # Row and col come back empty when the terminal does not answer, or
+          # answers with something that is not a CPR.
+          _icedos_cpr() {
+            local p c
+            _icedos_cpr_row=
+            _icedos_cpr_col=
+            printf '\033[6n' >/dev/tty 2>/dev/null
+            if IFS=';' read -rsdR -t 0.2 p c </dev/tty 2>/dev/null; then
+              p=''${p##*[}
+              p=''${p%%;*}
+              c=''${c%%R*}
+              case "$p" in
+                "" | *[!0-9]*) p= ;;
+              esac
+              case "$c" in
+                "" | *[!0-9]*) c= ;;
+              esac
+            else
+              p=
+              c=
+            fi
+            [ -n "$p" ] || _icedos_drain_tty
+            _icedos_cpr_row=$p
+            _icedos_cpr_col=$c
+            return 0
+          }
+          # Rows _icedos_tip_print_wrapped will emit at this width, so the
+          # reserved area is exact; set -f keeps * ? [ ] in tips literal.
+
+          _icedos_tip_wrap_rows() {
+            local _text="$1" _width="$2" _len=0 _wlen=0 _rows=1
+            set -f
+            for _word in $_text; do
+              _wlen=''${#_word}
+              if [ "$_wlen" -gt "$_width" ]; then
+                if [ "$_len" -gt 0 ]; then
+                  _rows=$((_rows + 1))
+                  _len=0
+                fi
+                # Full _width-char chunks, plus a remainder line.
+                _rows=$(( _rows + (_wlen - 1) / _width ))
+                _len=$(( _wlen - ((_wlen - 1) / _width) * _width ))
+              elif [ "$_len" -eq 0 ]; then
+                _len=$_wlen
+              elif [ "$((_len + 1 + _wlen))" -le "$_width" ]; then
+                _len=$(( _len + 1 + _wlen ))
+              else
+                _rows=$((_rows + 1))
+                _len=$_wlen
+              fi
+            done
+            set +f
+            printf '%s\n' "$_rows"
+          }
+          # Word-wrap at spaces; a token wider than the line is hard-wrapped
+          # in _width-char chunks, so a tip line never exceeds _width characters.
+          _icedos_tip_print_wrapped() {
+            local _text="$1" _width="$2" _len=0 _wlen=0 _out=""
+            set -f
+            for _word in $_text; do
+              _wlen=''${#_word}
+              if [ "$_wlen" -gt "$_width" ]; then
+                if [ "$_len" -gt 0 ]; then
+                  printf '%s\n' "$_out"
+                  _len=0
+                  _out=""
+                fi
+                while [ "$_wlen" -gt "$_width" ]; do
+                  printf '%s\n' "''${_word:0:$_width}"
+                  _word="''${_word:$_width}"
+                  _wlen=$(( _wlen - _width ))
+                done
+                _out="''${_word}"
+                _len=$_wlen
+              elif [ "$_len" -eq 0 ]; then
+                _out="''${_word}"
+                _len=$_wlen
+              elif [ "$((_len + 1 + _wlen))" -le "$_width" ]; then
+                _out="''${_out} ''${_word}"
+                _len=$(( _len + 1 + _wlen ))
+              else
+                printf '%s\n' "$_out"
+                _out="''${_word}"
+                _len=$_wlen
+              fi
+            done
+            set +f
+            printf '%s' "$_out"
+          }
+          _icedos_tip_init() {
+            [ -t 1 ] || return 0
+            # A parent leaf already pinned the bar (nested icedos call, or an
+            # owner re-run that carried the marker): keep the outer bar.
+            [ -n "''${ICEDOS_TIP_ACTIVE:-}" ] && return 0
+            local size rows cols tip_rows max p n i r
+            size=$(stty size </dev/tty 2>/dev/null) || size=""
+            rows=''${size%% *}
+            cols=''${size##* }
+            [ "$rows" -ge 4 ] 2>/dev/null || rows=$(tput lines </dev/tty 2>/dev/null || echo 24)
+            [ "$rows" -ge 4 ] 2>/dev/null || rows=24
+            [ "$cols" -ge 3 ] 2>/dev/null || cols=80
+            _icedos_rows=$rows
+            _icedos_cols=$cols
+            _icedos_tip_i=$(( RANDOM % ''${#_icedos_tips[@]} ))
+            export ICEDOS_TIP_ACTIVE=1
+            _icedos_cpr
+            p=$_icedos_cpr_row
+            if [ -z "$p" ]; then
+              # Scrolling blind would wipe the screen, so drop the bar and
+              # degrade to a plain tip line printed on exit.
+              _icedos_tip_plain=1
+              return 0
+            fi
+            tip_rows=$(_icedos_tip_wrap_rows "''${_icedos_tips[$_icedos_tip_i]}" "$((cols - 1))")
+            # Fall back when the region is too small for the content to survive release:
+            # content rests at rows - tip_rows - 1 and the scroll moves it up one, so keep rows - tip_rows >= 3.
+            if [ "$tip_rows" -gt "$((rows - 3))" ]; then
+              tip_rows=1
+              max=$(( cols - 2 ))  # keep >= 1: 0 blanks, negative would truncate from the end
+              _icedos_tip_rows=$tip_rows
+              _icedos_bar=1
+              n=0
+              if [ "$p" -ge "$((rows - 1))" ] 2>/dev/null; then
+                n=$(( p - rows + 2 ))
+              fi
+              if [ "$n" -gt 0 ]; then
+                printf '\033[%d;1H' "$rows"
+                i=$n
+                while [ "$i" -gt 0 ]; do printf '\n'; i=$((i - 1)); done
+              fi
+              printf '\033[?7l\033[%d;1H\033[K%b%s%b\033[?7h' "$rows" "$DIM_GREEN" "''${_icedos_tips[$_icedos_tip_i]:0:$max}" "$NC"
+              printf '\033[%d;1H\033[K' "$((rows - 1))"
+              printf '\033[1;%dr' "$((rows - 1))"
+              printf '\033[%d;1H' "$(( p + 1 - n ))"
+              return 0
+            fi
+            # Multi-line tip: expand the area below the scroll region.
+            _icedos_tip_rows=$tip_rows
+            _icedos_bar=1
+            n=0
+            if [ "$p" -ge "$((rows - tip_rows))" ] 2>/dev/null; then
+              n=$(( p - rows + tip_rows + 1 ))
+            fi
+            if [ "$n" -gt 0 ]; then
+              printf '\033[%d;1H' "$rows"
+              i=$n
+              while [ "$i" -gt 0 ]; do printf '\n'; i=$((i - 1)); done
+            fi
+            # Clear the tip area (blank row + tip rows).
+            r=$(( rows - tip_rows ))
+            while [ "$r" -le "$rows" ]; do
+              printf '\033[%d;1H\033[K' "$r"
+              r=$((r + 1))
+            done
+            # Print full tip; autowrap off for single row, word-wrap for multi-row.
+            if [ "$tip_rows" -eq 1 ]; then
+              printf '\033[?7l\033[%d;1H\033[K%b%s%b\033[?7h' "$((rows - tip_rows + 1))" "$DIM_GREEN" "''${_icedos_tips[$_icedos_tip_i]}" "$NC"
+            else
+              printf '\033[?7h\033[%d;1H' "$((rows - tip_rows + 1))"
+              printf '%b' "$DIM_GREEN"
+              _icedos_tip_print_wrapped "''${_icedos_tips[$_icedos_tip_i]}" "$((cols - 1))"
+              printf '%b' "$NC"
+            fi
+            printf '\033[1;%dr' "$((rows - tip_rows))"
+            # Restore the measured row: the n-row scroll moves the prompt up,
+            # and the +1 keeps the cursor one line below the (scrolled) prompt.
+            printf '\033[%d;1H' "$(( p + 1 - n ))"
+          }
+          # A resize leaves the region and bar at stale coordinates. Bash defers
+          # this until the foreground command returns, so a build holds it stale.
+          _icedos_tip_winch() {
+            [ "$_icedos_tip_shown" -eq 1 ] && return 0
+            [ -t 1 ] || return 0
+            [ "$_icedos_bar" = 1 ] || return 0
+            local size rows cols tip_rows max p c r truncate=0
+            size=$(stty size </dev/tty 2>/dev/null) || size=""
+            rows=''${size%% *}
+            cols=''${size##* }
+            [ "$rows" -ge 4 ] 2>/dev/null || return 0
+            [ "$cols" -ge 3 ] 2>/dev/null || return 0
+            tip_rows=$(_icedos_tip_wrap_rows "''${_icedos_tips[$_icedos_tip_i]}" "$((cols - 1))")
+            if [ "$tip_rows" -gt "$((rows - 3))" ]; then
+              tip_rows=1
+              max=$(( cols - 2 ))  # keep >= 1: 0 blanks, negative would truncate from the end
+              truncate=1
+            fi
+            [ "$rows" = "$_icedos_rows" ] && [ "$cols" = "$_icedos_cols" ] && [ "$tip_rows" = "$_icedos_tip_rows" ] && return 0
+            local old_rows=$_icedos_rows old_tip_rows=$_icedos_tip_rows
+            _icedos_rows=$rows
+            _icedos_cols=$cols
+            _icedos_tip_rows=$tip_rows
+            _icedos_cpr
+            p=$_icedos_cpr_row
+            c=$_icedos_cpr_col
+            printf '\033[r'
+            # Clear old and new tip areas.
+            local clear_top=$(( old_rows - old_tip_rows ))
+            [ "$(( rows - tip_rows ))" -lt "$clear_top" ] && clear_top=$(( rows - tip_rows ))
+            r=$clear_top
+            while [ "$r" -le "$rows" ]; do
+              printf '\033[%d;1H\033[K' "$r"
+              r=$((r + 1))
+            done
+            # Print the new tip: autowrap off for the single row, word-wrap for multi-row.
+            local _tip="''${_icedos_tips[$_icedos_tip_i]}"
+            [ "$truncate" = 1 ] && _tip="''${_tip:0:$max}"
+            if [ "$tip_rows" -eq 1 ]; then
+              printf '\033[?7l\033[%d;1H\033[K%b%s%b\033[?7h' "$rows" "$DIM_GREEN" "$_tip" "$NC"
+            else
+              printf '\033[?7h\033[%d;1H' "$((rows - tip_rows + 1))"
+              printf '%b' "$DIM_GREEN"
+              _icedos_tip_print_wrapped "''${_icedos_tips[$_icedos_tip_i]}" "$((cols - 1))"
+              printf '%b' "$NC"
+            fi
+            # Blank row and scroll region.
+            printf '\033[%d;1H\033[K' "$((rows - tip_rows))"
+            printf '\033[1;%dr' "$((rows - tip_rows))"
+            # Restore cursor position, clamped to the new scroll region.
+            if [ -n "$p" ] && [ -n "$c" ] && [ "$p" -ge 1 ] 2>/dev/null && [ "$p" -le "$rows" ] 2>/dev/null; then
+              [ "$p" -gt "$((rows - tip_rows))" ] 2>/dev/null && p=$((rows - tip_rows))
+              [ "$c" -gt "$cols" ] 2>/dev/null && c=$cols
+              printf '\033[%d;%dH' "$p" "$c"
+            else
+              printf '\033[1;1H'
+            fi
+          }
+          _icedos_tip() {
+            [ "$_icedos_tip_shown" -eq 1 ] && return 0
+            _icedos_tip_shown=1
+            trap - WINCH
+            # Children spawned after the bar is gone (an exec'd program that
+            # calls icedos again) must be free to pin a bar of their own.
+            unset ICEDOS_TIP_ACTIVE
+            [ -t 1 ] || return 0
+            if [ "$_icedos_tip_plain" = 1 ]; then
+              printf '%b%s%b\n' "$DIM_GREEN" "''${_icedos_tips[$_icedos_tip_i]}" "$NC"
+              return 0
+            fi
+            [ "$_icedos_bar" = 1 ] || return 0
+            local size rows
+            size=$(stty size </dev/tty 2>/dev/null) || size=""
+            rows=''${size%% *}
+            [ "$rows" -ge 4 ] 2>/dev/null || rows=$_icedos_rows
+            # Newline on the bar's own row scrolls it up one, so the shell prompt
+            # lands below the tip instead of overwriting it.
+            printf '\033[r\033[%d;1H\n' "$rows"
+          }
+          _icedos_tip_init
+          trap _icedos_tip EXIT
+          # Signal death must also restore the region (SIGKILL cannot); the
+          # explicit exits give leaves the usual 128+SIG status.
+          trap '_icedos_tip; exit $((128 + 15))' TERM
+          trap '_icedos_tip; exit $((128 + 1))' HUP
+          trap '_icedos_tip; exit $((128 + 3))' QUIT
+          trap _icedos_tip_winch WINCH
+
+        '';
+      in
+      if !enabled then
+        {
+          head = "";
+          foot = "";
+        }
+      else
+        {
+          inherit head;
+          foot = "_icedos_tip_rc=$?\n_icedos_tip\nexit \"$_icedos_tip_rc\"\n";
+        };
   };
 
   injectIfExists =

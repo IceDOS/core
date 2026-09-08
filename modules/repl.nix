@@ -47,8 +47,13 @@ in
           die "no generated flake at '${configurationLocation}'; run 'icedos rebuild' once."
         fi
 
+        command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip
         exec nix repl --file ${replExpr}
       '';
     }
+  ];
+
+  icedos.system.tips.list = [
+    "icedos repl opens a nix repl with your whole config loaded."
   ];
 }

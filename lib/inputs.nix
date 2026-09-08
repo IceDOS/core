@@ -231,12 +231,8 @@ rec {
           ;
       };
 
-  # Rev cache-server last built for a leaf input, "" when untracked/unmatched.
-  # Pure: `revs` is cache-server's published tracked-inputs.json (name -> rev |
-  # { rev; repo; }). Key match mirrors its tracked-revs.py: exact node key, else a
-  # "-<name>" suffixed one. The optional `repo` guard ("scheme:owner/repo") only
-  # exists in the newer { rev; repo; } format and must equal the url's host repo;
-  # older string entries pin on the name alone.
+  # Rev cache-server last built for this leaf input, "" when untracked. Key match mirrors tracked-revs.py:
+  # exact node key or a "-<name>" suffix; the optional repo guard must equal the url's host repo, older string entries pin on the name alone.
   _cacheRevLookup =
     {
       name,

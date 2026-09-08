@@ -197,9 +197,8 @@ in
                 "";
           };
 
-          # Pin tracked leaf inputs to the revs cache-server last built (its
-          # `tracked-inputs.json`), so rebuilds consume cached closures instead of
-          # resolving fresh upstream revs. Needs one built cycle before it can pin.
+          # Pin tracked leaf inputs to the revs cache-server last built
+          # (tracked-inputs.json): rebuilds reuse cached closures.
           pinInputs = mkBoolOption { default = false; };
 
           priority = mkNumberOption { default = 100; };
@@ -290,6 +289,59 @@ in
             '';
           };
           rs = mkBoolOption { default = true; };
+        };
+
+        tips = {
+          enable = mkBoolOption {
+            default = true;
+
+            description = ''
+              Pin a tip from `list` to the terminal's bottom row while
+              `icedos rebuild` runs, keeping command output above it in a
+              scroll region. Skipped when stdout is not a terminal; when the
+              terminal does not answer a cursor-position query the tip is
+              printed as a plain trailing line instead of a pinned bar.
+            '';
+          };
+
+          list =
+            mkListOption
+              {
+                default = [ ];
+
+                description = ''
+                  Tips shown under `icedos rebuild` output, one per run. Every
+                  loaded module contributes its own tips here; extend the list
+                  with machine-local hints. Entries are bare message strings
+                  (rendered with the default lamp title) or `{ title, message }`
+                  records — the bottom bar shows "title: message". An empty list
+                  hides the tip line even when `enable` is true.
+                '';
+              }
+              (
+                types.either types.str (
+                  types.submodule {
+                    options = {
+                      title = mkStrOption {
+                        default = "💡";
+
+                        description = ''
+                          Label shown before `message` in the bottom bar. Defaults to
+                          a lamp emoji; set it to the empty string for a plain
+                          message-only tip with no title and no separator.
+                        '';
+                      };
+
+                      message = mkStrOption {
+                        description = ''
+                          The tip text itself. Keep it short — the bar clips anything
+                          wider than the terminal.
+                        '';
+                      };
+                    };
+                  }
+                )
+              );
         };
 
         version = mkStrOption { }; # Set according to docs at https://search.nixos.org/options?show=system.stateVersion

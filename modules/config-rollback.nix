@@ -170,4 +170,8 @@ in
       '';
     }
   ];
+
+  icedos.system.tips.list = [
+    "icedos configuration rollback puts your system back to how it was."
+  ];
 }

@@ -302,4 +302,8 @@ in
       action = "disable";
     })
   ];
+
+  icedos.system.tips.list = [
+    "icedos configuration enable/disable picks modules; rebuild applies them."
+  ];
 }

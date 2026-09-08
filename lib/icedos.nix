@@ -54,12 +54,8 @@ let
       default = true;
     };
 
-    # cache-server's published tracked-inputs.json (name -> rev | { rev; repo; }).
-    # Resolved through the state lock chain root -> icedos-config -> icedos ->
-    # cache-server, so it matches the tree the build evaluates. Genflake-only: the
-    # revs are baked into the generated sub-flake text, keeping the pure build
-    # stage free of fetches. Empty on a first build (no state lock yet), which
-    # resolves fresh and self-heals on the next run.
+    # cache-server's tracked-inputs.json revs (name -> rev | { rev; repo; }), resolved via the lock chain root -> icedos-config -> icedos -> cache-server.
+    # Genflake-only (baked into the sub-flake text); empty on a first build, resolves fresh and self-heals next run.
     _cacheTrackedRevs =
       let
         lock = icedosLib._readFlakeLock;

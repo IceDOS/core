@@ -252,7 +252,7 @@ Everything under `icedos` is IceDOS's own, checked settings. The top-level group
 | Key | What it controls |
 | --- | --- |
 | `icedos.repositories` | Which module repos to load and which modules to enable (see above). |
-| `icedos.system` | System-wide settings: `arch`, `version` (stateVersion), `nixpkgsChannel`, `allowUnfree`, `generations`, `packages`, `permittedInsecurePackages`, `loadHardwareConfiguration`, the binary `cache`, `gc` (auto-cleanup), the `toolset` (CLI + hooks), extra `channels`/`overlays`, and `build-vm`. |
+| `icedos.system` | System-wide settings: `arch`, `version` (stateVersion), `nixpkgsChannel`, `allowUnfree`, `generations`, `packages`, `permittedInsecurePackages`, `loadHardwareConfiguration`, the binary `cache`, `gc` (auto-cleanup), the `toolset` (CLI + hooks), the rebuild `tips` line, extra `channels`/`overlays`, and `build-vm`. |
 | `icedos.users` | User accounts (home-manager integrated): password, groups, sudo, packages, … |
 | `icedos.<category>.*` | Options exposed by the module repos you load, grouped by category — e.g. `icedos.applications.*` (apps like `btop`, `steam`), `icedos.hardware.*`, `icedos.desktop.*`, `icedos.tweaks.*`. Which categories exist depends on which repos you enable. |
 
@@ -429,6 +429,36 @@ New here? These cover almost everything:
 | `icedos status` | System dashboard: gen, store, gc, modules, inputs, pending config, health checks. |
 | `icedos gc [--dry] [--days <N>] [--gens <N>]` | Free up disk space (--dry to preview). |
 | `icedos repl` | Open a Nix REPL preloaded with your evaluated config, packages, and lib. |
+
+### The tips line
+
+Once `icedos.system.tips.list` is populated, `icedos rebuild` runs with a
+persistent bottom bar: output is confined above a blank line and a one-line tip
+pinned to the terminal's last row, visible from the first frame to the last.
+The bar stays on the last row for the whole run, so short output leaves it a
+screenful below the final line; restoring the terminal on exit scrolls it up so
+the shell prompt lands beneath it:
+
+```
+$ icedos rebuild
+> Caching config set
+
+💡: icedos rebuild --dry prepares a rebuild without building anything.
+```
+
+`list` merges tips contributed by every loaded icedos module, so each
+module advertises its own features; add machine-local tips from config if you
+like. Set `enable = false` under `[icedos.system.tips]` to turn the line off. The
+bar is TTY-only, so piped output stays clean. It makes room below your typed
+command, restores the terminal on exit and on TERM/HUP/QUIT (SIGKILL excepted),
+and leaves helpers and non-script dispatchers untouched.
+
+Pinning the bar needs the cursor position, so the terminal is asked for it with
+a DSR query. Terminals that do not answer within 200 ms — and multiplexers or
+recorders that swallow the reply — get the tip as a plain trailing line instead;
+nothing is scrolled blind. A resize re-pins the bar, but bash only runs the
+`WINCH` handler once the current foreground command returns, so resizing mid-build
+leaves the bar at its old coordinates until that build step finishes.
 
 ### Full command reference
 

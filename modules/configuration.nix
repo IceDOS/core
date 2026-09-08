@@ -368,4 +368,15 @@ in
       ++ configurationCommands;
     }
   ];
+
+  icedos.system.tips.list = [
+    "icedos configuration search finds any setting or module by name."
+    "icedos configuration get <setting> shows what a setting is set to."
+    "icedos configuration validate checks your config before you rebuild."
+    "Split your settings across configs/*.toml; they all merge together."
+    "Put custom Nix modules under modules/; files and folders load automatically."
+    "Set [icedos.system] extraConfigs/extraModules to scan more folders for configs/modules."
+    "Add enable = false at the top of any extra config *.toml to skip that file."
+    "<extra_config_dirs>/.name.toml stays out of git, but it is not a place for secrets."
+  ];
 }

@@ -344,7 +344,7 @@ in
 
                 exit_if_interrupted "$BUILD_STATUS"
                 if [ "$BUILD_STATUS" -ne 0 ]; then
-                  echo -e "${redString "error"}: build failed with exit code $BUILD_STATUS"
+                  echo -e "''${CLR_LINE}${redString "error"}: build failed with exit code $BUILD_STATUS"
                   exit "$BUILD_STATUS"
                 fi
 
@@ -365,7 +365,7 @@ in
 
                 if [ ''${#CACHED_NAMES[@]} -gt 0 ]; then
                   printf -v JOINED '%s, ' "''${CACHED_NAMES[@]}"
-                  echo -e "${dimGreenString ">"} Caching ''${JOINED%, }"
+                  echo -e "''${CLR_LINE}${dimGreenString ">"} Caching ''${JOINED%, }"
                 fi
 
                 # Only switch/boot mint a generation, so only they record which snapshot
@@ -416,8 +416,8 @@ in
 
                   if [ ''${#REBOOT_REASONS[@]} -gt 0 ]; then
                     printf -v REASONS_JOINED '%s, ' "''${REBOOT_REASONS[@]}"
-                    echo -e "${purpleString "warning"}: reboot recommended for ''${REASONS_JOINED%, } changes to apply"
-                    printf -v PROMPT '%b' "${dimGreenString ">"} Reboot now? [y/N] "
+                    echo -e "''${CLR_LINE}${purpleString "warning"}: reboot recommended for ''${REASONS_JOINED%, } changes to apply"
+                    printf -v PROMPT '%b' "''${CLR_LINE}${dimGreenString ">"} Reboot now? [y/N] "
                     read -r -p "$PROMPT" ANSWER
                     case "$ANSWER" in
                       [yY]|[yY][eE][sS]) systemctl reboot -i || sudo systemctl reboot -i ;;
@@ -426,5 +426,10 @@ in
                 fi
       '';
     }
+  ];
+
+  icedos.system.tips.list = [
+    "icedos rebuild --dry prepares a rebuild without building anything."
+    "icedos rebuild --update gets the newest packages, repos and inputs before rebuilding."
   ];
 }
