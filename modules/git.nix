@@ -263,6 +263,7 @@ in
                 printf "\033[?25h"
               fi
               ${coreutils}/bin/rm -rf "$tmpdir"
+              command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip
             ' EXIT
 
             function showRepos() {
@@ -520,7 +521,7 @@ in
                 frame+=("$footer")
               fi
 
-              local out="" n="''${#frame[@]}" idx2=0
+              local out="" n="''${#frame[@]}" idx2=0 t
               if [ "$prev_lines" -gt 1 ]; then
                 out="\r\033[$((prev_lines - 1))A"
               elif [ "$prev_lines" -eq 1 ]; then
@@ -531,7 +532,19 @@ in
                 out="''${out}\033[2K''${i}"
                 [ "$idx2" -lt "$n" ] && out="''${out}\n"
               done
-              out="''${out}\033[J"
+              # Erase only the rows a longer previous frame left; erase-to-end would
+              # take the pinned tip. Cursor-down clamps, so save/restore with DECSC —
+              # SCOSC is not universal, and `printf %b` folds `\0337` to one byte.
+              t=$(( prev_lines - n ))
+              if [ "$t" -gt 0 ]; then
+                idx2=0
+                out="''${out}\e7"
+                while [ "$idx2" -lt "$t" ]; do
+                  out="''${out}\033[B\r\033[2K"
+                  idx2=$((idx2 + 1))
+                done
+                out="''${out}\e8"
+              fi
               printf '%b' "$out"
               prev_lines=$n
               spin_i=$(( (spin_i + 1) % ''${#spin[@]} ))
@@ -633,5 +646,9 @@ in
         }
       ];
     }
+  ];
+
+  icedos.system.tips.list = [
+    "icedos git rpull recursively updates every git repo under a folder at once."
   ];
 }

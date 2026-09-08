@@ -167,4 +167,8 @@ in
       '';
     }
   ];
+
+  icedos.system.tips.list = [
+    "icedos configuration history browses your past configs, one per rebuild."
+  ];
 }

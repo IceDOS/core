@@ -494,6 +494,22 @@ let
       optional = i.repoFetchOptional;
       deps = i.repoFetchDeps;
     };
+
+  # --- icedosLib.bash.printTip (icedos.system.tips bottom bar) -------------
+  tipsLib =
+    (import ../lib/bash.nix {
+      inherit lib;
+      self = "tests";
+      icedosLib = { };
+    }).bash;
+  tipsFor = opts: tipsLib.printTip opts;
+  tipsHead =
+    list:
+    (tipsFor {
+      enable = true;
+      inherit list;
+    }).head;
+  tipsSampleHead = tipsHead [ "a tip" ];
 in
 {
   intHappy = expectOk (
@@ -3210,5 +3226,203 @@ in
         };
       };
     }
+  );
+
+  # --- tips bottom bar (icedos.system.tips) --------------------------------
+  tipsDisabled =
+    expectEq
+      {
+        head = "";
+        foot = "";
+      }
+      (tipsFor {
+        enable = false;
+        list = [ "a tip" ];
+      });
+
+  tipsEmptyList =
+    expectEq
+      {
+        head = "";
+        foot = "";
+      }
+      (tipsFor {
+        enable = true;
+        list = [ ];
+      });
+
+  tipsEnabledHeadHasTrap = expectOk (lib.strings.hasInfix "trap _icedos_tip EXIT" tipsSampleHead);
+
+  tipsBarPinsTipAndRegion = expectOk (
+    lib.strings.hasInfix "printf '\\033[?7l\\033[%d;1H\\033[K%b%s%b\\033[?7h'" tipsSampleHead
+    && lib.strings.hasInfix "printf '\\033[1;%dr'" tipsSampleHead
+    && lib.strings.hasInfix "stty size </dev/tty" tipsSampleHead
+    && lib.strings.hasInfix "\\033[r\\033[%d;1H\\n" tipsSampleHead
+    && lib.strings.hasInfix "printf '\\033[6n' >/dev/tty" tipsSampleHead
+    && lib.strings.hasInfix "read -rsdR -t 0.2" tipsSampleHead
+  );
+
+  # A reply that misses the 0.2s window would be swallowed by the next `read`
+  # a leaf runs, so every failed query drains the terminal first.
+  tipsCprDrainsOnTimeout = expectOk (
+    lib.strings.hasInfix "_icedos_drain_tty() {" tipsSampleHead
+    && lib.strings.hasInfix "read -rs -t 0.05 -n 4096 junk </dev/tty" tipsSampleHead
+    && lib.strings.hasInfix "[ -n \"$p\" ] || _icedos_drain_tty" tipsSampleHead
+  );
+
+  # No cursor row means no bar: scrolling blind would wipe the visible screen,
+  # so the tip degrades to a plain trailing line instead.
+  tipsFallsBackToPlainLine = expectOk (
+    lib.strings.hasInfix "_icedos_tip_plain=1" tipsSampleHead
+    && lib.strings.hasInfix "printf '%b%s%b\\n' \"$DIM_GREEN\"" tipsSampleHead
+    && !lib.strings.hasInfix "i=$rows" tipsSampleHead
+  );
+
+  # The marker only suppresses nested bars while one is actually pinned; an
+  # exec'd child that runs icedos again must be able to pin its own.
+  tipsClearsActiveMarkerOnRestore = expectOk (
+    lib.strings.hasInfix "export ICEDOS_TIP_ACTIVE=1" tipsSampleHead
+    && lib.strings.hasInfix "unset ICEDOS_TIP_ACTIVE" tipsSampleHead
+  );
+
+  # The marker lands in an `env`/`sudo` argument list, so unquoted it word-splits
+  # and a crafted value injects assignments into the re-run as another user.
+  tipsMarkerForwardQuoted =
+    let
+      owner = tipsLib.requireConfigOwner;
+    in
+    expectOk (
+      lib.strings.hasInfix "\"ICEDOS_TIP_ACTIVE=\${ICEDOS_TIP_ACTIVE:-}\"" owner
+      && !lib.strings.hasInfix " ICEDOS_TIP_ACTIVE=\${" owner
+    );
+
+  tipsFootPreservesStatus =
+    expectEq "_icedos_tip_rc=$?\n_icedos_tip\nexit \"$_icedos_tip_rc\"\n"
+      (tipsFor {
+        enable = true;
+        list = [ "a tip" ];
+      }).foot;
+
+  # Signals must restore the region too; INT stays untrapped so leaves keep
+  # their own graceful Ctrl-C handling.
+  tipsSignalTrapsRestore = expectOk (
+    lib.strings.hasInfix "trap '_icedos_tip; exit $((128 + 15))' TERM" tipsSampleHead
+    && lib.strings.hasInfix "trap '_icedos_tip; exit $((128 + 1))' HUP" tipsSampleHead
+    && lib.strings.hasInfix "trap '_icedos_tip; exit $((128 + 3))' QUIT" tipsSampleHead
+  );
+
+  # An exec must finalize first or the region survives it. Counting guarded
+  # execs alone would miss an unguarded one, so compare against the total.
+  tipsExecLeavesFinalize =
+    let
+      sources = lib.concatMapStrings builtins.readFile [
+        ../modules/rebuild.nix
+        ../modules/nix.nix
+        ../modules/repl.nix
+        ../modules/git.nix
+        ../modules/nh.nix
+      ];
+      count = pattern: (builtins.length (builtins.split pattern sources) - 1) / 2;
+      # Every command position, not just line start (which misses `then exec …`)
+      # and not any position (which counts "and exec its main binary" in prose).
+      total = count "(\n[ \t]*|; +|then +|else +|do +|&& +|[|][|] +)exec ";
+      guarded = count "&& _icedos_tip[ \t]*(\n[ \t]*|; *)exec ";
+    in
+    expectOk (total > 0 && guarded == total);
+
+  # The file list above is hand-maintained, so pin `tipsCommands`: growing it
+  # trips here until the new leaf's module joins `tipsExecLeavesFinalize`.
+  tipsCommandsPinned = expectOk (
+    lib.strings.hasInfix ''tipsCommands = [ "rebuild" ];'' (builtins.readFile ../modules/toolset.nix)
+  );
+
+  # Leaves with their own EXIT trap compose the finalize in, and _icedos_tip
+  # no-ops once shown, so signal traps cannot double-scroll.
+  tipsTrapComposition = expectOk (
+    lib.strings.hasInfix "command -v _icedos_tip" (builtins.readFile ../modules/git.nix)
+    && lib.strings.hasInfix "command -v _icedos_tip" (builtins.readFile ../modules/nh.nix)
+    && lib.strings.hasInfix "_icedos_tip_shown" tipsSampleHead
+    && lib.strings.hasInfix "[ \"$_icedos_tip_shown\" -eq 1 ] && return 0" tipsSampleHead
+  );
+
+  # rpull's redraw must not erase to end of screen, and must save/restore with
+  # DECSC — SCOSC is not universal, and `\0337` is one octal byte to `printf %b`.
+  tipsRendererPreservesBar =
+    let
+      git = builtins.readFile ../modules/git.nix;
+    in
+    expectOk (
+      !lib.strings.hasInfix "\\033[J" git
+      && lib.strings.hasInfix "\\e7" git
+      && lib.strings.hasInfix "\\e8" git
+      && !lib.strings.hasInfix "\\033[s" git
+      && !lib.strings.hasInfix "\\033[u" git
+    );
+
+  # The list is embedded via escapeShellArg, so a quote in a tip must not
+  # survive verbatim into the generated script.
+  tipsEscapesQuotes = expectOk (!lib.strings.hasInfix "it's" (tipsHead [ "it's broken" ]));
+
+  # The bar prints onto one pinned row, so a newline reaching it would scroll
+  # the screen and leave the region without its bar.
+  tipsCollapsesNewlines = expectOk (lib.strings.hasInfix "'💡: a b c'" (tipsHead [ "a\nb\tc" ]));
+
+  # Every tip must be embedded; rotation happens at runtime. `one` etc. appear
+  # nowhere else in the snippet, so bare presence is a safe check here.
+  tipsAllEmbedded =
+    let
+      head = tipsHead [
+        "one"
+        "two"
+        "three"
+      ];
+    in
+    expectOk (
+      lib.strings.hasInfix "one" head
+      && lib.strings.hasInfix "two" head
+      && lib.strings.hasInfix "three" head
+    );
+
+  # Bare strings and title-less records take the lamp default, an explicit
+  # title renders "title: message", and an empty title drops both.
+  tipsRenderVariants = expectOk (
+    lib.strings.hasInfix "'💡: bare'" (tipsHead [ "bare" ])
+    && lib.strings.hasInfix "'💡: implicit'" (tipsHead [ { message = "implicit"; } ])
+    && lib.strings.hasInfix "'note: titled'" (tipsHead [
+      {
+        title = "note";
+        message = "titled";
+      }
+    ])
+    # escapeShellArg leaves a shell-safe word unquoted, so the empty-title tip
+    # has to be matched bare rather than inside the quotes the others get.
+    && lib.strings.hasInfix "plain\n)" (tipsHead [
+      {
+        title = "";
+        message = "plain";
+      }
+    ])
+    && !lib.strings.hasInfix "💡: plain" (tipsHead [
+      {
+        title = "";
+        message = "plain";
+      }
+    ])
+  );
+
+  # The prefix must come from CLR_LINE, blanked for a non-terminal stdout, or
+  # `icedos rebuild | cat` grows literal escape codes.
+  preludeClearLineStripped =
+    let
+      prelude = builtins.readFile ../lib/prelude.sh;
+    in
+    expectOk (
+      lib.strings.hasInfix "CLR_LINE='\\033[2K\\r'" prelude
+      && lib.strings.hasInfix "CLR_LINE=''" prelude
+      && !lib.strings.hasInfix "\\033[2K" (builtins.readFile ../modules/rebuild.nix)
+    );
+
+  tipsResizeTrap = expectOk (
+    lib.strings.hasInfix "trap _icedos_tip_winch WINCH" (tipsHead [ "one" ])
   );
 }

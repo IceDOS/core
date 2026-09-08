@@ -40,4 +40,8 @@ in
       }
     ];
   };
+
+  icedos.system.tips.list = [
+    "icedos rebuild --run-vm tries your config in a throwaway VM first."
+  ];
 }

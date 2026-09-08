@@ -9,6 +9,7 @@
 let
   inherit (config.icedos.system.toolset) commands desktopEntries sessionCommands;
   inherit (icedosLib.bash) prelude;
+  printTip = icedosLib.bash.printTip config.icedos.system.tips;
 
   inherit (icedosLib.toolset)
     mkBashCompletion
@@ -68,13 +69,13 @@ let
           leafCount = builtins.foldl' (acc: x: if x.hasScriptOrBin then acc + 1 else acc) 0 entries;
         in
         if n > 1 && anyBranch && anyLeaf then
-          builtins.abort ''
+          abort ''
             icedos toolset: command "${name}" is registered as BOTH a leaf (script/bin)
             and a branch (subcommands) by different modules. This is ambiguous —
             NixOS list ordering decides which definition wins. Use unique command
             names or consolidate the definitions into a single module.''
         else if n > 1 && leafCount > 1 then
-          builtins.abort ''
+          abort ''
             icedos toolset: command "${name}" has multiple leaf definitions
             (script/bin) from different modules (${toString leafCount} registrations).
             Only the first survives — rename or consolidate.''
@@ -87,7 +88,7 @@ let
     builtins.seq validated (
       map (
         cmd:
-        builtins.removeAttrs cmd [ "_entries" ]
+        removeAttrs cmd [ "_entries" ]
         // {
           commands = mergeCommands cmd.commands;
         }
@@ -116,12 +117,17 @@ let
     exec ${pkgs.systemd}/bin/run0 ${pkgs.systemd}/bin/systemctl suspend -i
   '';
 
+  tipsCommands = [ "rebuild" ];
+
+  # `tipsCommands` names top-level leaves, so `top` keeps a nested subcommand
+  # (or a repo module's leaf) that shares the name from inheriting a bar.
   resolve =
-    cmd:
+    top: cmd:
     let
-      resolvedChildren = map resolve cmd.commands;
+      resolvedChildren = map (resolve false) cmd.commands;
       hasChildren = cmd.commands != [ ];
       hasScript = cmd.script != "";
+      wrapTips = top && hasScript && builtins.elem cmd.command tipsCommands;
     in
     cmd
     // {
@@ -133,13 +139,17 @@ let
               commands = resolvedChildren;
             })
           )
+        else if wrapTips then
+          toString (
+            pkgs.writeShellScript cmd.command "${prelude}\n${printTip.head}\n${cmd.script}\n${printTip.foot}"
+          )
         else if hasScript then
           toString (pkgs.writeShellScript cmd.command "${prelude}\n${cmd.script}")
         else
           cmd.bin;
     };
 
-  resolvedCommands = map resolve mergedCommands;
+  resolvedCommands = map (resolve true) mergedCommands;
 
   flatten = cmd: [ cmd ] ++ concatMap flatten cmd.commands;
   allCommands = concatMap flatten mergedCommands;
@@ -329,4 +339,8 @@ in
       settings.Keywords = "suspend;sleep;";
     };
   };
+
+  icedos.system.tips.list = [
+    "Hide this bar with [icedos.system.tips] enable = false in config.toml."
+  ];
 }

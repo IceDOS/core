@@ -60,4 +60,8 @@ in
       '';
     }
   ];
+
+  icedos.system.tips.list = [
+    "icedos configuration diff shows what you changed since the last rebuild."
+  ];
 }
