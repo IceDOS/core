@@ -796,7 +796,8 @@ in
           };
         }
       )
-    ]).subFlakes ? icedos-config-extra-with-input
+    ]).subFlakes
+      ? icedos-config-extra-with-input
   );
   # Multi-segment follows whose first segment is a *sibling* input is legal and
   # emits no slot (base is not ambient).
@@ -2334,9 +2335,9 @@ in
           }
         )
       ]).nixosModules
-      {
-        inputs = { };
-      }
+        {
+          inputs = { };
+        }
     ) true
   );
 
@@ -2392,9 +2393,9 @@ in
             }
           )
         ]).nixosModules
-        {
-          inputs = { };
-        }
+          {
+            inputs = { };
+          }
       ) true
     );
 
@@ -2985,6 +2986,59 @@ in
           })
         )).x.service
       );
+
+  # --- _lockChainLocked / _lockRootRev (inputs.nix) ---
+  # The channel is reached root -> icedos -> cache-server in the config root lock.
+  lockChainConfigLock = expectEq "abc" (
+    (helpers._lockChainLocked {
+      lock.nodes = {
+        root.inputs.icedos = "icedos";
+        icedos.inputs.cache-server = "cache-server";
+        cache-server.locked.rev = "abc";
+      };
+      chain = [
+        "icedos"
+        "cache-server"
+      ];
+    }).rev
+  );
+
+  # A follows hop (array) resolves no node.
+  lockChainFollowsIsNull = expectEq null (
+    helpers._lockChainLocked {
+      lock.nodes.root.inputs.icedos-core = [
+        "icedos-config"
+        "icedos"
+      ];
+      chain = [ "icedos-core" ];
+    }
+  );
+
+  lockChainNoLockIsNull = expectEq null (
+    helpers._lockChainLocked {
+      lock = null;
+      chain = [ "icedos" ];
+    }
+  );
+
+  # Nix names a clashing node `nixpkgs_2`; the root input still resolves to it.
+  lockRootRevDisambiguatedKey = expectEq "root-rev" (
+    helpers._lockRootRev {
+      lock.nodes = {
+        root.inputs.nixpkgs = "nixpkgs_2";
+        nixpkgs.locked.rev = "config-rev";
+        nixpkgs_2.locked.rev = "root-rev";
+      };
+      name = "nixpkgs";
+    }
+  );
+
+  lockRootRevMissing = expectEq "" (
+    helpers._lockRootRev {
+      lock.nodes.root.inputs = { };
+      name = "home-manager";
+    }
+  );
 
   # --- _cacheRevLookup (inputs.nix) ---
   # Pure cache-channel lookup: exact key, else a "-<name>" suffixed node key.

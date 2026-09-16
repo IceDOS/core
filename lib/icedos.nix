@@ -54,58 +54,90 @@ let
       default = true;
     };
 
-    # cache-server's tracked-inputs.json revs (name -> rev | { rev; repo; }), resolved via the lock chain root -> icedos-config -> icedos -> cache-server.
-    # Genflake-only (baked into the sub-flake text); empty on a first build, resolves fresh and self-heals next run.
-    _cacheTrackedRevs =
+    # cache-server CI points this at a local channel (tracked-inputs.json + state.lock)
+    # so its own builds pin exactly what the run publishes.
+    _cacheChannelDir = builtins.getEnv "ICEDOS_CACHE_CHANNEL_DIR";
+
+    # Root of the cache channel (the cache-server `cache` branch), or null when pins
+    # are off. Genflake-only: the pins are baked into the generated flake text.
+    _cacheChannel =
       let
-        lock = icedosLib._readFlakeLock;
-        hop =
-          attrs: name:
-          let
-            v = attrs.${name} or null;
-          in
-          if builtins.isString v then v else null;
-        cfgKey = if lock == null then null else hop (lock.nodes.root.inputs or { }) "icedos-config";
-        coreKey = if cfgKey == null then null else hop (lock.nodes.${cfgKey}.inputs or { }) "icedos";
-        cacheKey =
-          if coreKey == null then null else hop (lock.nodes.${coreKey}.inputs or { }) "cache-server";
-        locked = if cacheKey == null then { } else (lock.nodes.${cacheKey} or { }).locked or { };
+        configLockPath = "${icedosLib.ICEDOS_CONFIG_ROOT}/flake.lock";
+        configLock =
+          if pathExists configLockPath then builtins.fromJSON (builtins.readFile configLockPath) else null;
+        stateLock = icedosLib._readFlakeLock;
+
+        # The config root lock is refreshed before genflake on --update; the state
+        # lock still describes the previous build, so it is only the fallback.
+        fromConfig = icedosLib._lockChainLocked {
+          lock = configLock;
+          chain = [
+            "icedos"
+            "cache-server"
+          ];
+        };
+        fromState = icedosLib._lockChainLocked {
+          lock = stateLock;
+          chain = [
+            "icedos-config"
+            "icedos"
+            "cache-server"
+          ];
+        };
+        locked = if fromConfig != null then fromConfig else fromState;
+
+        # `pinInputs` has no other symptom than "no cache hits", so say so rather than no-op.
+        warn =
+          msg:
+          builtins.trace "warning: icedos.system.cache.pinInputs is set, but ${msg}; inputs will resolve fresh" null;
+      in
+      if icedosLib.ICEDOS_STAGE != "genflake" then
+        null
+      else if _cacheChannelDir != "" then
+        _cacheChannelDir
+      else if !(config.system.cache.pinInputs or false) then
+        null
+      # First build with no lock at all: nothing to resolve the channel through yet.
+      else if configLock == null && stateLock == null then
+        null
+      else if locked == null then
+        warn "no lock reaches a cache-server input"
+      else if (locked.type or "") != "github" then
+        warn "the locked cache-server input is type '${locked.type or ""}', not github"
+      else
         # `host` only appears on self-hosted forges; without it a GitHub
         # Enterprise node would silently be fetched from github.com.
-        tree = fetchTree (
-          {
-            inherit (locked)
-              type
-              owner
-              repo
-              rev
-              ;
-          }
-          // lib.optionalAttrs (locked ? host) { inherit (locked) host; }
+        toString (
+          fetchTree (
+            {
+              inherit (locked)
+                type
+                owner
+                repo
+                rev
+                ;
+            }
+            // lib.optionalAttrs (locked ? host) { inherit (locked) host; }
+          )
         );
-      in
-      if (icedosLib.ICEDOS_STAGE != "genflake") || !(config.system.cache.pinInputs or false) then
-        { }
-      # First build: no state lock to resolve the channel through. Documented to
-      # self-heal on the next run, so it stays quiet.
-      else if lock == null then
-        { }
-      # The remaining empty results are NOT expected steady state, and `pinInputs`
-      # has no other symptom than "no cache hits" — so say so rather than no-op.
-      else if cacheKey == null then
-        builtins.trace
-          "warning: icedos.system.cache.pinInputs is set, but the state lock has no root -> icedos-config -> icedos -> cache-server chain; inputs will resolve fresh"
-          { }
-      else if (locked.type or "") != "github" then
-        builtins.trace
-          "warning: icedos.system.cache.pinInputs is set, but the locked cache-server input is type '${locked.type or ""}', not github; inputs will resolve fresh"
-          { }
-      else
-      # Pre-`tracked-inputs.json` channel publishes resolve fresh and self-heal.
-      if builtins.pathExists "${tree}/tracked-inputs.json" then
-        builtins.fromJSON (builtins.readFile "${tree}/tracked-inputs.json")
+
+    # tracked-inputs.json revs (name -> rev | { rev; repo; }) for module leaf inputs.
+    _cacheTrackedRevs =
+      if _cacheChannel != null && pathExists "${_cacheChannel}/tracked-inputs.json" then
+        builtins.fromJSON (builtins.readFile "${_cacheChannel}/tracked-inputs.json")
       else
         { };
+
+    # Rev of a generated root input (nixpkgs, home-manager) the cache was built with, "" when unknown.
+    _cacheRootRev =
+      name:
+      if _cacheChannel != null && pathExists "${_cacheChannel}/state.lock" then
+        icedosLib._lockRootRev {
+          lock = builtins.fromJSON (builtins.readFile "${_cacheChannel}/state.lock");
+          inherit name;
+        }
+      else
+        "";
 
     # Patch a flake source into a realised, context-free store path usable as a
     # locked `path:` input (readDir realises it; --raw genflake forbids context).

@@ -72,6 +72,32 @@ rec {
     in
     if pathExists lockPath then fromJSON (readFile lockPath) else null;
 
+  # `locked` of the node reached from `lock`'s root through the `chain` input names;
+  # null on a missing lock, a missing hop, or a follows (array) hop.
+  _lockChainLocked =
+    { lock, chain }:
+    let
+      hop =
+        key: name:
+        let
+          v = (lock.nodes.${key}.inputs or { }).${name} or null;
+        in
+        if builtins.isString v then v else null;
+      key = builtins.foldl' (k: name: if k == null then null else hop k name) "root" chain;
+    in
+    if lock == null || key == null then null else (lock.nodes.${key} or { }).locked or null;
+
+  # Locked rev of a root input, "" when absent, a follows, or unrevisioned.
+  _lockRootRev =
+    { lock, name }:
+    let
+      locked = _lockChainLocked {
+        inherit lock;
+        chain = [ name ];
+      };
+    in
+    if locked == null then "" else locked.rev or "";
+
   # Repo urls from --update-repos-select; empty when unset.
   _selectedRepos =
     let

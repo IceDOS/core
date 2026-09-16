@@ -186,11 +186,20 @@ let
     msg = "unknown repo(s): ${concatStringsSep " " updateReposSelectUnknown} — only repos listed in [[icedos.repositories]] can be selected";
   };
 
+  defaultNixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+  nixpkgsChannel = icedos.system.nixpkgsChannel or defaultNixpkgsChannel;
+
+  # Cache pins: the revs cache-server built with. The cache only follows the
+  # default channel, so a custom one stays unpinned.
+  nixpkgsCacheRev =
+    if nixpkgsChannel == defaultNixpkgsChannel then icedosLib._cacheRootRev "nixpkgs" else "";
+  homeManagerCacheRev = icedosLib._cacheRootRev "home-manager";
+
   nixpkgsInput = {
     name = "nixpkgs";
 
     value = {
-      url = icedos.system.nixpkgsChannel or "github:nixos/nixpkgs/nixos-unstable";
+      url = if nixpkgsCacheRev != "" then "github:nixos/nixpkgs/${nixpkgsCacheRev}" else nixpkgsChannel;
     };
   };
 
@@ -198,7 +207,10 @@ let
     name = "home-manager";
 
     value = {
-      url = "github:nix-community/home-manager";
+      url = icedosLib._appendRev {
+        baseUrl = "github:nix-community/home-manager";
+        rev = homeManagerCacheRev;
+      };
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

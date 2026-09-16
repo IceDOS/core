@@ -197,8 +197,8 @@ in
                 "";
           };
 
-          # Pin tracked leaf inputs to the revs cache-server last built
-          # (tracked-inputs.json): rebuilds reuse cached closures.
+          # Pin nixpkgs, home-manager and tracked module inputs to the revs
+          # cache-server last built (its `cache` branch): rebuilds reuse cached closures.
           pinInputs = mkBoolOption { default = false; };
 
           priority = mkNumberOption { default = 100; };
