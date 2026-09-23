@@ -280,10 +280,11 @@ in
             shopt -s nullglob
             for d in "''${CONFIG_DIRS[@]}"; do
               names="$(
-                for f in "$root/$d/"*.toml "$root/$d/".*.toml \
-                         "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do
-                  basename "$f"
-                done | sort -u
+                {
+                  shopt -s globstar dotglob
+                  for f in "$root/$d/"**/*.toml; do printf '%s\n' "''${f#"$root/$d/"}"; done
+                  for f in "${configRoot}/$d/"**/*.toml; do printf '%s\n' "''${f#"${configRoot}/$d/"}"; done
+                } | sort -u
               )"
               while IFS= read -r b; do
                 [ -n "$b" ] || continue

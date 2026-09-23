@@ -271,39 +271,40 @@ in
                   elif [ -f "''${snap}config.toml" ]; then
                     return 0
                   fi
-                  shopt -s nullglob
+                  shopt -s nullglob globstar dotglob
                   for d in "''${CONFIG_DIRS[@]}"; do
-                    for f in "../$d/"*.toml "../$d/".*.toml; do
-                      base="$(basename "$f")"
-                      diff -q "$f" "''${snap}$d/$base" &> /dev/null || { shopt -u nullglob; return 0; }
+                    for f in "../$d/"**/*.toml; do
+                      base="''${f#../$d/}"
+                      diff -q "$f" "''${snap}$d/$base" &> /dev/null || { shopt -u nullglob globstar dotglob; return 0; }
                     done
-                    for f in "''${snap}$d/"*.toml "''${snap}$d/".*.toml; do
-                      base="$(basename "$f")"
-                      [ -f "../$d/$base" ] || { shopt -u nullglob; return 0; }
+                    for f in "''${snap}$d/"**/*.toml; do
+                      base="''${f#"''${snap}$d/"}"
+                      [ -f "../$d/$base" ] || { shopt -u nullglob globstar dotglob; return 0; }
                     done
                   done
-                  shopt -u nullglob
+                  shopt -u nullglob globstar dotglob
                   return 1
                 }
 
                 # Snapshot the whole config set (hidden .*.toml included — gitignored, not
                 # secret) when it changed, so rollback can restore it exactly.
                 function snapshot_config_set() {
-                  local snap folder d f
+                  local snap folder d f rel
                   snap="$(latest_config_snapshot)"
                   config_set_changed "$snap" || return 0
                   folder="$CACHE_DIR/$(date -Is)"
                   mkdir -p "$folder"
                   : > "$folder/.config-set"                 # anchor (config.toml may be absent)
                   [ -f "../config.toml" ] && cp "../config.toml" "$folder/config.toml"
-                  shopt -s nullglob
+                  shopt -s nullglob globstar dotglob
                   for d in "''${CONFIG_DIRS[@]}"; do
-                    for f in "../$d/"*.toml "../$d/".*.toml; do
-                      mkdir -p "$folder/$d"
-                      cp "$f" "$folder/$d/$(basename "$f")"
+                    for f in "../$d/"**/*.toml; do
+                      rel="''${f#../$d/}"
+                      mkdir -p "$(dirname "$folder/$d/$rel")"
+                      cp "$f" "$folder/$d/$rel"
                     done
                   done
-                  shopt -u nullglob
+                  shopt -u nullglob globstar dotglob
                   CACHED_NAMES+=("config set")
                 }
 

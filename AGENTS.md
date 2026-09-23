@@ -91,7 +91,7 @@ nh os <switch|boot|build|build-vm> path:.
   (see `lib/genflake.nix`). A user's module dirs (`icedos.system.extraModules`, default
   `["modules"]`) are imported the same way.
 - User config beyond `config.toml` is autoloaded from the `icedos.system.extraConfigs`
-  dirs (default `["configs"]`): every `*.toml` (including hidden `.*.toml`) is enumerated
+  dirs (default `["configs"]`): every `*.toml` (including hidden `.*.toml`, recursing into subdirectories) is enumerated
   by `lib/config/config-files.nix` and strict-merged in, with `config.toml` as the base. Hidden
   `.*.toml` are a **gitignore-only** channel — their values are plaintext in the store (and
   rollback snapshots), so treat them as private, not secret. Both

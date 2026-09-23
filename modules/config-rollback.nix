@@ -129,14 +129,15 @@ in
         backup_dir="${cacheDir}/rollback-backups/$(date -Is)"
         mkdir -p "$backup_dir"
         [ -f "${workingConfig}" ] && cp "${workingConfig}" "$backup_dir/config.toml"
-        shopt -s nullglob
+        shopt -s nullglob globstar dotglob
         for d in "''${CONFIG_DIRS[@]}"; do
-          for f in "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do
-            mkdir -p "$backup_dir/$d"
-            cp "$f" "$backup_dir/$d/$(basename "$f")"
+          for f in "${configRoot}/$d/"**/*.toml; do
+            rel="''${f#"${configRoot}/$d/"}"
+            mkdir -p "$(dirname "$backup_dir/$d/$rel")"
+            cp "$f" "$backup_dir/$d/$rel"
           done
         done
-        shopt -u nullglob
+        shopt -u nullglob globstar dotglob
         echo "backed up current config set -> $backup_dir"
 
         # System first; config only if the system rollback succeeds.
@@ -152,18 +153,20 @@ in
           fi
           # Restore each dir's *.toml set exactly: copy the snapshot in, then drop
           # working files it didn't carry.
-          shopt -s nullglob
+          shopt -s nullglob globstar dotglob
           for d in "''${CONFIG_DIRS[@]}"; do
             mkdir -p "${configRoot}/$d"
-            for f in "$snap_root/$d/"*.toml "$snap_root/$d/".*.toml; do
-              cp "$f" "${configRoot}/$d/$(basename "$f")"
+            for f in "$snap_root/$d/"**/*.toml; do
+              rel="''${f#"$snap_root/$d/"}"
+              mkdir -p "$(dirname "${configRoot}/$d/$rel")"
+              cp "$f" "${configRoot}/$d/$rel"
             done
-            for f in "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do
-              b="$(basename "$f")"
-              [ -f "$snap_root/$d/$b" ] || rm -f "$f"
+            for f in "${configRoot}/$d/"**/*.toml; do
+              rel="''${f#"${configRoot}/$d/"}"
+              [ -f "$snap_root/$d/$rel" ] || rm -f "$f"
             done
           done
-          shopt -u nullglob
+          shopt -u nullglob globstar dotglob
           echo "restored config set from $snap"
         fi
         echo "done — system and config rolled back to generation $TARGET."

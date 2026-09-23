@@ -140,13 +140,13 @@ in
           for src in "${configRoot}/config.toml" "${configurationLocation}/flake.lock"; do
             [ -f "$src" ] && [ "$src" -nt "${modulesCache}" ] && stale=1
           done
-          shopt -s nullglob
+          shopt -s nullglob globstar dotglob
           for d in "''${CONFIG_DIRS[@]}"; do
-            for src in "${configRoot}/$d/"*.toml "${configRoot}/$d/".*.toml; do
+            for src in "${configRoot}/$d/"**/*.toml; do
               [ -f "$src" ] && [ "$src" -nt "${modulesCache}" ] && stale=1
             done
           done
-          shopt -u nullglob
+          shopt -u nullglob globstar dotglob
           if [ "$stale" -eq 1 ]; then
             chk_warn "index stale — run 'icedos configuration refresh'"
           fi

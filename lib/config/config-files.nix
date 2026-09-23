@@ -1,5 +1,5 @@
 # The ordered user config set -> [ { rel; content; } ]: config.toml, then every
-# `*.toml` (hidden included, `enable = false` skipped) under extraConfigs.
+# `*.toml` (hidden included, `enable = false` skipped) under extraConfigs, recursively.
 configRoot:
 let
   inherit (builtins)
@@ -34,26 +34,26 @@ let
   # Bootstrap value: read from config.toml only, never from the files it selects.
   extraConfigsDirs = main.icedos.system.extraConfigs or [ "configs" ];
 
-  # Every regular `*.toml` directly under `dir`, name-sorted for a deterministic
-  # merge order, parsed. Missing dirs contribute nothing.
+  # Every regular `*.toml` under `dir`, recursing into subdirectories, parsed.
+  # Sorted by relative path for a deterministic merge order. Missing dirs contribute nothing.
   tomlFilesIn =
     dir:
     let
       abs = "${configRoot}/${dir}";
+      entries = readDir abs;
+      names = attrNames entries;
+
+      files = map (n: {
+        rel = "${dir}/${n}";
+        content = readCfg "${abs}/${n}";
+      }) (filter (n: entries.${n} == "regular" && hasSuffix ".toml" n) names);
+
+      subdirs = filter (n: entries.${n} == "directory") names;
     in
     if !(pathExists abs) then
       [ ]
     else
-      let
-        entries = readDir abs;
-        names = sort (a: b: a < b) (
-          filter (n: entries.${n} == "regular" && hasSuffix ".toml" n) (attrNames entries)
-        );
-      in
-      map (n: {
-        rel = "${dir}/${n}";
-        content = readCfg "${abs}/${n}";
-      }) names;
+      sort (a: b: a.rel < b.rel) (files ++ concatMap (n: tomlFilesIn "${dir}/${n}") subdirs);
 
   # Extra config files. A top-level `enable = false` drops the file (default:
   # loaded). config.toml (the base) is never subject to this gate.

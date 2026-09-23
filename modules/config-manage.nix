@@ -113,13 +113,13 @@ let
                "${configurationLocation}/flake.lock"; do
       [ -f "$src" ] && [ "$src" -nt "${modulesCache}" ] && stale=1
     done
-    shopt -s nullglob
+    shopt -s nullglob globstar dotglob
     for d in "''${CONFIG_DIRS[@]}"; do
-      for src in "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml; do
+      for src in "${configurationLocation}/../$d/"**/*.toml; do
         [ -f "$src" ] && [ "$src" -nt "${modulesCache}" ] && stale=1
       done
     done
-    shopt -u nullglob
+    shopt -u nullglob globstar dotglob
 
     if [ "$stale" -eq 1 ]; then
       log_step "refreshing configuration index..."
@@ -146,17 +146,17 @@ let
       fi
 
       CONFIG_DIRS=(${configDirsArgs})
-      shopt -s nullglob
+      shopt -s nullglob globstar dotglob
       for d in "''${CONFIG_DIRS[@]}"; do
-        for f in "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml; do
+        for f in "${configurationLocation}/../$d/"**/*.toml; do
           PYTHONIOENCODING=utf-8 ${tomlEdit} find-repo "$f" "$repo_url" 2>/dev/null || continue
           if [ -n "$need_mod" ] && PYTHONIOENCODING=utf-8 ${tomlEdit} find-entry "$f" "$repo_url" "$need_mod" 2>/dev/null; then
-            printf '%s' "$f"; shopt -u nullglob; return 0
+            printf '%s' "$f"; shopt -u nullglob globstar dotglob; return 0
           fi
           [ -z "$best" ] && best="$f"
         done
       done
-      shopt -u nullglob
+      shopt -u nullglob globstar dotglob
 
       if [ -n "$best" ]; then printf '%s' "$best"; return 0; fi
       return 1

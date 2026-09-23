@@ -369,7 +369,7 @@ target = "shared"
 
 ### Splitting config across files (`configs/`)
 
-`config.toml` is the global base. Every `*.toml` under `configs/` (name-sorted) is autoloaded and **merged strictly** onto it — lists are joined; defining the same key in two files is an error. Split by concern (`configs/opencode.toml`, `configs/gaming.toml`, …) instead of one giant file. The scanned directories are `icedos.system.extraConfigs` (a list, default `["configs"]`).
+`config.toml` is the global base. Every `*.toml` under `configs/`, including subdirectories (sorted by relative path), is autoloaded and **merged strictly** onto it — lists are joined; defining the same key in two files is an error. Split by concern (`configs/opencode.toml`, `configs/gaming.toml`, …) instead of one giant file. The scanned directories are `icedos.system.extraConfigs` (a list, default `["configs"]`).
 
 Any extra config file can opt out of loading with a top-level `enable = false` (default `true`) — a quick per-file kill switch without deleting it. `config.toml`, when present, is the base and always loads.
 

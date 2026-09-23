@@ -222,7 +222,7 @@ in
         # config.toml only (bootstrap path).
         extraModules = mkStrListOption { default = [ "modules" ]; };
 
-        # Every *.toml (hidden .*.toml too) is merged onto config.toml. Read from
+        # Every *.toml (hidden .*.toml too, subdirectories included) is merged onto config.toml. Read from
         # config.toml only (bootstrap path).
         extraConfigs = mkStrListOption { default = [ "configs" ]; };
 

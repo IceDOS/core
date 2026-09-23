@@ -98,13 +98,13 @@ let
                    "${configurationLocation}/flake.lock"; do
           [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
         done
-        shopt -s nullglob
+        shopt -s nullglob globstar dotglob
         for d in "''${CONFIG_DIRS[@]}"; do
-          for src in "${configurationLocation}/../$d/"*.toml "${configurationLocation}/../$d/".*.toml; do
+          for src in "${configurationLocation}/../$d/"**/*.toml; do
             [ -f "$src" ] && [ "$src" -nt "$cache" ] && stale=1
           done
         done
-        shopt -u nullglob
+        shopt -u nullglob globstar dotglob
       done
 
       if [ "$stale" -eq 1 ]; then
