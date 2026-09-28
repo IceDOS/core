@@ -21,6 +21,19 @@ let
 
   inherit (icedosLib.pkgs) mapper;
 
+  nom = "${pkgs.nix-output-monitor}/bin";
+
+  # nix-build with nom progress on stderr when it is a terminal; stdout stays the out path.
+  nomBuild = ''
+    nom_build() {
+      if [ -t 2 ]; then
+        ( set -o pipefail; nix-build --log-format internal-json -v "$@" 2>&1 >&3 | ${nom}/nom --json ) 3>&1
+      else
+        nix-build "$@"
+      fi
+    }
+  '';
+
   # Wrapper expression so the bash script can evaluate with baked-in
   # configurationLocation and core input paths.
   buildPkgExpr = pkgs.writeText "icedos-build-pkg.nix" ''
@@ -104,7 +117,9 @@ in
               die "no generated flake at '${configurationLocation}'; run 'icedos rebuild' first."
             fi
 
-            OUT="$(nix-build --no-out-link --argstr packagePath "$PATH_ARG" -E '(import ${buildPkgExpr})')" || exit 1
+            ${nomBuild}
+
+            OUT="$(nom_build --no-out-link --argstr packagePath "$PATH_ARG" -E '(import ${buildPkgExpr})')" || exit 1
             read -r OUT <<< "$OUT"
 
             if [ -z "$RUN_ARG" ]; then
@@ -121,6 +136,8 @@ in
           help = "build a nixpkgs attribute and exec its main binary";
           script = ''
             ${prelude}
+
+            ${nomBuild}
 
             export NIXPKGS_ALLOW_UNFREE=1
 
@@ -200,7 +217,7 @@ in
               fi
             fi
 
-            STORE_PATH=$(nix-build '<nixpkgs>' --no-out-link -A "$PACKAGE" 2>/dev/null) || {
+            STORE_PATH=$(nom_build '<nixpkgs>' --no-out-link -A "$PACKAGE") || {
               echo -e "${redString "error"}: failed to build package '$PACKAGE'"
               exit 1
             }
@@ -278,7 +295,11 @@ in
           shift
         fi
 
-        nix-shell "$@"
+        if [ -t 2 ]; then
+          exec ${nom}/nom-shell "$@"
+        fi
+
+        exec nix-shell "$@"
       '';
     }
   ];
