@@ -2,15 +2,49 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import unittest
 
-from build.options import parse_args
+from build.options import parse_args, usage
 
 
 def _parse(argv: list[str]):
     # _die writes to stderr; keep the test output readable.
     with contextlib.redirect_stderr(io.StringIO()):
         return parse_args(argv)
+
+
+# Every flag a user can type; --export-search-index is internal and undocumented.
+_DOCUMENTED_FLAGS = [
+    "--ask",
+    "--boot",
+    "--build",
+    "--build-args",
+    "--build-vm",
+    "--builder",
+    "--dir",
+    "--dry",
+    "--dry-run",
+    "-n",
+    "--genflake-only",
+    "--github-token",
+    "--github-token-path",
+    "--help",
+    "-h",
+    "--logs",
+    "--nh-args",
+    "--run-vm",
+    "--target",
+    "--update",
+    "--update-core",
+    "--update-core-only",
+    "--update-hooks",
+    "--update-repo-inputs-only",
+    "--update-repos",
+    "--update-repos-only",
+    "--update-repos-select",
+    "--update-state-inputs",
+]
 
 
 class ParseArgsTest(unittest.TestCase):
@@ -93,6 +127,41 @@ class ParseArgsTest(unittest.TestCase):
         opts, _ = _parse(["--github-token", "tok", "--github-token-path", "/p"])
         self.assertEqual(opts.github_token, "tok")
         self.assertEqual(opts.github_token_path, "/p")
+
+    def test_dry_aliases_imply_genflake_only(self):
+        for flag in ("--dry", "--dry-run", "-n"):
+            opts, _ = _parse([flag])
+            self.assertTrue(opts.dry, flag)
+            self.assertTrue(opts.genflake_only, flag)
+
+    def test_genflake_only_is_not_a_dry_run(self):
+        opts, _ = _parse(["--genflake-only"])
+        self.assertTrue(opts.genflake_only)
+        self.assertFalse(opts.dry)
+
+    def test_update_hooks_is_parsed(self):
+        opts, _ = _parse(["--update-hooks"])
+        self.assertTrue(opts.update_hooks)
+
+    def test_dry_drops_update_hooks_with_a_warning(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            opts, _ = parse_args(["--update-hooks", "--dry"])
+        self.assertFalse(opts.update_hooks)
+        self.assertIn("--update-hooks ignored under --dry", err.getvalue())
+
+    def test_help_prints_usage_and_exits_zero(self):
+        for flag in ("--help", "-h"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as cm:
+                _ = parse_args(["--build", flag])
+            self.assertEqual(cm.exception.code, 0)
+            self.assertEqual(out.getvalue(), usage())
+
+    def test_usage_documents_every_flag(self):
+        text = usage()
+        for flag in _DOCUMENTED_FLAGS:
+            self.assertRegex(text, rf"(?m)^\s+(\S+, )*{re.escape(flag)}[\s,]", flag)
 
     def test_unknown_arg_exits(self):
         with self.assertRaises(SystemExit):
