@@ -104,7 +104,11 @@
                 local args=()
                 while [[ $# -gt 0 ]]; do
                   case "$1" in
-                    --dir) dir="$2"; shift 2 ;;
+                    --dir)
+                      [[ $# -ge 2 ]] || { echo "--dir requires a directory" >&2; return 1; }
+                      dir="$2"
+                      shift 2
+                      ;;
                     *) args+=("$1"); shift ;;
                   esac
                 done
@@ -163,8 +167,8 @@
             );
           }
           // lib.optionalAttrs (system == sourceCheckSystem) {
-            # `build/` is pure-python; the orchestrator's arg parsing, lock
-            # reading, and token precedence are all testable without a build.
+            # `build/` is pure-python; arg parsing, lock reading, token precedence,
+            # hooks, snapshots and the phase order are all testable without a build.
             python-tests =
               pkgs.runCommand "icedos-python-tests"
                 {

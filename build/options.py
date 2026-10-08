@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import NoReturn
+
+from .term import log_warn
 
 
 @dataclass
@@ -10,8 +13,10 @@ class Options:
     action: str = "switch"
     run_vm: bool = False
     genflake_only: bool = False
+    dry: bool = False
     export_search_index: bool = False
     update_all: bool = False
+    update_hooks: bool = False
     update_core: bool = False
     update_core_only: bool = False
     update_repos: bool = False
@@ -49,6 +54,11 @@ def _take_list(flag: str, value: str) -> list[str]:
     if not parsed:
         _die(f"error: {flag} received an empty list")
     return parsed
+
+
+# Shared with the shim, which `cat`s the same file for `icedos rebuild --help`.
+def usage() -> str:
+    return (Path(__file__).parent / "usage.txt").read_text()
 
 
 def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
@@ -144,7 +154,21 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
         elif arg == "--logs":
             opts.logs = True
             i += 1
+        elif arg in ("--dry", "--dry-run", "-n"):
+            opts.dry = True
+            opts.genflake_only = True
+            i += 1
+        elif arg == "--update-hooks":
+            opts.update_hooks = True
+            i += 1
+        elif arg in ("--help", "-h"):
+            print(usage(), end="")
+            raise SystemExit(0)
         else:
             _die(f"Unknown arg: {arg}")
+
+    if opts.dry and opts.update_hooks:
+        log_warn("--update-hooks ignored under --dry")
+        opts.update_hooks = False
 
     return opts, previous_arguments

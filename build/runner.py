@@ -37,7 +37,7 @@ def build(env: BuildEnv, opts: Options) -> None:
     build_dir = Path(tempfile.mkdtemp(prefix="icedos-build-", suffix="-0"))
     os.environ["ICEDOS_BUILD_DIR"] = str(build_dir)
 
-    # Held open for the whole build (and the VM exec), so flock isn't released early.
+    # Held open for the whole build (and the VM run), so flock isn't released early.
     lock_file = open(build_dir / ".lock", "w")  # noqa: SIM115
     os.set_inheritable(lock_file.fileno(), True)
     try:
@@ -93,7 +93,12 @@ def build(env: BuildEnv, opts: Options) -> None:
                 f"error: expected exactly one VM script, got: {names}", file=sys.stderr
             )
             raise SystemExit(1)
-        # The VM script defaults NIX_DISK_IMAGE to ./<vmName>.qcow2, so it must run
-        # from the temp build dir — otherwise the image lands in the config root.
-        os.chdir(build_dir)
-        os.execv(str(scripts[0]), [str(scripts[0])])
+        # The VM script defaults NIX_DISK_IMAGE to ./<vmName>.qcow2, so it runs in the
+        # build dir, and as a child so the post-build phases run after it exits.
+        try:
+            vm = subprocess.run([str(scripts[0])], cwd=build_dir, check=False)
+        except KeyboardInterrupt:
+            print("interrupted while the VM was running", file=sys.stderr)
+            raise SystemExit(130) from None
+        if vm.returncode != 0:
+            raise SystemExit(vm.returncode)
