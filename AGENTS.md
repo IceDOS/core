@@ -302,32 +302,32 @@ Reference callers: `core/modules/git.nix`, `apps/modules/codium/icedos.nix`,
 
 **Rule 2 — nest a sub-feature under the parent user submodule ONLY when it is genuinely
 part of that parent; a standalone module keeps its OWN `.users` tree and is *consumed*.**
-- **Nest** when the feature belongs to one parent (e.g. `climit` is part of claude-code):
+- **Nest** when the feature belongs to one parent (e.g. `gnome` per-user settings belong to `desktop`):
   the feature's module contributes a **nested** sub-option — declares
   `options.icedos.<parent>.users = mkSubmoduleAttrsOption <args> { <feature> = {…}; }` —
   rather than a parallel `icedos.<parent>.<feature>.users`; the always-loaded parent's
   `genDefaults` materialises it (see Rule 2a for the `default` caveat). Also applies to the
   DE per-user contributions (`gnome`, `cosmic` → `desktop.users.<n>.…`).
-- **Do NOT nest** a standalone module that several parents use. `peon-ping` is its own apps
-  module (`icedos.applications.peon-ping.users.<n>`) with its own upstream package;
-  claude-code and opencode **consume** it — they read `config.icedos.applications.peon-ping.users`
+- **Do NOT nest** a standalone module that several parents use. `peon-ping` is its own ai-tools
+  module (`icedos.ai-tools.peon-ping.users.<n>`) with its own upstream package;
+  claude-code and opencode **consume** it — they read `config.icedos.ai-tools.peon-ping.users`
   to detect it (`builtins.hasAttr user peonPingUsers` / `peonPingUsers != {}`) and wire their
   own hooks/plugins — they do not own its config.
 
 | Feature | Path | Materialised by |
 |---|---|---|
-| climit (part of claude-code) | `applications.claude-code.users.<n>.climit` | claude-code `default` (nested) |
 | gnome per-user | `desktop.users.<n>.gnome` | `desktop/default` (nested) |
 | cosmic per-user | `desktop.users.<n>.cosmic` | `desktop/default` (nested) |
-| peon-ping (standalone module) | `applications.peon-ping.users.<n>` | peon-ping itself (own `genDefaults`) |
+| peon-ping (standalone module) | `ai-tools.peon-ping.users.<n>` | peon-ping itself (own `genDefaults`) |
+| alimit (standalone module) | `ai-tools.alimit.users.<n>` | alimit itself (own `genDefaults`) |
 
 (Option-path segments are **kebab-case** — `peon-ping`, not `peonPing`; `-` is a valid Nix
 identifier char, so it works unquoted in declarations, `.` selection, and the `?` operator.
 Last-level leaf options keep their existing casing, e.g. `defaultPack`, `fontSize`.)
 
 > **⚠ Rule 2a — exactly ONE declaration per path may set `default`.** When two modules
-> declare the same `attrsOf submodule` option (e.g. `default` + `climit` both declaring
-> `claude-code.users`), nixpkgs must `typeMerge` them. Two declarations that **both**
+> declare the same `attrsOf submodule` option (e.g. `desktop/default` + `gnome` both declaring
+> `desktop.users`), nixpkgs must `typeMerge` them. Two declarations that **both**
 > carry `default = {}` do **not** merge — eval dies with
 > `The option '…' is already declared in '…'` (surfacing as a `head`/`assertions` trace).
 > The fix: only the **always-loaded owner** uses `mkSubmoduleAttrsOption { default = {}; }`
