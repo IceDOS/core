@@ -83,6 +83,17 @@ nh os <switch|boot|build|build-vm> path:.
   prompt) it warns and continues without the token. A literal
   `icedos.system.githubToken` is baked into the world-readable nix store, so
   genflake emits a `builtins.trace` warning on every eval while it is set.
+- **`icedos rebuild`.** `modules/rebuild.nix` is a thin bash shim. It prints help
+  from `build/usage.txt`, handles `--dir`, pre-resolves the token and runs the owner
+  check. Then it calls `.state/build.sh` with `ICEDOS_REBUILD_CONTEXT`, a store JSON
+  that holds the hook script paths and `extraConfigs`, and with the invoking shell's
+  `PATH`, `NIX_CONFIG` and `PYTHONPATH` as `ICEDOS_ORIG_*`. With that context `build/`
+  runs the whole flow: hooks in `build/hooks.py`, the config snapshot, flake-file
+  cache and generation pointer in `build/snapshot.py`, and the reboot check in
+  `build/reboot.py`. Without it, as with `--dir`, the dev shell, `configuration search`
+  or an older shim, `build/` only generates, locks and builds. `--update`,
+  `--update-core` and `--update-core-only` update the config flake lock and re-exec
+  `nix run path:.` before any hook, so the updated core runs every phase.
 - **`lib/genflake.nix`** — evaluates the merged config through `evalModules`
   (this is where `validate.*` fires), resolves external repos, and emits the state
   flake as a Nix string (`flakeFinal`). Also exposes `optionsDoc` / `modulesDoc`
@@ -110,6 +121,28 @@ nh os <switch|boot|build|build-vm> path:.
   (packages, `null`, `mkForce`, `lib.*`). Because the namespace is "everything except
   `icedos`", a stray top-level key (e.g. a `[applications.btop]` missing its `icedos.`
   prefix) fails loud as an unknown NixOS option — which is the intended safety net.
+
+### `icedos rebuild` across core versions
+
+The rebuild shim ships in the system closure, but `nix run path:.` runs the core
+locked in the config flake, and `--update-core` or a `path:` core moves that lock
+ahead of the system. Keep both directions working:
+
+1. A core started without `ICEDOS_REBUILD_CONTEXT` behaves like the plain
+   orchestrator. It runs no hooks, snapshot or reboot check, because an older shim
+   does those itself, and it still accepts `--genflake-only`, which older shims send
+   for `--dry`.
+2. The context JSON (`version`, `configDirs`, `hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`)
+   only grows. `build/context.py` defaults missing keys and ignores unknown ones.
+3. These names never change: `ICEDOS_REBUILD_CONTEXT`, `ICEDOS_ORIG_PATH`,
+   `ICEDOS_ORIG_NIX_CONFIG`, `ICEDOS_ORIG_PYTHONPATH` and `skip_update_core`. An older
+   core re-execs a newer one with `skip_update_core=1`. If the newer core looked for
+   another name, it would update and re-exec forever.
+4. A config lock behind the system, meaning a newer shim with an older core, is
+   unsupported. Hooks, the snapshot and the reboot check stop without a message, and
+   `--dry` fails with `Unknown arg`. It happens when you switch on a `path:` core and
+   go back to `github:icedos/core` before pushing. Push core, then run
+   `icedos rebuild --update-core`.
 
 ## 4. The core library (`lib/`)
 
@@ -467,7 +500,7 @@ at your checkout, and enable/configure the module you touched) → run `icedos r
 | Check | What it does |
 |---|---|
 | `lib-tests` | Evaluates `tests/tests.nix`; fails if any result is not "ok" (or the eval throws). |
-| `python-tests` | `unittest` over `build/tests/` — the orchestrator's arg parsing, `flake.lock` reading, and GitHub-token precedence, all pure functions needing no build. |
+| `python-tests` | `unittest` over `build/tests/`: arg parsing, `flake.lock` reading, GitHub-token precedence, the rebuild context, the hook env and runner, the snapshot and generation-pointer layout, reboot detection, the phase order in `main`, and the names the shim and `build/` share. Pure functions and temp-dir fixtures, no build. |
 | `nixfmt-check` | `nixfmt --check` over every `*.nix`; without it a commit lands unformatted and the next one absorbs the reformat. |
 
 Run it **without `--no-build`**: `lib-tests` reaches `builtins.path`/`readDir` on a
@@ -598,7 +631,7 @@ icedos.system.toolset.commands = [{
   where the build PATH (`nh`, `nixfmt`, `jsonfmt`, …) is **absent** — splice
   `${pkgs.jq}/bin/jq`, not bare `jq`. `jq` is not on the build PATH either (the Python
   orchestrator parses JSON itself), so this holds everywhere — there is no context in
-  which a bare `jq` resolves. (Only the `build/` orchestrator runs with those on PATH.)
+  which a bare `jq` resolves. (Only the `build/` orchestrator runs with those on PATH; rebuild hooks get the invoking shell's PATH back.)
 - **No `compgen`** — `writeShellScript` bash lacks it (see §9); parse args with
   `while`/`case` + `nullglob` arrays.
 - **Two built-in extension points:**
@@ -664,6 +697,9 @@ colours and `CLR_LINE` auto-strip when stdout isn't a TTY). A hook runs in its o
 shell, so it never owns the tips bar — it inherits `ICEDOS_TIP_ACTIVE` from the
 rebuild that spawned it and must not pin one of its own.
 
+Rebuild hooks are started by the Python orchestrator in `build/hooks.py`, which reads
+their store paths from the rebuild context. Gc hooks are started by `modules/nh.nix`.
+
 ### Execution identity — hooks don't run as root by default
 
 | Hook | Invoked by | Runs as |
@@ -690,19 +726,32 @@ nh's process, not the hooks. Write **identity-independent** hooks (e.g. `unshade
 sweeping `~/.cache`) that make sense for any user rather than assuming a specific
 `$USER`/`$HOME`. A config with no normal users skips gc hooks in both paths.
 
-Environment a hook can rely on:
+Environment a rebuild hook can rely on. Its cwd is the `.state` dir.
 
 | Var | Set by | Notes |
 |---|---|---|
 | `ICEDOS_CONFIG_ROOT` | build app (`flake.nix`) | the config root. |
 | `ICEDOS_STATE_DIR` | build app | the `.state` dir. |
-| `ICEDOS_ROOT` | build app | the core store path. |
-| `ICEDOS_BUILD_DIR` | `build/` | temp build dir — set **after** the orchestrator starts, so **not** available in `preRebuild`/`preUpdate` (they run before it). |
+| `ICEDOS_ROOT` | build app | store path of the core running this rebuild. After `--update-core`, the updated core. |
+| `ICEDOS_BUILD_DIR` | `build/` | temp build dir. The build step sets it, so only `postUpdate` and `postRebuild` see it. |
 | `ICEDOS_HOOKS_ONLY=1` | `--update-hooks` only | tells `pre/postUpdate` that no HM activation follows, so they must complete standalone. |
-| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` / `ICEDOS_UPDATE_MODULE_INPUTS` / `ICEDOS_UPDATE_REPOS_SELECT` | eval-internal | don't depend on these in runtime hooks. |
+| `PATH`, `NIX_CONFIG`, `PYTHONPATH` | the invoking shell | restored from the shim's `ICEDOS_ORIG_*`, so hooks never see the build PATH or the token-bearing `NIX_CONFIG`. `ICEDOS_GITHUB_TOKEN` is removed. |
+| `ICEDOS_LOGGING` / `ICEDOS_STAGE` / `ICEDOS_UPDATE` / `ICEDOS_UPDATE_MODULE_INPUTS` / `ICEDOS_UPDATE_REPOS_SELECT` / `NIXPKGS_ALLOW_UNFREE` | eval-internal | don't depend on these in runtime hooks. |
 
-Order (`modules/rebuild.nix`): `--update-hooks` short-circuit (pre+postUpdate, then
-exit) → `preRebuild` → `preUpdate` (only with `--update`) → `build/` → `postUpdate`
-(only with `--update`) → config snapshot → `postRebuild` → reboot check. `preUpdate`/
-`postUpdate` fire only with `--update`; run them alone (no build) via
-`icedos rebuild --update-hooks` (e.g. `flatpak update`).
+Order, from `build/main.py`:
+
+1. `--update-hooks` runs `preUpdate` and `postUpdate`, then exits. No token, no build.
+2. Token resolution. With `--update`, `--update-core` or `--update-core-only`, the
+   config lock update and the re-exec follow, so the updated core runs everything below.
+3. `preRebuild`, then `preUpdate` (only with `--update`).
+4. Flake generation, the lock, `nh`.
+5. `postUpdate` (only with `--update`).
+6. Config snapshot, flake-file cache, and the generation pointer when the system profile moved.
+7. `postRebuild`.
+8. Reboot check, after a switch only.
+
+`--dry` and `--genflake-only` run no hooks and stop after the lock in step 4. A hook
+that exits non-zero logs a warning and the rebuild continues. Ctrl-C during a hook
+stops the rebuild with exit 130. `preUpdate` and `postUpdate` fire only with
+`--update`; run them alone, without a build, via `icedos rebuild --update-hooks`
+(e.g. `flatpak update`).

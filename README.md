@@ -395,6 +395,8 @@ postGc = [ "echo 'after gc'" ]
 
 `preUpdate`/`postUpdate` only fire when `--update` is passed. You can also run them on their own — without a system rebuild — via `icedos rebuild --update-hooks` (handy for refreshing non-Nix things like `flatpak update`).
 
+Rebuild hooks run in your config's `.state` directory with your shell's `PATH`. They can read `ICEDOS_CONFIG_ROOT` and `ICEDOS_STATE_DIR`, and `postUpdate`/`postRebuild` also get `ICEDOS_BUILD_DIR`. Your GitHub token is never passed to a hook. A hook that fails prints a warning and the rebuild carries on; Ctrl-C stops the rebuild. With `--update`, `--update-core` or `--update-core-only`, the rebuild updates the core first and restarts on it, so the updated core runs your hooks.
+
 Hooks don't run as root by default. Rebuild hooks always run as the invoking user. Gc hooks run once per normal user, as that user — identically from `icedos gc` and from the automatic `nh-clean.service` timer (the command elevates once with `sudo` and runs all per-user invocations inside that single root context). A hook may still escalate itself with `sudo` where its user has permission. Write identity-independent gc hooks (e.g. sweeping `~/.cache`) rather than assuming a specific `$USER`/`$HOME`.
 
 ### Patches (without forking)
@@ -493,7 +495,7 @@ leaves the bar at its old coordinates until that build step finishes.
 icedos rebuild [FLAGS] [--build-args <extra rebuild args...>]
 ```
 
-With no flags this is a `switch`: it builds your configuration and activates it now. After a switch that changed the kernel or initrd, IceDOS offers to reboot. Each successful rebuild also snapshots your `config.toml` and generated flake files into a timestamped `.cache/` folder whenever they change — that's what `configuration rollback` restores.
+With no flags this is a `switch`: it builds your configuration and activates it now. After a switch that changed the kernel or initrd, IceDOS offers to reboot. Each successful rebuild also copies whatever changed among your config files (`config.toml` and the `configs/` dirs) and the config and state flake files into one timestamped `.cache/` folder. `configuration rollback` restores your config from there.
 
 Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher API rate limits, private `github:` inputs). A literal token is resolved first: `--github-token <token>`, then the `ICEDOS_GITHUB_TOKEN` env var. Otherwise a token file is used: `--github-token-path <path>`, the `ICEDOS_GITHUB_TOKEN_PATH` env var, or the `icedos.system.githubTokenPath` option (default `/etc/icedos-github-token`). A token file your user can't read is fetched with `sudo cat` — you'll be asked for your sudo password once (on a terminal); in non-interactive sessions the rebuild falls back to running without the token. The toolset wrapper resolves the same file before invoking the orchestrator and exports `NIX_CONFIG`, so nix calls that precede it (e.g. a stale-lock `nix run` re-resolving `github:` inputs) authenticate as well. Avoid `icedos.system.githubToken` (a literal token in `config.toml`): it gets baked into the world-readable nix store, and every rebuild warns about it.
 
@@ -511,9 +513,9 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 
 | Flag | Effect | Typical use |
 | --- | --- | --- |
-| `--update` | Update everything (core, nixpkgs, module repos, and module-declared inputs) in one blanket bump. | Full update. |
-| `--update-core` | Update all config flake inputs, then re-run the command once. | Update IceDOS itself plus all dependencies. |
-| `--update-core-only` | Update only the `icedos` input in the config flake. | Update IceDOS core without touching other inputs. |
+| `--update` | Update everything (core, nixpkgs, module repos, and module-declared inputs) in one blanket bump. The rebuild restarts on the updated core before any hook runs. | Full update. |
+| `--update-core` | Update all config flake inputs, then restart the rebuild on the updated core, hooks included. | Update IceDOS itself plus all dependencies. |
+| `--update-core-only` | Update only the `icedos` input in the config flake, then restart the rebuild on the updated core. | Update IceDOS core without touching other inputs. |
 | `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
 | `--update-repos` | Pull new revisions of the IceDOS module repos **and** re-lock their declared inputs. | Get latest modules and bump their dependencies. |
 | `--update-repos-only` | Pull new revisions of the IceDOS module repos only. Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (one-build lag, self-healing). | Get latest modules without bumping their dependencies. |

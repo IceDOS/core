@@ -1,0 +1,32 @@
+Usage: icedos rebuild [flags]
+
+Flags:
+  --dry, -n, --dry-run      validate flake generation without building
+                            (regenerates .state/flake.nix, refreshes path input
+                            locks; does NOT evaluate nixosConfigurations so
+                            module-body errors remain out of scope)
+  --logs                    show full build log with --show-trace
+  --github-token <token>    literal GitHub token for nix github.com fetches
+  --github-token-path <path>
+                            file holding a GitHub token for nix github.com fetches
+  --dir <dir>               use alternate config directory
+  --update                  update everything (core, nixpkgs, repos, repo inputs) + run update hooks
+  --update-hooks            run update hooks only (pre+post), no build
+  --build                   build closure without switching
+  --boot                    build and set as boot entry
+  --update-core             update all config flake inputs, then rerun on the updated core
+  --update-core-only        update only the icedos input, then rerun on the updated core
+  --update-state-inputs <list> update specific state flake inputs before rebuild
+  --update-repos            update repos + their inputs before rebuild
+  --update-repos-only       update repos only before rebuild
+  --update-repos-select <list> update specific repos (space-separated urls) before rebuild
+  --update-repo-inputs-only update repo inputs only before rebuild
+  --build-vm                build a VM test image
+  --run-vm                  build and run a VM test image
+  --genflake-only           generate .state/flake.nix and exit (--dry's underlying mechanism)
+  --ask                     ask for confirmation before applying (nh os -a)
+  --builder <host>          build the system on a remote host
+  --target <host>           deploy/activate the built system on a remote host
+  --nh-args ...             forward extra args to nh os (consumes until --build-args)
+  --build-args ...          forward all remaining args to the final rebuild command (must be last)
+  --help, -h                show this message

@@ -68,8 +68,8 @@ in
         [ -e "$link" ] || die "generation $TARGET not found"
         [ "$TARGET" = "$current_n" ] && die "generation $TARGET is already current"
 
-        # Resolved from the marker rebuild.sh records at build time; generations
-        # older than the marker roll back system-only.
+        # Resolved from the pointer build/snapshot.py records at build time;
+        # generations older than the pointer roll back system-only.
         m="$(stat -c %Y "$link" 2>/dev/null)"
         ${walk}
         snap_file="${cacheDir}/generations/$TARGET"

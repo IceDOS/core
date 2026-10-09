@@ -296,9 +296,11 @@ in
         fi
 
         if [ -t 2 ]; then
+          command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip
           exec ${nom}/nom-shell "$@"
         fi
 
+        command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip
         exec nix-shell "$@"
       '';
     }
