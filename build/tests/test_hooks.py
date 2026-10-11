@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from build.context import CONTEXT_ENV, RebuildContext
-from build.hooks import hook_env, run_hooks
+from build.hooks import HookFailed, hook_env, run_hooks
 
 _BASE = {
     "PATH": "/build/bin:/usr/bin",
@@ -81,6 +81,7 @@ class RunHooksTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.dir = Path(tmp.name).resolve()
         self.log = self.dir / "log"
+        self.exit_code: object = None
 
     def hook(self, label: str, code: int = 0) -> str:
         path = self.dir / f"hook-{label}"
@@ -97,7 +98,10 @@ class RunHooksTest(unittest.TestCase):
         ctx = RebuildContext(config_dirs=("configs",), hooks=hooks)
         err = io.StringIO()
         with mock.patch.dict(os.environ, _BASE), contextlib.redirect_stderr(err):
-            run_hooks(ctx, name, cwd=self.dir, **kwargs)
+            try:
+                run_hooks(ctx, name, cwd=self.dir, **kwargs)
+            except HookFailed as exc:
+                self.exit_code = exc.code
         return err.getvalue()
 
     def lines(self) -> list[str]:
@@ -112,17 +116,19 @@ class RunHooksTest(unittest.TestCase):
         )
         self.assertEqual(self.lines(), [f"a {self.dir} - -", f"b {self.dir} - -"])
 
-    def test_a_failing_hook_warns_and_the_next_one_runs(self):
-        hooks = {"postRebuild": (self.hook("bad", code=3), self.hook("good"))}
+    def test_a_failing_hook_stops_with_its_exit_code(self):
+        hooks = {"postRebuild": (self.hook("bad", code=3), self.hook("next"))}
         err = self.run_hooks(hooks, "postRebuild")
-        self.assertEqual(self.labels(), ["bad", "good"])
-        self.assertIn("postRebuild hook 0 exited with code 3", err)
+        self.assertEqual(self.labels(), ["bad"])
+        self.assertEqual(self.exit_code, 3)
+        self.assertIn("error: postRebuild hook 0 exited with code 3", err)
 
-    def test_a_missing_script_warns_and_the_next_one_runs(self):
+    def test_a_missing_script_stops_with_127(self):
         hooks = {"preUpdate": (str(self.dir / "gone"), self.hook("next"))}
         err = self.run_hooks(hooks, "preUpdate")
-        self.assertEqual(self.labels(), ["next"])
-        self.assertIn("preUpdate hook 0 could not start", err)
+        self.assertEqual(self.labels(), [])
+        self.assertEqual(self.exit_code, 127)
+        self.assertIn("error: preUpdate hook 0 could not start", err)
 
     def test_hooks_only_reaches_the_hook(self):
         _ = self.run_hooks(

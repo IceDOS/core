@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .context import BuildEnv, RebuildContext, from_environment, load_rebuild_context
 from .genflake import export_search_index, generate_flake
-from .hooks import run_hooks
+from .hooks import HookFailed, run_hooks
 from .options import Options, parse_args
 from .reboot import offer_reboot
 from .runner import build
@@ -155,13 +155,14 @@ def _rebuild(
 
     if wrapped is None:
         return 0
-    if opts.update_all:
-        run_hooks(wrapped, "postUpdate", cwd=env.state_dir)
+    # Recorded before the post hooks, so a failing one still leaves the snapshot.
     try:
         record_rebuild(env, opts, wrapped, previous_generation=before)
     except KeyboardInterrupt:
         print("interrupted after build", file=sys.stderr)
         raise SystemExit(130) from None
+    if opts.update_all:
+        run_hooks(wrapped, "postUpdate", cwd=env.state_dir)
     run_hooks(wrapped, "postRebuild", cwd=env.state_dir)
     offer_reboot(opts)
     return 0
@@ -193,8 +194,9 @@ def main(argv: list[str] | None = None) -> int:
         return _rebuild(env, opts, ctx, previous_arguments)
     except SystemExit as exc:
         code = _exit_code(exc)
-        # 130 already got its own interrupt report.
-        if ctx is not None and not opts.dry and code not in (0, 130):
+        # 130 and hook failures already got their own report.
+        reported = code in (0, 130) or isinstance(exc, HookFailed)
+        if ctx is not None and not opts.dry and not reported:
             print(
                 f"{clr_line()}{paint(RED, 'error')}: build failed with exit code {code}"
             )

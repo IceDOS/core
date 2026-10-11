@@ -752,13 +752,16 @@ Order, from `build/main.py`:
    config lock update and the re-exec follow, so the updated core runs everything below.
 3. `preRebuild`, then `preUpdate` (only with `--update`).
 4. Flake generation, the lock, `nh`.
-5. `postUpdate` (only with `--update`).
-6. Config snapshot, flake-file cache, and the generation pointer when the system profile moved.
+5. Config snapshot, flake-file cache, and the generation pointer when the system profile moved.
+6. `postUpdate` (only with `--update`).
 7. `postRebuild`.
 8. Reboot check, after a switch only.
 
-`--dry` and `--genflake-only` run no hooks and stop after the lock in step 4. A hook
-that exits non-zero logs a warning and the rebuild continues. Ctrl-C during a hook
+`--dry` and `--genflake-only` run no hooks and stop after the lock in step 4. The first
+hook that exits non-zero, or cannot start, prints an error and stops the rebuild with
+its exit code (127 or 126 when it cannot start), so later hooks and phases don't run.
+A hook whose failure is acceptable ends with `|| true`. The snapshot is taken before
+`postUpdate`, so a failing post hook still leaves it. Ctrl-C during a hook
 stops the rebuild with exit 130. `preUpdate` and `postUpdate` fire only with
 `--update`; run them alone, without a build, via `icedos rebuild --update-hooks`
 (e.g. `flatpak update`).

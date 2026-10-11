@@ -34,3 +34,7 @@ def log_ok(message: str) -> None:
 
 def log_warn(message: str) -> None:
     print(f"{paint(YELLOW, '⚠')} {message}", file=sys.stderr, flush=True)
+
+
+def log_error(message: str) -> None:
+    print(f"{clr_line()}{paint(RED, 'error')}: {message}", file=sys.stderr, flush=True)

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .context import CONTEXT_ENV, RebuildContext
-from .term import log_warn
+from .term import log_error
 
 # The shim passes the invoking shell's value of each RESTORED_VARS entry under
 # this prefix; an empty value means the variable was unset.
@@ -41,7 +41,12 @@ def hook_env(environ: Mapping[str, str], *, hooks_only: bool) -> dict[str, str]:
     return env
 
 
-# A failing hook warns and the rebuild goes on; Ctrl-C stops the whole rebuild.
+# Carries the hook's exit code; the error line is already printed.
+class HookFailed(SystemExit):
+    pass
+
+
+# The first failing hook stops the rebuild; a hook that may fail opts out with `|| true`.
 def run_hooks(
     ctx: RebuildContext, name: str, *, cwd: Path, hooks_only: bool = False
 ) -> None:
@@ -58,7 +63,10 @@ def run_hooks(
             print(f"interrupted during {name} hook {i}", file=sys.stderr)
             raise SystemExit(130) from None
         except OSError as exc:
-            log_warn(f"{name} hook {i} could not start: {exc}")
-            continue
+            log_error(f"{name} hook {i} could not start: {exc}")
+            raise HookFailed(
+                127 if isinstance(exc, FileNotFoundError) else 126
+            ) from None
         if proc.returncode != 0:
-            log_warn(f"{name} hook {i} exited with code {proc.returncode}")
+            log_error(f"{name} hook {i} exited with code {proc.returncode}")
+            raise HookFailed(proc.returncode)

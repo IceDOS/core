@@ -10,6 +10,7 @@ from unittest import mock
 
 from build import main as build_main
 from build.context import BuildEnv, RebuildContext
+from build.hooks import HookFailed
 
 STATE_DIR = Path("/cfg/.state")
 ENV = BuildEnv(
@@ -22,7 +23,8 @@ CTX = RebuildContext(config_dirs=("configs",), hooks={})
 
 
 class _Run:
-    def __init__(self) -> None:
+    def __init__(self, failing_hook: str | None = None) -> None:
+        self.failing_hook = failing_hook
         self.calls: list[str] = []
         self.hook_cwds: set[Path] = set()
         self.rc: int | None = None
@@ -41,6 +43,8 @@ class _Run:
     ) -> None:
         self.calls.append(f"{name} (hooks only)" if hooks_only else name)
         self.hook_cwds.add(cwd)
+        if name == self.failing_hook:
+            raise HookFailed(4)
 
 
 def _main(
@@ -135,8 +139,8 @@ class MainFlowTest(unittest.TestCase):
                 "genflake",
                 "lock",
                 "build",
-                "postUpdate",
                 "record",
+                "postUpdate",
                 "postRebuild",
                 "reboot",
             ],
@@ -190,6 +194,22 @@ class MainFlowTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _ = _main([], CTX, build_error=RuntimeError("boom"), run=run)
         self.assertIn("error: build failed with exit code 1", run.out)
+
+    def test_failing_pre_rebuild_hook_stops_before_the_build(self):
+        run = _main(["--update"], CTX, run=_Run(failing_hook="preRebuild"))
+        self.assertEqual(run.calls, ["refresh", "self-update", "preRebuild"])
+        self.assertEqual(run.rc, 4)
+        self.assertNotIn("build failed", run.out)
+
+    def test_failing_post_update_hook_keeps_the_snapshot(self):
+        run = _main(["--update"], CTX, run=_Run(failing_hook="postUpdate"))
+        self.assertEqual(run.calls[-3:], ["build", "record", "postUpdate"])
+        self.assertEqual(run.rc, 4)
+
+    def test_failing_update_hook_stops_update_hooks_only(self):
+        run = _main(["--update-hooks"], CTX, run=_Run(failing_hook="preUpdate"))
+        self.assertEqual(run.calls, ["preUpdate (hooks only)"])
+        self.assertEqual(run.rc, 4)
 
     def test_interrupt_during_snapshot_reports_after_build(self):
         run = _main([], CTX, record_interrupt=True)
