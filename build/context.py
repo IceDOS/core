@@ -29,6 +29,7 @@ class BuildEnv:
 class RebuildContext:
     config_dirs: tuple[str, ...]
     hooks: Mapping[str, tuple[str, ...]]
+    required_hooks: frozenset[str] = frozenset()
 
     def hook_scripts(self, name: str) -> tuple[str, ...]:
         return self.hooks.get(name, ())
@@ -89,4 +90,7 @@ def load_rebuild_context(environ: Mapping[str, str]) -> RebuildContext | None:
         for name in HOOK_NAMES
         if name in hooks_raw
     }
-    return RebuildContext(config_dirs=config_dirs, hooks=hooks)
+    required = _strings(data.get("requiredHooks", []), raw, "requiredHooks")
+    return RebuildContext(
+        config_dirs=config_dirs, hooks=hooks, required_hooks=frozenset(required)
+    )

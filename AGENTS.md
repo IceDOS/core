@@ -132,8 +132,8 @@ ahead of the system. Keep both directions working:
    orchestrator. It runs no hooks, snapshot or reboot check, because an older shim
    does those itself, and it still accepts `--genflake-only`, which older shims send
    for `--dry`.
-2. The context JSON (`version`, `configDirs`, `hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`)
-   only grows. `build/context.py` defaults missing keys and ignores unknown ones.
+2. The context JSON (`version`, `configDirs`, `hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`,
+   `requiredHooks`) only grows. `build/context.py` defaults missing keys and ignores unknown ones.
 3. These names never change: `ICEDOS_REBUILD_CONTEXT`, `ICEDOS_ORIG_PATH`,
    `ICEDOS_ORIG_NIX_CONFIG`, `ICEDOS_ORIG_PYTHONPATH` and `skip_update_core`. An older
    core re-execs a newer one with `skip_update_core=1`. If the newer core looked for
@@ -696,7 +696,9 @@ stray keystrokes in a later `read`.
 ## 11. Hook authoring contract
 
 `icedos.system.toolset.rebuild.hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`
-and `icedos.system.gc.hooks.{preGc,postGc}` are lists of shell snippets. Each
+and `icedos.system.gc.hooks.{preGc,postGc}` are lists of shell snippets. A rebuild
+hook entry may also be `{ script = "..."; required = true; }`; a plain string means
+`required = false`. Each
 snippet is compiled to its **own** `pkgs.writeShellScript` with `bash.prelude` prepended
 (`modules/rebuild.nix`, `modules/nh.nix`), so it runs in a fresh shell with the same
 helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars, `CLR_LINE`;
@@ -757,11 +759,13 @@ Order, from `build/main.py`:
 7. `postRebuild`.
 8. Reboot check, after a switch only.
 
-`--dry` and `--genflake-only` run no hooks and stop after the lock in step 4. The first
-hook that exits non-zero, or cannot start, prints an error and stops the rebuild with
-its exit code (127 or 126 when it cannot start), so later hooks and phases don't run.
-A hook whose failure is acceptable ends with `|| true`. The snapshot is taken before
-`postUpdate`, so a failing post hook still leaves it. Ctrl-C during a hook
+`--dry` and `--genflake-only` run no hooks and stop after the lock in step 4. A hook
+that exits non-zero, or cannot start, logs a warning and the rebuild continues. A
+`required` hook that fails prints an error instead and stops the rebuild with its
+exit code (127 or 126 when it cannot start), so later hooks and phases don't run. The
+shim lists required hooks by store path in the context's `requiredHooks`, so an older
+core that ignores the key treats every hook as non-required. The snapshot is taken
+before `postUpdate`, so a failing required post hook still leaves it. Ctrl-C during a hook
 stops the rebuild with exit 130. `preUpdate` and `postUpdate` fire only with
 `--update`; run them alone, without a build, via `icedos rebuild --update-hooks`
 (e.g. `flatpak update`).

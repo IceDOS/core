@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .context import CONTEXT_ENV, RebuildContext
-from .term import log_error
+from .term import log_error, log_warn
 
 # The shim passes the invoking shell's value of each RESTORED_VARS entry under
 # this prefix; an empty value means the variable was unset.
@@ -46,7 +46,8 @@ class HookFailed(SystemExit):
     pass
 
 
-# The first failing hook stops the rebuild; a hook that may fail opts out with `|| true`.
+# A failing hook warns and the next one runs, unless it is required: then it
+# stops the rebuild. Ctrl-C stops the whole rebuild.
 def run_hooks(
     ctx: RebuildContext, name: str, *, cwd: Path, hooks_only: bool = False
 ) -> None:
@@ -63,10 +64,17 @@ def run_hooks(
             print(f"interrupted during {name} hook {i}", file=sys.stderr)
             raise SystemExit(130) from None
         except OSError as exc:
-            log_error(f"{name} hook {i} could not start: {exc}")
-            raise HookFailed(
-                127 if isinstance(exc, FileNotFoundError) else 126
-            ) from None
+            code = 127 if isinstance(exc, FileNotFoundError) else 126
+            _fail(ctx, script, f"{name} hook {i} could not start: {exc}", code)
+            continue
         if proc.returncode != 0:
-            log_error(f"{name} hook {i} exited with code {proc.returncode}")
-            raise HookFailed(proc.returncode)
+            message = f"{name} hook {i} exited with code {proc.returncode}"
+            _fail(ctx, script, message, proc.returncode)
+
+
+def _fail(ctx: RebuildContext, script: str, message: str, code: int) -> None:
+    if script not in ctx.required_hooks:
+        log_warn(message)
+        return
+    log_error(message)
+    raise HookFailed(code)

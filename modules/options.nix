@@ -43,6 +43,24 @@ let
       };
     };
   };
+
+  # A plain string is a hook whose failure only warns.
+  rebuildHookType = types.coercedTo types.lines (script: { inherit script; }) (
+    types.submodule {
+      options = {
+        script = mkLinesOption { };
+        # A failing required hook stops the rebuild with its exit code.
+        required = mkBoolOption { default = false; };
+      };
+    }
+  );
+
+  mkRebuildHooksOption =
+    description:
+    mkListOption {
+      default = [ ];
+      inherit description;
+    } rebuildHookType;
 in
 {
   options = {
@@ -104,43 +122,29 @@ in
         sessionCommands = mkListOption { default = [ ]; } toolsetCommandType;
 
         rebuild.hooks = {
-          preRebuild = mkLinesListOption {
-            default = [ ];
+          preRebuild = mkRebuildHooksOption ''
+            Shell snippets run before the build (`preRebuild`). Always run as
+            the invoking user — the account running `icedos rebuild` — never
+            escalated.
+          '';
 
-            description = ''
-              Shell snippets run before the build (`preRebuild`). Always run as
-              the invoking user — the account running `icedos rebuild` — never
-              escalated.
-            '';
-          };
+          postRebuild = mkRebuildHooksOption ''
+            Shell snippets run after activation (`postRebuild`). Always run as
+            the invoking user — the account running `icedos rebuild` — never
+            escalated.
+          '';
 
-          postRebuild = mkLinesListOption {
-            default = [ ];
+          preUpdate = mkRebuildHooksOption ''
+            Shell snippets run before `--update` (and under `--update-hooks`).
+            Always run as the invoking user — the account running
+            `icedos rebuild` — never escalated.
+          '';
 
-            description = ''
-              Shell snippets run after activation (`postRebuild`). Always run as
-              the invoking user — the account running `icedos rebuild` — never
-              escalated.
-            '';
-          };
-
-          preUpdate = mkLinesListOption {
-            default = [ ];
-            description = ''
-              Shell snippets run before `--update` (and under `--update-hooks`).
-              Always run as the invoking user — the account running
-              `icedos rebuild` — never escalated.
-            '';
-          };
-
-          postUpdate = mkLinesListOption {
-            default = [ ];
-            description = ''
-              Shell snippets run after `--update` (and under `--update-hooks`).
-              Always run as the invoking user — the account running
-              `icedos rebuild` — never escalated.
-            '';
-          };
+          postUpdate = mkRebuildHooksOption ''
+            Shell snippets run after `--update` (and under `--update-hooks`).
+            Always run as the invoking user — the account running
+            `icedos rebuild` — never escalated.
+          '';
         };
       };
 

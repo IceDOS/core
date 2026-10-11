@@ -15,7 +15,12 @@ let
     requireConfigOwner
     ;
 
-  inherit (lib) genAttrs imap0;
+  inherit (lib)
+    concatMap
+    filter
+    genAttrs
+    imap0
+    ;
 
   inherit (config) icedos;
   inherit (icedos) configurationLocation;
@@ -25,9 +30,17 @@ let
   # with the prelude available.
   hookScripts =
     name:
-    imap0 (
-      i: s: "${pkgs.writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}"}"
-    ) hooks.${name};
+    imap0 (i: h: {
+      inherit (h) required;
+      path = "${pkgs.writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${h.script}"}";
+    }) hooks.${name};
+
+  hookNames = [
+    "preRebuild"
+    "postRebuild"
+    "preUpdate"
+    "postUpdate"
+  ];
 
   # Read by build/context.py. Only ever add keys, because a newer core must
   # still read the file an older system hands it.
@@ -35,12 +48,11 @@ let
     builtins.toJSON {
       version = 1;
       configDirs = icedos.system.extraConfigs;
-      hooks = genAttrs [
-        "preRebuild"
-        "postRebuild"
-        "preUpdate"
-        "postUpdate"
-      ] hookScripts;
+      hooks = genAttrs hookNames (name: map (h: h.path) (hookScripts name));
+      # A separate key, because older cores reject non-string hook entries.
+      requiredHooks = concatMap (
+        name: map (h: h.path) (filter (h: h.required) (hookScripts name))
+      ) hookNames;
     }
   );
 in

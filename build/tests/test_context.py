@@ -33,10 +33,12 @@ class LoadRebuildContextTest(unittest.TestCase):
                 "version": 1,
                 "configDirs": ["configs", "hosts"],
                 "hooks": {"preRebuild": ["/nix/store/a-hook"], "postUpdate": []},
+                "requiredHooks": ["/nix/store/a-hook"],
             }
         )
         assert ctx is not None
         self.assertEqual(ctx.config_dirs, ("configs", "hosts"))
+        self.assertEqual(ctx.required_hooks, frozenset({"/nix/store/a-hook"}))
         self.assertEqual(ctx.hook_scripts("preRebuild"), ("/nix/store/a-hook",))
         self.assertEqual(ctx.hook_scripts("postUpdate"), ())
 
@@ -44,6 +46,7 @@ class LoadRebuildContextTest(unittest.TestCase):
         ctx = self.load({})
         assert ctx is not None
         self.assertEqual(ctx.config_dirs, ("configs",))
+        self.assertEqual(ctx.required_hooks, frozenset())
         for name in HOOK_NAMES:
             self.assertEqual(ctx.hook_scripts(name), ())
 
@@ -73,6 +76,7 @@ class LoadRebuildContextTest(unittest.TestCase):
             {"hooks": []},
             {"hooks": {"preRebuild": "/x"}},
             {"hooks": {"preRebuild": [1]}},
+            {"requiredHooks": {"preRebuild": ["/x"]}},
         ]
         for payload in payloads:
             with self.subTest(payload=payload), self.assertRaises(SystemExit):

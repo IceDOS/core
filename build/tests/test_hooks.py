@@ -93,9 +93,15 @@ class RunHooksTest(unittest.TestCase):
         return str(path)
 
     def run_hooks(
-        self, hooks: dict[str, tuple[str, ...]], name: str, **kwargs: bool
+        self,
+        hooks: dict[str, tuple[str, ...]],
+        name: str,
+        required: frozenset[str] = frozenset(),
+        **kwargs: bool,
     ) -> str:
-        ctx = RebuildContext(config_dirs=("configs",), hooks=hooks)
+        ctx = RebuildContext(
+            config_dirs=("configs",), hooks=hooks, required_hooks=required
+        )
         err = io.StringIO()
         with mock.patch.dict(os.environ, _BASE), contextlib.redirect_stderr(err):
             try:
@@ -116,16 +122,32 @@ class RunHooksTest(unittest.TestCase):
         )
         self.assertEqual(self.lines(), [f"a {self.dir} - -", f"b {self.dir} - -"])
 
-    def test_a_failing_hook_stops_with_its_exit_code(self):
-        hooks = {"postRebuild": (self.hook("bad", code=3), self.hook("next"))}
+    def test_a_failing_hook_warns_and_the_next_one_runs(self):
+        hooks = {"postRebuild": (self.hook("bad", code=3), self.hook("good"))}
         err = self.run_hooks(hooks, "postRebuild")
+        self.assertEqual(self.labels(), ["bad", "good"])
+        self.assertIsNone(self.exit_code)
+        self.assertIn("postRebuild hook 0 exited with code 3", err)
+
+    def test_a_missing_script_warns_and_the_next_one_runs(self):
+        hooks = {"preUpdate": (str(self.dir / "gone"), self.hook("next"))}
+        err = self.run_hooks(hooks, "preUpdate")
+        self.assertEqual(self.labels(), ["next"])
+        self.assertIsNone(self.exit_code)
+        self.assertIn("preUpdate hook 0 could not start", err)
+
+    def test_a_failing_required_hook_stops_with_its_exit_code(self):
+        bad = self.hook("bad", code=3)
+        hooks = {"postRebuild": (bad, self.hook("next"))}
+        err = self.run_hooks(hooks, "postRebuild", frozenset({bad}))
         self.assertEqual(self.labels(), ["bad"])
         self.assertEqual(self.exit_code, 3)
         self.assertIn("error: postRebuild hook 0 exited with code 3", err)
 
-    def test_a_missing_script_stops_with_127(self):
-        hooks = {"preUpdate": (str(self.dir / "gone"), self.hook("next"))}
-        err = self.run_hooks(hooks, "preUpdate")
+    def test_a_missing_required_script_stops_with_127(self):
+        gone = str(self.dir / "gone")
+        hooks = {"preUpdate": (gone, self.hook("next"))}
+        err = self.run_hooks(hooks, "preUpdate", frozenset({gone}))
         self.assertEqual(self.labels(), [])
         self.assertEqual(self.exit_code, 127)
         self.assertIn("error: preUpdate hook 0 could not start", err)
