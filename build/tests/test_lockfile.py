@@ -97,6 +97,10 @@ class MalformedTest(unittest.TestCase):
             self.assertEqual(lockfile.string_inputs(lock, "sub"), [])
             self.assertEqual(lockfile.input_locked_path(lock, "sub"), "")
             self.assertFalse(lockfile.input_is_string(lock, "sub"))
+            self.assertEqual(lockfile.root_string_inputs(lock), [])
+            self.assertEqual(lockfile.nested_string_inputs(lock), [])
+            self.assertEqual(lockfile.select_update_inputs([], []), [])
+            self.assertEqual(lockfile.locked_revs(lock), {})
 
 
 class LoadLockTest(unittest.TestCase):
@@ -121,6 +125,75 @@ class LoadLockTest(unittest.TestCase):
             path = Path(d) / "flake.lock"
             _ = path.write_text(json.dumps(LOCK))
             self.assertEqual(lockfile.load_lock(path), LOCK)
+
+
+class RevChangesTest(unittest.TestCase):
+    def test_rev_changes_reports_changed_added_and_removed(self):
+        old_lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a-node", "b": "b-node"}},
+                "a-node": {"locked": {"rev": "1111"}},
+                "b-node": {"locked": {"rev": "2222"}},
+            }
+        }
+        new_lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a-node", "c": "c-node"}},
+                "a-node": {"locked": {"rev": "9999"}},
+                "c-node": {"locked": {"rev": "3333"}},
+            }
+        }
+        changes = lockfile.rev_changes(old_lock, new_lock)
+        self.assertEqual(
+            changes,
+            [
+                ("a", "1111", "9999"),
+                ("b", "2222", ""),
+                ("c", "", "3333"),
+            ],
+        )
+
+    def test_rev_changes_empty_for_identical(self):
+        self.assertEqual(lockfile.rev_changes(LOCK, LOCK), [])
+
+
+class GenflakeControlledTest(unittest.TestCase):
+    def test_genflake_controlled(self):
+        self.assertTrue(lockfile.genflake_controlled(LOCK, "sub", "icedos"))
+        self.assertTrue(
+            lockfile.genflake_controlled(
+                LOCK, "icedos-github_icedos_apps", "icedos"
+            )
+        )
+        self.assertFalse(
+            lockfile.genflake_controlled(
+                LOCK,
+                "icedos-overlay-github_nixos_nixpkgs_nixpkgs-unstable",
+                "icedos",
+            )
+        )
+        self.assertFalse(lockfile.genflake_controlled(LOCK, "nixpkgs", "icedos"))
+        self.assertFalse(lockfile.genflake_controlled(LOCK, "home-manager", "icedos"))
+
+
+class SelectUpdateInputsTest(unittest.TestCase):
+    def test_root_string_inputs(self):
+        self.assertEqual(
+            sorted(lockfile.root_string_inputs(LOCK)),
+            sorted(["sub", "nixpkgs", "local"]),
+        )
+
+    def test_nested_string_inputs(self):
+        self.assertEqual(
+            sorted(lockfile.nested_string_inputs(LOCK)),
+            sorted(["sub/nested", "sub/vendored"]),
+        )
+
+    def test_select_update_inputs(self):
+        names = ["a", "b", "c"]
+        self.assertEqual(lockfile.select_update_inputs(names, ["b"]), ["a", "c"])
+        self.assertEqual(lockfile.select_update_inputs(names, ["a", "b", "c"]), [])
+        self.assertEqual(lockfile.select_update_inputs(names, []), ["a", "b", "c"])
 
 
 if __name__ == "__main__":

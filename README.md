@@ -518,7 +518,8 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 | `--update` | Update everything (core, nixpkgs, module repos, and module-declared inputs) in one blanket bump. The rebuild restarts on the updated core before any hook runs. | Full update. |
 | `--update-core` | Update all config flake inputs, then restart the rebuild on the updated core, hooks included. | Update IceDOS itself plus all dependencies. |
 | `--update-core-only` | Update only the `icedos` input in the config flake, then restart the rebuild on the updated core. | Update IceDOS core without touching other inputs. |
-| `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
+| `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). With `pinInputs = true`, `nixpkgs` and `home-manager` follow the cache-server pin. Naming one updates the pin and keeps the other unless you name it too. | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
+| `--update-except "..."` | With `--update` or `--update-core`, keep these inputs (state, config or `<sub>/<input>`) at their locked revs. | Exclude inputs like `nixpkgs` from updating. |
 | `--update-repos` | Pull new revisions of the IceDOS module repos **and** re-lock their declared inputs. | Get latest modules and bump their dependencies. |
 | `--update-repos-only` | Pull new revisions of the IceDOS module repos only. Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (one-build lag, self-healing). | Get latest modules without bumping their dependencies. |
 | `--update-repos-select "..."` | Pull new revisions of only the named repos (space-separated `[[icedos.repositories]].url` values), without re-locking inputs declared *inside* those modules. Same one-build lag as `--update-repos-only` for the selected repos. | Get latest modules for one or a few repos without bumping everything. |
@@ -530,7 +531,8 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 | Flag | Effect |
 | --- | --- |
 | `--ask` | Ask for confirmation before applying (`nh os -a`). |
-| `--dry`, `-n`, `--dry-run` | Validate flake generation without building (regenerates `.state/flake.nix`, refreshes path input locks; does NOT evaluate nixosConfigurations so module-body errors remain out of scope). |
+| `--dry`, `-n`, `--dry-run` | Validate flake generation and locking without keeping any change (restores locks afterwards). |
+| `--lock-only` | With an `--update*` flag: update and keep the locks, do not build. |
 | `--logs` | Verbose logging + full traces — use when a build fails. |
 | `--builder <host>` | Build the system on a remote host. |
 | `--target <host>` | Deploy/activate the built system on a remote host (pairs with `--builder`). |
@@ -546,6 +548,7 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 - **`--nh-args` swallows args until `--build-args`** — place it after your other IceDOS flags. To pass both, use `--nh-args … --build-args …`.
 - **Unknown flags fail fast** — an unsupported flag prints `Unknown arg: …` and exits `1`.
 - **A failed build changes nothing** — your current system keeps running until a switch actually succeeds.
+- A failed `icedos rebuild` restores `flake.lock` and `.state/flake.{nix,lock}` to their state before the run, unless the system had already switched to the new generation.
 
 ### Examples
 
@@ -561,6 +564,13 @@ icedos rebuild --boot --logs
 
 # Full update + apply
 icedos rebuild --update
+
+# Full update, but keep nixpkgs and the matching home-manager where they are
+icedos rebuild --update --update-except "nixpkgs home-manager"
+
+# Update and keep the new inputs without building, then build (and retry) against them
+icedos rebuild --update --lock-only
+icedos rebuild
 
 # See pending changes, then apply
 icedos configuration diff
@@ -580,6 +590,22 @@ icedos rebuild --builder builder@192.168.1.2 --target deploy@192.168.1.3
 
 # Format the Nix tree
 icedos nixf .
+```
+
+#### When an update breaks the build
+
+Use `--lock-only` to keep the updated inputs without building, giving you a stable set of inputs to fix your config against:
+
+```bash
+icedos rebuild --update --lock-only
+icedos rebuild  # fails in a module; fix config and retry
+icedos rebuild  # builds
+```
+
+To abandon an update and restore the old locks:
+
+```bash
+git -C <config> checkout -- flake.lock .state/flake.lock
 ```
 
 ## ❓ Troubleshooting & FAQ

@@ -22,6 +22,18 @@ ENV = BuildEnv(
 CTX = RebuildContext(config_dirs=("configs",), hooks={})
 
 
+class _NoTransaction:
+    @classmethod
+    def for_env(cls, _env: BuildEnv) -> _NoTransaction:
+        return cls()
+
+    def begin(self) -> None:
+        pass
+
+    def finish(self, *_args: object) -> None:
+        pass
+
+
 class _Run:
     def __init__(self, failing_hook: str | None = None) -> None:
         self.failing_hook = failing_hook
@@ -84,6 +96,7 @@ def _main(
         "record_rebuild": fake_record,
         "current_generation": lambda: None,
         "offer_reboot": run.step("reboot"),
+        "Transaction": _NoTransaction,
     }
     out, err = io.StringIO(), io.StringIO()
     with contextlib.ExitStack() as stack:

@@ -67,7 +67,7 @@ def sync_dir(src: Path, dst: Path) -> None:
         dst,
         dirs_exist_ok=True,
         symlinks=True,
-        ignore=shutil.ignore_patterns(".cache"),
+        ignore=shutil.ignore_patterns(".cache", ".txn", ".txn.lock", ".update-pending", "result", "result-*"),
     )
 
 
@@ -84,7 +84,9 @@ def write_json(path: Path, value: JSON) -> None:
 
 def write_text(path: Path, text: str) -> None:
     _ = path.parent.mkdir(parents=True, exist_ok=True)
-    _ = path.write_text(text)
+    tmp_path = path.parent / f"{path.name}.icedos-tmp"
+    _ = tmp_path.write_text(text)
+    os.replace(tmp_path, path)
 
 
 def warn(message: str) -> None:

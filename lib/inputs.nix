@@ -98,6 +98,36 @@ rec {
     in
     if locked == null then "" else locked.rev or "";
 
+  # Input names Python asked genflake to keep at their locked rev; empty when unset.
+  _frozenInputs =
+    let
+      raw = builtins.getEnv "ICEDOS_FREEZE_INPUTS";
+    in
+    if raw == "" then [ ] else lib.filter (s: s != "") (lib.splitString " " raw);
+
+  # Locked rev of a frozen root input, "" when not frozen or not locked yet.
+  _frozenRev =
+    {
+      name,
+      frozen ? _frozenInputs,
+      lock ? _readFlakeLock,
+    }:
+    if lib.elem name frozen then
+      _lockRootRev {
+        inherit lock name;
+      }
+    else
+      "";
+
+  # Root inputs whose URL rev comes from the cache-server pin; empty when pins are off.
+  _cachePinnedInputs =
+    {
+      nixpkgsCacheRev ? "",
+      homeManagerCacheRev ? "",
+    }:
+    lib.optional (nixpkgsCacheRev != "") "nixpkgs"
+    ++ lib.optional (homeManagerCacheRev != "") "home-manager";
+
   # Repo urls from --update-repos-select; empty when unset.
   _selectedRepos =
     let
@@ -122,14 +152,19 @@ rec {
       url,
       skipUpdateEnvCheck ? false,
       selectedRepos ? _selectedRepos,
+      frozenInputs ? _frozenInputs,
     }:
     let
       hasRev = hasAttrByPath [ "nodes" repoName "locked" "rev" ] lock;
       hasNarHash = hasAttrByPath [ "nodes" repoName "locked" "narHash" ] lock;
       updateAll = builtins.getEnv "ICEDOS_UPDATE" == "1";
       updateSelected = _repoSelected selectedRepos repoName;
+      frozen = lib.elem repoName frozenInputs;
     in
-    if ((skipUpdateEnvCheck != true) && (updateAll || updateSelected)) || (!hasRev && !hasNarHash) then
+    if
+      ((skipUpdateEnvCheck != true) && !frozen && (updateAll || updateSelected))
+      || (!hasRev && !hasNarHash)
+    then
       ""
     else if hasRev && _urlIsGitScheme url then
       "?rev=${lock.nodes.${repoName}.locked.rev}"

@@ -1560,6 +1560,94 @@ in
     }
   );
 
+  # --- _frozenRev and frozen repos (_getRevisionFromLock, inputs.nix) ---
+  frozenRevMatch = expectEq "1111" (
+    helpers._frozenRev {
+      name = "nixpkgs";
+      frozen = [ "nixpkgs" ];
+      lock = {
+        nodes = {
+          root.inputs.nixpkgs = "nixpkgs-node";
+          nixpkgs-node.locked.rev = "1111";
+        };
+      };
+    }
+  );
+
+  frozenRevUnfrozen = expectEq "" (
+    helpers._frozenRev {
+      name = "nixpkgs";
+      frozen = [ ];
+      lock = {
+        nodes = {
+          root.inputs.nixpkgs = "nixpkgs-node";
+          nixpkgs-node.locked.rev = "1111";
+        };
+      };
+    }
+  );
+
+  # Frozen repo keeps its rev under ICEDOS_UPDATE=1
+  frozenRepoKeepsRev = expectEq "/abc" (
+    helpers._getRevisionFromLock {
+      repoName = "apps";
+      lock = mockLock { } {
+        type = "github";
+        owner = "icedos";
+        repo = "apps";
+        rev = "abc";
+      };
+      url = "github:icedos/apps";
+      frozenInputs = [ "apps" ];
+    }
+  );
+
+  cachePinnedInputsWithChannel = expectEq [ "nixpkgs" "home-manager" ] (
+    helpers._cachePinnedInputs {
+      nixpkgsCacheRev = "aaaa";
+      homeManagerCacheRev = "bbbb";
+    }
+  );
+
+  cachePinnedInputsPinInputsFalse = expectEq [ ] (
+    helpers._cachePinnedInputs {
+      nixpkgsCacheRev = "";
+      homeManagerCacheRev = "";
+    }
+  );
+
+  genflakeNixpkgsUrlFrozen =
+    let
+      nixpkgsFrozenRev = "aaaa";
+      nixpkgsCacheRev = "bbbb";
+      nixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+      defaultNixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+    in
+    expectEq "github:nixos/nixpkgs/aaaa" (
+      if nixpkgsFrozenRev != "" && nixpkgsChannel == defaultNixpkgsChannel then
+        "github:nixos/nixpkgs/${nixpkgsFrozenRev}"
+      else if nixpkgsCacheRev != "" then
+        "github:nixos/nixpkgs/${nixpkgsCacheRev}"
+      else
+        nixpkgsChannel
+    );
+
+  genflakeNixpkgsUrlUnfrozen =
+    let
+      nixpkgsFrozenRev = "";
+      nixpkgsCacheRev = "bbbb";
+      nixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+      defaultNixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+    in
+    expectEq "github:nixos/nixpkgs/bbbb" (
+      if nixpkgsFrozenRev != "" && nixpkgsChannel == defaultNixpkgsChannel then
+        "github:nixos/nixpkgs/${nixpkgsFrozenRev}"
+      else if nixpkgsCacheRev != "" then
+        "github:nixos/nixpkgs/${nixpkgsCacheRev}"
+      else
+        nixpkgsChannel
+    );
+
   # --- _repoSelected (--update-repos-select matching, inputs.nix) ------
   repoSelectByUrl = expectOk (helpers._repoSelected [ "github:icedos/apps" ] repoSelectAppsName);
 

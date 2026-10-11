@@ -1,10 +1,7 @@
 Usage: icedos rebuild [flags]
 
 Flags:
-  --dry, -n, --dry-run      validate flake generation without building
-                            (regenerates .state/flake.nix, refreshes path input
-                            locks; does NOT evaluate nixosConfigurations so
-                            module-body errors remain out of scope)
+  --dry, -n, --dry-run      validate flake generation and locking without keeping any change
   --logs                    show full build log with --show-trace
   --github-token <token>    literal GitHub token for nix github.com fetches
   --github-token-path <path>
@@ -16,11 +13,13 @@ Flags:
   --boot                    build and set as boot entry
   --update-core             update all config flake inputs, then rerun on the updated core
   --update-core-only        update only the icedos input, then rerun on the updated core
-  --update-state-inputs <list> update specific state flake inputs before rebuild
+  --update-state-inputs <list> update specific state flake inputs (cache-pinned ones update the cache pin)
   --update-repos            update repos + their inputs before rebuild
   --update-repos-only       update repos only before rebuild
   --update-repos-select <list> update specific repos (space-separated urls) before rebuild
   --update-repo-inputs-only update repo inputs only before rebuild
+  --update-except <list>    with --update/--update-core, keep these inputs (state, config or <sub>/<input>) at their locked revs
+  --lock-only               with an --update* flag: update and keep the locks, do not build
   --build-vm                build a VM test image
   --run-vm                  build and run a VM test image
   --genflake-only           generate .state/flake.nix and exit (--dry's underlying mechanism)

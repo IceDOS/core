@@ -6,14 +6,22 @@ import sys
 from pathlib import Path
 
 from .context import BuildEnv, RebuildContext, from_environment, load_rebuild_context
-from .genflake import export_search_index, generate_flake
+from .genflake import cache_pinned_inputs, export_search_index, generate_flake
 from .hooks import HookFailed, run_hooks
+from .lockfile import load_lock, rev_changes
 from .options import Options, parse_args
 from .reboot import offer_reboot
 from .runner import build
 from .snapshot import current_generation, record_rebuild
 from .term import RED, clr_line, log_ok, log_step, log_warn, paint
-from .update import maybe_re_exec_update_core, prepare_lock, refresh_config_root_paths
+from .transaction import Transaction
+from .update import (
+    maybe_re_exec_update_core,
+    prepare_lock,
+    refresh_config_root_paths,
+    update_cache_pin,
+    validate_update_except,
+)
 from .util import warn
 
 # Lowest priority; overridable by a literal (--github-token / ICEDOS_GITHUB_TOKEN)
@@ -99,6 +107,10 @@ def _exit_code(exc: SystemExit) -> int:
     return exc.code if isinstance(exc.code, int) else 1
 
 
+def _remote_target(opts: Options) -> bool:
+    return "--target-host" in opts.nh_build_args
+
+
 def _run_update_hooks(env: BuildEnv, ctx: RebuildContext | None) -> int:
     if ctx is None:
         log_warn("--update-hooks: no rebuild hooks available here; nothing to run")
@@ -117,17 +129,46 @@ def _rebuild(
     trace = opts.trace
     os.environ["NIX_CONFIG"] = _nix_config(opts)
 
+    if not os.environ.get("skip_update_core"):
+        validate_update_except(env, opts)
+
     refresh_config_root_paths(env, opts)
     # Before any hook, so after an update the new core runs every phase below.
     maybe_re_exec_update_core(env, opts, previous_arguments)
 
+    pinned: list[str] = []
+    if any(n in ("nixpkgs", "home-manager") for n in opts.state_inputs + opts.update_except):
+        pinned = cache_pinned_inputs(env, trace)
+
+    opts.cache_pinned = pinned
+
+    if pinned:
+        if "nixpkgs" in opts.update_except and "home-manager" not in opts.update_except:
+            warn(
+                "warning: home-manager follows the new cache pin while nixpkgs stays; "
+                "add home-manager to --update-except to keep the pair matched"
+            )
+        if "nixpkgs" in opts.update_except and (opts.update_core or opts.update_all):
+            warn(
+                "warning: core and the cache pin update but nixpkgs stays; "
+                "expect fewer cache hits and more local builds"
+            )
+
+    pinned_freeze = update_cache_pin(env, opts, pinned)
+    opts.freeze_inputs = list(opts.update_except) + pinned_freeze
+
     # Hooks and the post-build phases need the shim's context and a real build.
     wrapped = None if opts.genflake_only else ctx
+    # A --lock-only update leaves .update-pending so the next build runs the update hooks.
+    pending = env.state_dir / ".update-pending"
+    update_hooks = opts.update_all or pending.exists()
     if opts.dry:
         log_step("dry run — generating flake...")
+    elif opts.lock_only:
+        log_step("updating inputs (no build)...")
     if wrapped is not None:
         run_hooks(wrapped, "preRebuild", cwd=env.state_dir)
-        if opts.update_all:
+        if update_hooks:
             run_hooks(wrapped, "preUpdate", cwd=env.state_dir)
 
     generate_flake(
@@ -137,6 +178,7 @@ def _rebuild(
             "ICEDOS_UPDATE": "1" if opts.update_repos else "",
             "ICEDOS_UPDATE_MODULE_INPUTS": "1" if opts.update_repos_inputs else "",
             "ICEDOS_UPDATE_REPOS_SELECT": " ".join(opts.repos_select),
+            "ICEDOS_FREEZE_INPUTS": " ".join(opts.freeze_inputs),
         },
         refresh=bool(opts.update_repos or opts.repos_select),
     )
@@ -154,6 +196,7 @@ def _rebuild(
     build(env, opts)
 
     if wrapped is None:
+        pending.unlink(missing_ok=True)
         return 0
     # Recorded before the post hooks, so a failing one still leaves the snapshot.
     try:
@@ -161,11 +204,35 @@ def _rebuild(
     except KeyboardInterrupt:
         print("interrupted after build", file=sys.stderr)
         raise SystemExit(130) from None
-    if opts.update_all:
+    if update_hooks:
         run_hooks(wrapped, "postUpdate", cwd=env.state_dir)
+    pending.unlink(missing_ok=True)
     run_hooks(wrapped, "postRebuild", cwd=env.state_dir)
     offer_reboot(opts)
     return 0
+
+
+def _reported_rebuild(
+    env: BuildEnv,
+    opts: Options,
+    ctx: RebuildContext | None,
+    previous_arguments: list[str],
+) -> int:
+    try:
+        return _rebuild(env, opts, ctx, previous_arguments)
+    except SystemExit as exc:
+        code = _exit_code(exc)
+        # 130 and hook failures already got their own report.
+        reported = code in (0, 130) or isinstance(exc, HookFailed)
+        if ctx is not None and not opts.dry and not reported:
+            print(
+                f"{clr_line()}{paint(RED, 'error')}: build failed with exit code {code}"
+            )
+        raise
+    except Exception:
+        if ctx is not None and not opts.dry:
+            print(f"{clr_line()}{paint(RED, 'error')}: build failed with exit code 1")
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -190,18 +257,38 @@ def main(argv: list[str] | None = None) -> int:
     if opts.update_hooks:
         return _run_update_hooks(env, ctx)
 
+    # A re-exec'd child runs inside the parent's transaction.
+    if os.environ.get("ICEDOS_TXN") == "1":
+        return _reported_rebuild(env, opts, ctx, previous_arguments)
+
+    txn = Transaction.for_env(env)
+    txn.begin()
+    persist = not opts.genflake_only or opts.lock_only
     try:
-        return _rebuild(env, opts, ctx, previous_arguments)
+        rc = _reported_rebuild(env, opts, ctx, previous_arguments)
     except SystemExit as exc:
-        code = _exit_code(exc)
-        # 130 and hook failures already got their own report.
-        reported = code in (0, 130) or isinstance(exc, HookFailed)
-        if ctx is not None and not opts.dry and not reported:
-            print(
-                f"{clr_line()}{paint(RED, 'error')}: build failed with exit code {code}"
-            )
+        if exc.code in (0, None):
+            rc = 0
+        else:
+            txn.finish(False, opts.action, _remote_target(opts))
+            raise
+    except BaseException:
+        txn.finish(False, opts.action, _remote_target(opts))
         raise
-    except Exception:
-        if ctx is not None and not opts.dry:
-            print(f"{clr_line()}{paint(RED, 'error')}: build failed with exit code 1")
-        raise
+    ok = rc == 0 and persist
+    if opts.lock_only and ok:
+        for name, old, new in rev_changes(
+            txn.original_lock("state"), load_lock(env.state_dir / "flake.lock")
+        ):
+            print(f"  {name}  {old[:7] or '-'} -> {new[:7] or '-'}")
+        if env.config_root:
+            for name, old, new in rev_changes(
+                txn.original_lock("config"), load_lock(env.config_root / "flake.lock")
+            ):
+                print(f"  {name}  {old[:7] or '-'} -> {new[:7] or '-'}")
+        print("inputs updated and kept; run 'icedos rebuild' to build")
+        if opts.update_all:
+            (env.state_dir / ".update-pending").touch()
+
+    txn.finish(ok, opts.action, _remote_target(opts))
+    return rc
