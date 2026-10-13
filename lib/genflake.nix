@@ -73,7 +73,7 @@ let
   # Repo patch files must survive into the snapshot: build-stage eval is pure and
   # cannot reach the host config root.
   repoPatchKeep = flatten (
-    map (r: (r.patches or [ ]) ++ map (ip: ip.patches or [ ]) (r.inputPatches or [ ])) (
+    map (r: (r.patches or [ ]) ++ map (ip: ip.patches or [ ]) (r.input-patches or [ ])) (
       icedos.repositories or [ ]
     )
   );
@@ -111,7 +111,7 @@ let
 
   # Each entry sets `channel` or `url` (`channel` wins). Validated here so the
   # user sees the offending entry, not a deep nix trace.
-  overlayChannelsRaw = icedos.system.overlays.fromChannel or [ ];
+  overlayChannelsRaw = icedos.system.overlays.from-channel or [ ];
 
   # Read raw TOML — missing fields default to "" / [] so validation messages
   # can pinpoint the offending entry rather than trip over a hard attr-miss.
@@ -125,7 +125,7 @@ let
     idx: e:
     validate.abort {
       when = e.url == "" && e.channel == "";
-      path = "icedos.system.overlays.fromChannel[${toString idx}]";
+      path = "icedos.system.overlays.from-channel[${toString idx}]";
       msg = "must set either 'channel' (existing [[icedos.system.channels]] name) or 'url' (flake URL)";
     };
 
@@ -155,7 +155,7 @@ let
   # sub-flake or reserved name would silently overwrite in `listToAttrs` below.
   extraFlakeNameGuard = validate.abort {
     when =
-      (lib.intersectLists (map (f: f.name or "") (icedos.system.extraFlakes or [ ])) (
+      (lib.intersectLists (map (f: f.name or "") (icedos.system.extra-flakes or [ ])) (
         (map (c: c.name or "") channels)
         ++ (map (e: e.name) overlayInputs)
         ++ (builtins.attrNames modulesFromConfig.subFlakes)
@@ -167,7 +167,7 @@ let
           "icedos-state"
         ]
       )) != [ ];
-    path = "icedos.system.extraFlakes";
+    path = "icedos.system.extra-flakes";
     msg = "name collides with a [[icedos.system.channels]] name, an overlay input name, a module sub-flake name, or a genflake-reserved input name";
   };
 

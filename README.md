@@ -275,16 +275,16 @@ name = "stable"
 url = "github:nixos/nixpkgs/nixos-26.05" # current stable when written
 ```
 
-To instead **replace** a package's source everywhere (so a plain `obs-studio` resolves to the other source), use an [overlay](#-nix-terms-in-plain-english). `[[icedos.system.overlays.fromChannel]]` lifts named packages from a declared `channel` or straight from a flake `url`:
+To instead **replace** a package's source everywhere (so a plain `obs-studio` resolves to the other source), use an [overlay](#-nix-terms-in-plain-english). `[[icedos.system.overlays.from-channel]]` lifts named packages from a declared `channel` or straight from a flake `url`:
 
 ```toml
 # from a declared channel (see channels above)
-[[icedos.system.overlays.fromChannel]]
+[[icedos.system.overlays.from-channel]]
 channel = "stable"
 packages = [ "obs-studio" ]
 
 # or directly from a flake URL (registered automatically)
-[[icedos.system.overlays.fromChannel]]
+[[icedos.system.overlays.from-channel]]
 url = "github:nixos/nixpkgs/nixos-unstable"
 packages = [ "mesa" ]
 ```
@@ -294,22 +294,22 @@ packages = [ "mesa" ]
 
 ### Extra flakes
 
-Register an **arbitrary flake** as a top-level input of the generated state flake with `[[icedos.system.extraFlakes]]`. Its `name` becomes the input name (exposed to every module's masked `inputs` under that bare name); `modulesToLoad` loads dotted output paths as NixOS modules:
+Register an **arbitrary flake** as a top-level input of the generated state flake with `[[icedos.system.extra-flakes]]`. Its `name` becomes the input name (exposed to every module's masked `inputs` under that bare name); `modulesToLoad` loads dotted output paths as NixOS modules:
 
 ```toml
-[[icedos.system.extraFlakes]]
+[[icedos.system.extra-flakes]]
 name = "impermanence"
 url = "github:nix-community/impermanence"
 modulesToLoad = ["nixosModules.impermanence"]   # `inputs.impermanence` → imported as a module
 
 # input-only (no modulesToLoad), with `follows` passthrough to the generated flake
-[[icedos.system.extraFlakes]]
+[[icedos.system.extra-flakes]]
 name = "flake-utils"
 url = "github:numtide/flake-utils"
 inputs = { nixpkgs.follows = "nixpkgs" }
 ```
 
-A `name` must not collide with a module-declared input (its sub-flake name or its masked bare names), a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — extraFlakes become top-level inputs, module-declared inputs live as bare names inside their module's sub-flake, and a duplicate would silently overwrite.
+A `name` must not collide with a module-declared input (its sub-flake name or its masked bare names), a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — `extra-flakes` entries become top-level inputs, module-declared inputs live as bare names inside their module's sub-flake, and a duplicate would silently overwrite.
 
 ### Hardware configuration
 
@@ -349,7 +349,7 @@ See [How do I set a password?](#how-do-i-set-a-password) for the security caveat
 | `ssh.enable` | `false` | forward a host port to the VM's SSH. |
 | `ssh.hostPort` | `2222` | host-side port for the SSH forward. |
 | `ssh.vmPort` | `22` | guest SSH port. |
-| `[[icedos.system.build-vm.sharedDirectories]]` | `[]` | `{ source, target }` host→guest shared folders. |
+| `[[icedos.system.build-vm.shared-directories]]` | `[]` | `{ source, target }` host→guest shared folders. |
 
 ```toml
 [icedos.system.build-vm]
@@ -362,7 +362,7 @@ resolution = "2560x1440"
 enable = true
 hostPort = 2222
 
-[[icedos.system.build-vm.sharedDirectories]]
+[[icedos.system.build-vm.shared-directories]]
 source = "/home/me/shared"
 target = "shared"
 ```
@@ -403,7 +403,7 @@ IceDOS can apply patches at three levels, all from your config, without forking 
 
 - **Whole-repo** — `[[icedos.repositories]].patches`: patch an entire module repo's source.
 - **Module-author input** — a module's `inputs.<name>.patches`: shipped by the module itself.
-- **Consumer input** — `[[icedos.repositories.inputPatches]]`: patch a specific module's specific dependency from your config.
+- **Consumer input** — `[[icedos.repositories.input-patches]]`: patch a specific module's specific dependency from your config.
 
 See [AGENTS.md](./AGENTS.md) for the full patching model.
 

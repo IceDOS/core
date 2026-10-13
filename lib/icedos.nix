@@ -174,7 +174,7 @@ let
           map (ip: {
             name = "${repo.url}|${ip.module}|${ip.input}";
             value = ip.patches;
-          }) (repo.inputPatches or [ ])
+          }) (repo.input-patches or [ ])
         ) repositories
       )
     );
@@ -330,7 +330,7 @@ let
       )
       (
         filter (e: (e.channel or "") == "" && (e.url or "") != "" && (e.packages or [ ]) != [ ]) (
-          config.system.overlays.fromChannel or [ ]
+          config.system.overlays.from-channel or [ ]
         )
       )
     )
@@ -882,10 +882,10 @@ let
       in
       step [ ] [ ] modules;
 
-    # `icedos.system.extraFlakes`: user-named root inputs, exposed to modules
+    # `icedos.system.extra-flakes`: user-named root inputs, exposed to modules
     # under that bare name and optionally loaded via `modulesToLoad`.
 
-    extraFlakes = config.system.extraFlakes or [ ];
+    extraFlakes = config.system.extra-flakes or [ ];
 
     # Returns true so it chains with `seq`/`&&`. Scalar-tolerating name/url
     # checks run first, so a TOML typo aborts friendly, not on an attr miss.
@@ -897,25 +897,28 @@ let
           !(builtins.isString (f.name or ""))
           || builtins.match "^[a-zA-Z][a-zA-Z0-9_-]*$" (f.name or "") == null
         ) flakes)
-        "icedos.system.extraFlakes: every entry's `name` must be non-empty and match ^[a-zA-Z][a-zA-Z0-9_-]*$"
+        "icedos.system.extra-flakes: every entry's `name` must be non-empty and match ^[a-zA-Z][a-zA-Z0-9_-]*$"
       && icedosLib.abortIf (builtins.any (
         f: !(builtins.isString (f.url or "")) || (f.url or "") == ""
-      ) flakes) "icedos.system.extraFlakes: every entry must set a non-empty `url`"
-      && icedosLib.abortIf (builtins.any (
-        f:
-        builtins.any (
-          k:
-          !(builtins.elem k [
-            "name"
-            "url"
-            "inputs"
-            "modulesToLoad"
-          ])
-        ) (attrNames f)
-      ) flakes) "icedos.system.extraFlakes: entries may only set `name`, `url`, `inputs`, `modulesToLoad`"
+      ) flakes) "icedos.system.extra-flakes: every entry must set a non-empty `url`"
+      && icedosLib.abortIf (builtins.any
+        (
+          f:
+          builtins.any (
+            k:
+            !(builtins.elem k [
+              "name"
+              "url"
+              "inputs"
+              "modulesToLoad"
+            ])
+          ) (attrNames f)
+        )
+        flakes
+      ) "icedos.system.extra-flakes: entries may only set `name`, `url`, `inputs`, `modulesToLoad`"
       && icedosLib.abortIf (builtins.any (
         f: builtins.any (p: p == "") (f.modulesToLoad or [ ])
-      ) flakes) "icedos.system.extraFlakes: every `modulesToLoad` path must be non-empty"
+      ) flakes) "icedos.system.extra-flakes: every `modulesToLoad` path must be non-empty"
       &&
         icedosLib.abortIf
           (builtins.any (
@@ -929,10 +932,10 @@ let
               "icedos-state"
             ]
           ) (map (f: f.name) flakes))
-          "icedos.system.extraFlakes: name is reserved (nixpkgs, home-manager, self, icedos-config, icedos-core, icedos-state)"
+          "icedos.system.extra-flakes: name is reserved (nixpkgs, home-manager, self, icedos-config, icedos-core, icedos-state)"
       && icedosLib.abortIf (
         builtins.length (lib.unique (map (f: f.name) flakes)) != builtins.length flakes
-      ) "icedos.system.extraFlakes: `name` values must be unique";
+      ) "icedos.system.extra-flakes: `name` values must be unique";
 
     # Declared names colliding with an extraFlake `name`; shared by the masked-
     # input and repo/sub-flake-input guards. Pure, so tests can drive it.
@@ -967,17 +970,17 @@ let
       let
         segments = lib.splitString "." path;
         input = seq (icedosLib.abortIf (!(inputs ? ${flakeName}))
-          "icedos.system.extraFlakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
+          "icedos.system.extra-flakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
         ) inputs.${flakeName};
         walk =
           node: seg:
           seq (icedosLib.abortIf (!(node ? ${seg}))
-            "icedos.system.extraFlakes: output path '${path}' on flake input '${flakeName}' is missing segment '${seg}'"
+            "icedos.system.extra-flakes: output path '${path}' on flake input '${flakeName}' is missing segment '${seg}'"
           ) node.${seg};
         selected = foldl' walk input segments;
         nullGuard = icedosLib.abortIf (
           selected == null
-        ) "icedos.system.extraFlakes: output '${path}' on flake input '${flakeName}' is missing or null";
+        ) "icedos.system.extra-flakes: output '${path}' on flake input '${flakeName}' is missing or null";
       in
       seq nullGuard selected;
 
@@ -991,7 +994,8 @@ let
             i: f:
             lib.imap0 (
               j: path:
-              lib.setDefaultModuleLocation "icedos.system.extraFlakes[${toString i}].modulesToLoad[${toString j}]"
+              lib.setDefaultModuleLocation
+                "icedos.system.extra-flakes[${toString i}].modulesToLoad[${toString j}]"
                 (_selectExtraFlakeOutput f.name path params.inputs)
             ) (f.modulesToLoad or [ ])
           ) extraFlakes
@@ -1019,7 +1023,7 @@ let
 
         moduleInputs = seq (_validateExtraFlakes extraFlakes) (seq (
           icedosLib.abortIf (colliding != [ ])
-            "module-declared input name(s) ${builtins.concatStringsSep ", " colliding} collide with an icedos.system.extraFlakes name — rename the module input or the extraFlake"
+            "module-declared input name(s) ${builtins.concatStringsSep ", " colliding} collide with an icedos.system.extra-flakes name — rename the module input or the extraFlake"
         )) (flatten (map (r: r.masked) subFlakes) ++ extraFlakeMaskedInputs extraFlakes);
 
         processModuleOutputs =
@@ -1607,7 +1611,7 @@ let
                 )
               ) != [ ]
             )
-            "an icedos.system.extraFlakes name collides with a repository input or module sub-flake name — rename the extraFlake";
+            "an icedos.system.extra-flakes name collides with a repository input or module sub-flake name — rename the extraFlake";
 
         # Over the same combined set the masked inputs are built from. Forced
         # only here: it forces urls, which the build stage must never do.

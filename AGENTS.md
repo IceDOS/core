@@ -250,6 +250,11 @@ no `meta.name`) — they declare `options`/`config` straight up and are loaded b
   (`mk{Bool,Str,StrList,Number}Option`) just take `default`. `validate.*` fires on the
   module's own `config.toml` default too, so a bad default surfaces with the same rich
   error a user would get.
+- **Option-path segments are kebab-case; only leaf value keys are camelCase.** Any
+  segment that holds other options (TOML `[a.b]`/`[[a.b]]` headers, nested groups,
+  `attrsOf`/attrs options, submodule lists) is kebab-case: `zed.agent-bridge`,
+  `overlays.from-channel`, `samba.extra-settings`. Leaves keep camelCase: `remoteLookup`.
+  Upstream names (`stylix.fonts.sansSerif`) and runtime JSON keys stay as-is; map them in Nix.
 - **Module repos declare no `enable` bool** — listing a module in that repo's
   `modules = [ … ]` (`config.toml`) enables it, and its `meta.dependencies` are pulled in
   with it. The repo's `default` module is always active, so its `dependencies` /
@@ -379,7 +384,7 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
   gives modules stable names (`inputs.<channel>`, `inputs.self`) regardless of how the
   repo was fetched.
 - Channels/overlays: `[[icedos.system.channels]]` and
-  `[[icedos.system.overlays.fromChannel]]` add extra nixpkgs instances/overlays.
+  `[[icedos.system.overlays.from-channel]]` add extra nixpkgs instances/overlays.
 
 ### Declaring user options from TOML: `[extraOptions]`
 
@@ -530,6 +535,8 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
 - **Never** add untyped options — always a `validate.*`/`mk*Option` helper with
   `path` + `source` where required.
 - **Always** `icedos nixf .` after editing `.nix`.
+- **Never** camelCase an option-path segment that holds other options — kebab-case
+  (`agent-bridge`); camelCase is for leaf value keys only (see Module rules).
 - **Keep docs in lockstep with code.** Whenever a feature, option path, module layout,
   default, or CLI surface changes — or you learn something worth recording — update the
   relevant `AGENTS.md` (this bible for framework-wide rules; the repo's own `AGENTS.md`

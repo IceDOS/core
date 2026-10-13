@@ -172,7 +172,7 @@ let
 
   # One extra flake configured (input + module load) and one input-only.
   efIcedos = mkIcedos {
-    system.extraFlakes = [
+    system.extra-flakes = [
       {
         name = "jovian";
         url = "github:jovian-experiments/jovian-nixos";
@@ -186,7 +186,7 @@ let
     ];
   };
   efBare = mkIcedos {
-    system.extraFlakes = [
+    system.extra-flakes = [
       {
         name = "jovian";
         url = "u";
@@ -451,7 +451,7 @@ let
   # `_extractNixosModules`' extraFlake/masked-name collision guard.
   extractJovian =
     base: extra:
-    (mkIcedos (lib.optionalAttrs (extra != { }) { system.extraFlakes = [ extra ]; }))
+    (mkIcedos (lib.optionalAttrs (extra != { }) { system.extra-flakes = [ extra ]; }))
     ._extractNixosModules
       {
         inputs = base;
@@ -852,7 +852,7 @@ in
               }
             ];
             overlays = {
-              fromChannel = [
+              from-channel = [
                 {
                   url = "https://example.com/overlay";
                   packages = [ "foo" ];
@@ -869,7 +869,7 @@ in
                 }
               ];
             };
-            extraFlakes = [
+            extra-flakes = [
               {
                 name = "myflake";
                 url = "u";
@@ -1285,7 +1285,7 @@ in
   # ExtraFlake name matches a sub-flake name → abort.
   subFlakeReservedCollisionWithExtraFlake = expectThrow (
     (mkIcedos {
-      system.extraFlakes = [
+      system.extra-flakes = [
         {
           name = "icedos-github_icedos_apps-aagl";
           url = "u";
@@ -2093,7 +2093,7 @@ in
     builtins.length result == 2 && builtins.elem "A" result && builtins.elem "B" result
   );
 
-  # ── icedos.system.extraFlakes ─────────────────────────────────────────────
+  # ── icedos.system.extra-flakes ─────────────────────────────────────────────
   # Driven on `mkIcedos` directly; `modulesFromConfig` would need a config root.
 
   # Flake-input emission: `{ url; inputs; }` value (modulesToLoad stripped),
@@ -2200,7 +2200,7 @@ in
   efLoad =
     expectEq
       [
-        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[0].modulesToLoad[0]" shared)
+        (lib.setDefaultModuleLocation "icedos.system.extra-flakes[0].modulesToLoad[0]" shared)
       ]
       (
         efIcedos.extraFlakeModules {
@@ -2216,19 +2216,19 @@ in
   efLoadMulti =
     expectEq
       [
-        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[0].modulesToLoad[0]" {
+        (lib.setDefaultModuleLocation "icedos.system.extra-flakes[0].modulesToLoad[0]" {
           config.entries = [ "A" ];
         })
-        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[0].modulesToLoad[1]" {
+        (lib.setDefaultModuleLocation "icedos.system.extra-flakes[0].modulesToLoad[1]" {
           config.entries = [ "B" ];
         })
-        (lib.setDefaultModuleLocation "icedos.system.extraFlakes[1].modulesToLoad[0]" {
+        (lib.setDefaultModuleLocation "icedos.system.extra-flakes[1].modulesToLoad[0]" {
           config.entries = [ "C" ];
         })
       ]
       (
         (mkIcedos {
-          system.extraFlakes = [
+          system.extra-flakes = [
             {
               name = "a";
               url = "u";
@@ -2345,7 +2345,7 @@ in
   # guards, so driving it directly covers the latter too.
   efNameCollisionsHelper = expectEq [ "jovian" ] (
     (mkIcedos {
-      system.extraFlakes = [
+      system.extra-flakes = [
         {
           name = "jovian";
           url = "path:/dev/null";
@@ -2364,7 +2364,7 @@ in
   efCollisionNamespaced =
     let
       collisionIcedos = mkIcedos {
-        system.extraFlakes = [
+        system.extra-flakes = [
           {
             name = helpers.moduleInputName {
               repo = "path:src";

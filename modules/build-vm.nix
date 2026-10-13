@@ -29,7 +29,7 @@ in
       imap0 (i: d: {
         name = "shared${toString i}";
         value = { inherit (d) source target; };
-      }) build-vm.sharedDirectories
+      }) build-vm.shared-directories
     );
 
     forwardPorts = optionals build-vm.ssh.enable [

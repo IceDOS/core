@@ -165,7 +165,7 @@ in
           cores = mkNumberOption { default = 1; };
           diskSize = with types; mkEitherOption { default = "auto"; } str number;
 
-          sharedDirectories = mkSubmoduleListOption { default = [ ]; } {
+          shared-directories = mkSubmoduleListOption { default = [ ]; } {
             source = mkStrOption { };
             target = mkStrOption { };
           };
@@ -211,7 +211,7 @@ in
 
         # Extra flake inputs under a user-chosen `name`, optionally loaded via
         # `modulesToLoad`. `name` must not collide with any other root input.
-        extraFlakes = mkSubmoduleListOption { default = [ ]; } {
+        extra-flakes = mkSubmoduleListOption { default = [ ]; } {
           name = mkStrOption { };
           url = mkStrOption { };
           inputs = mkAttrsOfOption { default = { }; } (types.attrsOf types.str);
@@ -269,7 +269,7 @@ in
         # Pull selected packages from another channel/flake in as an overlay. Each
         # entry sets `channel` or `url` (`channel` wins); `packages` must be non-empty.
         overlays = {
-          fromChannel = mkSubmoduleListOption { default = [ ]; } {
+          from-channel = mkSubmoduleListOption { default = [ ]; } {
             channel = mkStrOption { default = ""; };
             packages = mkStrListOption { default = [ ]; };
             url = mkStrOption { default = ""; };
@@ -364,7 +364,7 @@ in
 
         # Patch a module's flake input from config, without forking the module.
         # Config-root-relative; applied after the author's own patches.
-        inputPatches = mkSubmoduleListOption { default = [ ]; } {
+        input-patches = mkSubmoduleListOption { default = [ ]; } {
           module = mkStrOption { };
           input = mkStrOption { };
           patches = mkStrListOption { default = [ ]; };
