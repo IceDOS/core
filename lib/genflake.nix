@@ -196,6 +196,20 @@ let
     msg = "repo(s) both selected and excluded: ${concatStringsSep " " updateReposSelectFrozen}";
   };
 
+  # HM users only get stateVersion from [icedos.users.*]; without this, HM fails
+  # deep in the build with "home.stateVersion was accessed but has no value defined".
+  hmUndefinedUsers = filter (u: !builtins.hasAttr u (icedos.users or { })) (
+    builtins.attrNames (userConfig.home-manager.users or { })
+  );
+
+  hmUsersGuard = validate.abort {
+    when = hmUndefinedUsers != [ ];
+    path = "home-manager.users";
+    msg = "user(s) ${concatStringsSep ", " hmUndefinedUsers} not defined in IceDOS; define each one in config.toml, e.g.:\n${
+      concatMapStrings (u: "\n[icedos.users.${u}]\ndescription = \"${u}\"\n") hmUndefinedUsers
+    }";
+  };
+
   defaultNixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
   nixpkgsChannel = icedos.system.nixpkgsChannel or defaultNixpkgsChannel;
 
@@ -465,6 +479,8 @@ in
 assert isFirstBuildGuard;
 assert extraFlakeNameGuard;
 assert updateReposSelectGuard;
+assert updateReposSelectFrozenGuard;
+assert hmUsersGuard;
 assert githubTokenStoreWarning;
 {
   inherit

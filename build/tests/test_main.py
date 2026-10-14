@@ -11,6 +11,7 @@ from unittest import mock
 from build import main as build_main
 from build.context import BuildEnv, RebuildContext
 from build.hooks import HookFailed
+from build.update import ReExecExited
 
 STATE_DIR = Path("/cfg/.state")
 ENV = BuildEnv(
@@ -65,6 +66,7 @@ def _main(
     *,
     build_exit: int | None = None,
     build_error: Exception | None = None,
+    re_exec_exit: int | None = None,
     record_interrupt: bool = False,
     run: _Run | None = None,
 ) -> _Run:
@@ -78,6 +80,11 @@ def _main(
         if build_error is not None:
             raise build_error
 
+    def fake_re_exec(*_args: object) -> None:
+        run.calls.append("self-update")
+        if re_exec_exit is not None:
+            raise ReExecExited(re_exec_exit)
+
     def fake_record(*_args: object, **_kwargs: object) -> None:
         run.calls.append("record")
         if record_interrupt:
@@ -88,7 +95,7 @@ def _main(
         "from_environment": lambda: ENV,
         "_nix_config": lambda _opts: build_main.BASE_NIX_CONFIG,
         "refresh_config_root_paths": run.step("refresh"),
-        "maybe_re_exec_update_core": run.step("self-update"),
+        "maybe_re_exec_update_core": fake_re_exec,
         "generate_flake": run.step("genflake"),
         "prepare_lock": run.step("lock"),
         "build": fake_build,
@@ -191,6 +198,11 @@ class MainFlowTest(unittest.TestCase):
         self.assertEqual(run.calls[-1], "build")
         self.assertEqual(run.rc, 3)
         self.assertIn("error: build failed with exit code 3", run.out)
+
+    def test_failed_re_exec_child_is_not_reported_twice(self):
+        run = _main(["--update"], CTX, re_exec_exit=1)
+        self.assertEqual(run.rc, 1)
+        self.assertNotIn("build failed", run.out)
 
     def test_interrupt_is_not_reported_as_a_failure(self):
         run = _main([], CTX, build_exit=130)

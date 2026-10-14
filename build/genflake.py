@@ -68,7 +68,8 @@ def generate_flake(
     stdout = capture(cmd, env={"ICEDOS_STAGE": "genflake", **update_env})
     target = env.state_dir / "flake.nix"
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = target.parent / f"{target.name}.icedos-tmp"
+    # Keep the .nix suffix: nixfmt deprecates formatting non-.nix files.
+    tmp_path = target.parent / "flake.icedos-tmp.nix"
     _ = tmp_path.write_text(stdout.rstrip("\n") + "\n")
     run(["nixfmt", str(tmp_path)], check=True)
     os.replace(tmp_path, target)

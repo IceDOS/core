@@ -16,6 +16,7 @@ from .snapshot import current_generation, record_rebuild
 from .term import RED, clr_line, log_ok, log_step, log_warn, paint
 from .transaction import Transaction
 from .update import (
+    ReExecExited,
     maybe_re_exec_update_core,
     prepare_lock,
     refresh_config_root_paths,
@@ -222,8 +223,8 @@ def _reported_rebuild(
         return _rebuild(env, opts, ctx, previous_arguments)
     except SystemExit as exc:
         code = _exit_code(exc)
-        # 130 and hook failures already got their own report.
-        reported = code in (0, 130) or isinstance(exc, HookFailed)
+        # 130, hook failures and the re-exec'd child already got their own report.
+        reported = code in (0, 130) or isinstance(exc, (HookFailed, ReExecExited))
         if ctx is not None and not opts.dry and not reported:
             print(
                 f"{clr_line()}{paint(RED, 'error')}: build failed with exit code {code}"

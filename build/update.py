@@ -86,6 +86,11 @@ def update_cache_pin(env: BuildEnv, opts: Options, pinned: list[str]) -> list[st
     return [n for n in pinned if n not in opts.state_inputs]
 
 
+# The re-exec'd child already reported its own failure; the parent must not repeat it.
+class ReExecExited(SystemExit):
+    pass
+
+
 def maybe_re_exec_update_core(
     env: BuildEnv, opts: Options, previous_arguments: list[str]
 ) -> None:
@@ -124,7 +129,7 @@ def maybe_re_exec_update_core(
     )
     while True:
         try:
-            raise SystemExit(proc.wait())
+            raise ReExecExited(proc.wait())
         except KeyboardInterrupt:
             continue
 
