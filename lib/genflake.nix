@@ -39,6 +39,8 @@ let
   inherit (icedosLib)
     ICEDOS_CONFIG_ROOT
     ICEDOS_STATE_DIR
+    _frozenInputs
+    _frozenRev
     _loadModulesFromRepo
     _parseFlakeUrl
     _repoSelected
@@ -186,6 +188,14 @@ let
     msg = "unknown repo(s): ${concatStringsSep " " updateReposSelectUnknown} — only repos listed in [[icedos.repositories]] can be selected";
   };
 
+  updateReposSelectFrozen = filter (s: any (_repoSelected [ s ]) _frozenInputs) _selectedRepos;
+
+  updateReposSelectFrozenGuard = validate.abort {
+    when = updateReposSelectFrozen != [ ];
+    path = "--update-repos-select";
+    msg = "repo(s) both selected and excluded: ${concatStringsSep " " updateReposSelectFrozen}";
+  };
+
   defaultNixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
   nixpkgsChannel = icedos.system.nixpkgsChannel or defaultNixpkgsChannel;
 
@@ -195,11 +205,20 @@ let
     if nixpkgsChannel == defaultNixpkgsChannel then icedosLib._cacheRootRev "nixpkgs" else "";
   homeManagerCacheRev = icedosLib._cacheRootRev "home-manager";
 
+  nixpkgsFrozenRev = _frozenRev { name = "nixpkgs"; };
+  homeManagerFrozenRev = _frozenRev { name = "home-manager"; };
+
   nixpkgsInput = {
     name = "nixpkgs";
 
     value = {
-      url = if nixpkgsCacheRev != "" then "github:nixos/nixpkgs/${nixpkgsCacheRev}" else nixpkgsChannel;
+      url =
+        if nixpkgsFrozenRev != "" && nixpkgsChannel == defaultNixpkgsChannel then
+          "github:nixos/nixpkgs/${nixpkgsFrozenRev}"
+        else if nixpkgsCacheRev != "" then
+          "github:nixos/nixpkgs/${nixpkgsCacheRev}"
+        else
+          nixpkgsChannel;
     };
   };
 
@@ -209,7 +228,7 @@ let
     value = {
       url = icedosLib._appendRev {
         baseUrl = "github:nix-community/home-manager";
-        rev = homeManagerCacheRev;
+        rev = if homeManagerFrozenRev != "" then homeManagerFrozenRev else homeManagerCacheRev;
       };
       inputs.nixpkgs.follows = "nixpkgs";
     };
@@ -618,4 +637,8 @@ assert githubTokenStoreWarning;
         };
     }
   '';
+
+  cachePinnedInputs = icedosLib._cachePinnedInputs {
+    inherit nixpkgsCacheRev homeManagerCacheRev;
+  };
 }

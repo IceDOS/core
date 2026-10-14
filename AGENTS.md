@@ -258,6 +258,10 @@ Optional module fields:
 - `meta.dependencies = [ { url?; modules = [ … ]; } ];` and `meta.optionalDependencies`
   — other modules this one needs (pulled automatically).
 
+**Rebuild transactions and lock safety:** Every rebuild runs inside an atomic transaction managed by `build/transaction.py`. Before modifying `config/flake.lock`, `.state/flake.lock` or `.state/flake.nix`, the orchestrator takes an exclusive non-blocking flock on `.state/.txn.lock` and backs up the files in `.state/.txn/` with a manifest. A re-exec'd process runs with `ICEDOS_TXN=1` inside the parent's transaction. On failure, interrupt, or error, the transaction rolls back the tracked files byte-for-byte (and deletes any tracked files that did not exist before). If a run fails after the system profile has changed (under `switch`/`boot` where the system profile symlink changed), the transaction commits to keep the configuration matched with the installed generation. If `.state/.txn/` exists from a previous crash/kill, `begin()` warns and restores the files before starting.
+
+**Frozen inputs and cache pins:** `ICEDOS_FREEZE_INPUTS` passes excluded input names to genflake so frozen inputs keep their locked revs during `--update` or `--update-core`. `cachePinnedInputs` in `genflake.nix` exports root inputs pinned to the binary cache (`nixpkgs`, `home-manager`); updating a pinned input via `--update-state-inputs` updates `icedos/cache-server` in the config lock rather than the state flake. Overlay inputs (`icedos-overlay-*`) are not controlled by genflake and can be updated selectively via `--update-state-inputs`.
+
 ### Two physical layouts
 
 - **Per-module-dir repos** (`apps`, `hardware`, `desktop`, `tweaks`, `providers`): each module is `modules/<name>/{icedos.nix,config.toml}`. The repo's
@@ -551,9 +555,9 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
    unavailable.
 
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
-`--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-repos`,
-`--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--update-hooks`, `--ask`,
-`--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
+`--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-except "..."`,
+`--update-repos`, `--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--update-hooks`,
+`--lock-only`, `--ask`, `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
 
 ## 8. Hard rules (do not violate)
 
@@ -576,6 +580,7 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
   for repo-specific detail) in the **same** change. Stale docs are treated as bugs; a
   change that alters behaviour but not its docs is incomplete.
 - Don't remove safety checks or rewrite working shell scripts wholesale; be conservative.
+- **Never** write `config/flake.lock` or `.state/flake.{nix,lock}` outside a rebuild transaction; never `execvpe` out of the orchestrator.
 
 ## 9. Gotchas
 

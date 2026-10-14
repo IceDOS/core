@@ -167,6 +167,60 @@ class ParseArgsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             _parse(["--nope"])
 
+    def test_update_lock_only(self):
+        opts, _ = _parse(["--update", "--lock-only"])
+        self.assertTrue(opts.lock_only)
+        self.assertTrue(opts.genflake_only)
+        self.assertTrue(opts.update_all)
+
+    def test_lock_only_alone_exits(self):
+        with self.assertRaises(SystemExit):
+            _parse(["--lock-only"])
+
+    def test_lock_only_with_build_actions_exits(self):
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--lock-only", "--build"])
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--lock-only", "--builder", "host"])
+
+    def test_lock_only_with_dry_or_update_hooks_exits(self):
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--lock-only", "--dry"])
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--lock-only", "--update-hooks"])
+
+    def test_update_state_inputs_lock_only(self):
+        opts, _ = _parse(["--update-state-inputs", "home-manager", "--lock-only"])
+        self.assertTrue(opts.lock_only)
+        self.assertEqual(opts.state_inputs, ["home-manager"])
+
+    def test_update_except_parsing_and_concatenation(self):
+        opts, _ = _parse(["--update", "--update-except", "nixpkgs home-manager"])
+        self.assertTrue(opts.update_all)
+        self.assertEqual(opts.update_except, ["nixpkgs", "home-manager"])
+
+        opts2, _ = _parse(
+            ["--update", "--update-except", "nixpkgs", "--update-except", "home-manager"]
+        )
+        self.assertEqual(opts2.update_except, ["nixpkgs", "home-manager"])
+
+    def test_update_except_bad_args_exit(self):
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--update-except", "--logs"])
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--update-except", "   "])
+        with self.assertRaises(SystemExit):
+            _parse(["--update-except", "nixpkgs"])
+
+    def test_update_core_update_except(self):
+        opts, _ = _parse(["--update-core", "--update-except", "icedos"])
+        self.assertTrue(opts.update_core)
+        self.assertEqual(opts.update_except, ["icedos"])
+
+    def test_update_except_overlap_with_state_inputs_exits(self):
+        with self.assertRaises(SystemExit):
+            _parse(["--update", "--update-except", "nixpkgs", "--update-state-inputs", "nixpkgs"])
+
 
 if __name__ == "__main__":
     unittest.main()

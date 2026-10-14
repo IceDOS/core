@@ -3,18 +3,23 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
 from .context import BuildEnv
 from .genflake import generate_flake
 from .lockfile import (
+    genflake_controlled,
     input_is_string,
     input_locked_path,
     load_lock,
     nested_path_inputs,
+    nested_string_inputs,
     path_inputs,
     path_nodes,
+    root_string_inputs,
+    select_update_inputs,
     string_inputs,
     subflakes_from_lock,
 )
@@ -33,6 +38,54 @@ def refresh_config_root_paths(env: BuildEnv, opts: Options) -> None:
         ignored(["nix", "flake", "update", name], cwd=env.config_root)
 
 
+def validate_update_except(env: BuildEnv, opts: Options) -> None:
+    if not opts.update_except:
+        return
+    state_lock_path = env.state_dir / "flake.lock"
+    if not state_lock_path.exists():
+        warn("warning: no state flake.lock yet; --update-except will have no effect")
+        return
+
+    state_lock = load_lock(state_lock_path)
+    valid_names = set(root_string_inputs(state_lock)) | set(nested_string_inputs(state_lock))
+    if env.config_root:
+        config_lock_path = env.config_root / "flake.lock"
+        if config_lock_path.exists():
+            valid_names |= set(root_string_inputs(load_lock(config_lock_path)))
+
+    subs = set(subflakes_from_lock(state_lock))
+    for name in opts.update_except:
+        if name in subs:
+            warn(f"error: '{name}' is a sub-flake root and cannot be excluded")
+            raise SystemExit(1)
+        if name not in valid_names:
+            names_str = ", ".join(sorted(valid_names))
+            warn(f"error: '{name}' is not an input of the state or config flake.lock\nvalid inputs: {names_str}")
+            raise SystemExit(1)
+
+
+def update_cache_pin(env: BuildEnv, opts: Options, pinned: list[str]) -> list[str]:
+    requested = [n for n in opts.state_inputs if n in pinned]
+    if not requested:
+        return []
+    if opts.update_core and not any(p in opts.update_except for p in pinned):
+        return []
+    if not env.config_root:
+        return []
+
+    for name in requested:
+        warn(f"info: {name} is cache-pinned; updating the cache pin (icedos/cache-server) instead")
+    if len(requested) < len(pinned):
+        kept = [n for n in pinned if n not in opts.state_inputs]
+        warn(
+            f"warning: updating {', '.join(requested)} but keeping {', '.join(kept)} at its locked rev; "
+            "name both to keep them matched"
+        )
+
+    run(["nix", "flake", "update", "icedos/cache-server", "--refresh"], cwd=env.config_root, check=True)
+    return [n for n in pinned if n not in opts.state_inputs]
+
+
 def maybe_re_exec_update_core(
     env: BuildEnv, opts: Options, previous_arguments: list[str]
 ) -> None:
@@ -43,7 +96,16 @@ def maybe_re_exec_update_core(
     if not env.config_root:
         return
 
-    if opts.update_core:
+    if opts.update_core and opts.update_except:
+        names = select_update_inputs(
+            root_string_inputs(load_lock(env.config_root / "flake.lock")),
+            opts.update_except,
+        )
+        if names:
+            run(["nix", "flake", "update", *names, "--refresh"], cwd=env.config_root, check=True)
+        else:
+            return
+    elif opts.update_core:
         run(["nix", "flake", "update", "--refresh"], cwd=env.config_root, check=True)
     else:
         run(
@@ -54,16 +116,25 @@ def maybe_re_exec_update_core(
 
     new_env = os.environ.copy()
     new_env["skip_update_core"] = "1"
-    # `path:.` resolves against the process cwd, which execvpe inherits; the
-    # `cwd=` above only applied to the `nix flake update` child.
-    os.chdir(env.config_root)
-    os.execvpe("nix", ["nix", "run", "path:.", "--", *previous_arguments], new_env)
+    new_env["ICEDOS_TXN"] = "1"
+    proc = subprocess.Popen(
+        ["nix", "run", "path:.", "--", *previous_arguments],
+        cwd=env.config_root,
+        env=new_env,
+    )
+    while True:
+        try:
+            raise SystemExit(proc.wait())
+        except KeyboardInterrupt:
+            continue
 
 
 def _sync_lock(lock_dir: Path, state_dir: Path) -> None:
     lock_file = lock_dir / "flake.lock"
     if lock_file.exists():
-        _ = shutil.copy2(lock_file, state_dir / "flake.lock")
+        tmp_target = state_dir / "flake.lock.icedos-tmp"
+        _ = shutil.copy2(lock_file, tmp_target)
+        os.replace(tmp_target, state_dir / "flake.lock")
     else:
         warn("warning: no flake.lock in detached lock dir — nothing to sync")
 
@@ -99,15 +170,24 @@ def prepare_lock(env: BuildEnv, opts: Options, trace: list[str]) -> None:
         for name in nested_path_inputs(lock, sub):
             ignored(["nix", "flake", "update", f"{sub}/{name}"], cwd=lock_dir)
 
-    if opts.update_core:
+    if opts.update_core and "icedos" not in opts.update_except:
         ignored(["nix", "flake", "update", "icedos-core", "--refresh"], cwd=lock_dir)
 
-    if opts.update_all:
+    if opts.update_all and opts.update_except:
+        lock = load_lock(lock_dir / "flake.lock")
+        subs = set(subflakes_from_lock(lock))
+        names = select_update_inputs([n for n in root_string_inputs(lock) if n not in subs], opts.update_except)
+        if names:
+            run(["nix", "flake", "update", *names, "--refresh"], cwd=lock_dir, check=True)
+    elif opts.update_all:
         run(["nix", "flake", "update", "--refresh"], cwd=lock_dir, check=True)
-    elif opts.update_repos_inputs:
+
+    if opts.update_repos_inputs and (opts.update_except or not opts.update_all):
         lock = load_lock(lock_dir / "flake.lock")
         for sub in subflakes_from_lock(lock):
             for name in string_inputs(lock, sub):
+                if f"{sub}/{name}" in opts.update_except:
+                    continue
                 ignored(
                     ["nix", "flake", "update", f"{sub}/{name}", "--refresh"],
                     cwd=lock_dir,
@@ -117,7 +197,9 @@ def prepare_lock(env: BuildEnv, opts: Options, trace: list[str]) -> None:
         lock = load_lock(lock_dir / "flake.lock")
         valid_inputs: list[str] = []
         for name in opts.state_inputs:
-            if name.startswith(env.inputs_prefix + "-"):
+            if name in opts.freeze_inputs or name in opts.cache_pinned:
+                continue
+            if genflake_controlled(lock, name, env.inputs_prefix):
                 msg = f"skipping '{name}' — controlled by genflake, use --update-repos to update"
                 warn(f"warning: {msg}")
                 continue
@@ -133,7 +215,11 @@ def prepare_lock(env: BuildEnv, opts: Options, trace: list[str]) -> None:
         generate_flake(
             env,
             trace,
-            {"ICEDOS_UPDATE": "", "ICEDOS_UPDATE_MODULE_INPUTS": ""},
+            {
+                "ICEDOS_UPDATE": "",
+                "ICEDOS_UPDATE_MODULE_INPUTS": "",
+                "ICEDOS_FREEZE_INPUTS": " ".join(opts.freeze_inputs),
+            },
         )
         sync_dir(env.state_dir, lock_dir)
         run(["nix", "flake", "lock"], cwd=lock_dir, check=True)

@@ -105,3 +105,52 @@ def string_inputs(lock: dict[str, JSON], subflake: str) -> list[str]:
 
 def input_is_string(lock: dict[str, JSON], input_name: str) -> bool:
     return isinstance(_root_inputs(lock).get(input_name), str)
+
+
+def locked_revs(lock: dict[str, JSON]) -> dict[str, str]:
+    """Root and <sub>/<name> string inputs mapped to their locked rev ("" when unrevved)."""
+    revs: dict[str, str] = {}
+    for name, node_key in _root_inputs(lock).items():
+        if isinstance(node_key, str):
+            revs[name] = _as_str(_locked(lock, node_key).get("rev"))
+
+    for sub in subflakes_from_lock(lock):
+        sub_key = _root_inputs(lock).get(sub)
+        if isinstance(sub_key, str):
+            for name, node_key in _as_dict(_node(lock, sub_key).get("inputs")).items():
+                if isinstance(node_key, str):
+                    revs[f"{sub}/{name}"] = _as_str(_locked(lock, node_key).get("rev"))
+
+    return revs
+
+
+def rev_changes(old: dict[str, JSON], new: dict[str, JSON]) -> list[tuple[str, str, str]]:
+    """(name, old_rev, new_rev) for every input whose rev differs, added or removed, sorted by name."""
+    old_revs = locked_revs(old)
+    new_revs = locked_revs(new)
+    all_names = sorted(set(old_revs.keys()) | set(new_revs.keys()))
+    changes: list[tuple[str, str, str]] = []
+    for name in all_names:
+        o = old_revs.get(name, "")
+        n = new_revs.get(name, "")
+        if o != n:
+            changes.append((name, o, n))
+    return changes
+
+
+def genflake_controlled(lock: dict[str, JSON], name: str, prefix: str) -> bool:
+    if name in subflakes_from_lock(lock):
+        return True
+    return name.startswith(f"{prefix}-") and not name.startswith(f"{prefix}-overlay-")
+
+
+def root_string_inputs(lock: dict[str, JSON]) -> list[str]:
+    return [name for name, value in _root_inputs(lock).items() if isinstance(value, str)]
+
+
+def nested_string_inputs(lock: dict[str, JSON]) -> list[str]:
+    return [f"{sub}/{name}" for sub in subflakes_from_lock(lock) for name in string_inputs(lock, sub)]
+
+
+def select_update_inputs(names: list[str], excluded: list[str]) -> list[str]:
+    return [n for n in names if n not in excluded]

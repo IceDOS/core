@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from typing import cast
 
@@ -65,5 +66,27 @@ def generate_flake(
         ]
     )
     stdout = capture(cmd, env={"ICEDOS_STAGE": "genflake", **update_env})
-    write_text(env.state_dir / "flake.nix", stdout.rstrip("\n") + "\n")
-    run(["nixfmt", str(env.state_dir / "flake.nix")], check=True)
+    target = env.state_dir / "flake.nix"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target.parent / f"{target.name}.icedos-tmp"
+    _ = tmp_path.write_text(stdout.rstrip("\n") + "\n")
+    run(["nixfmt", str(tmp_path)], check=True)
+    os.replace(tmp_path, target)
+
+
+def cache_pinned_inputs(env: BuildEnv, trace: list[str]) -> list[str]:
+    cmd = [
+        "nix",
+        "eval",
+        "--json",
+        *trace,
+        "--file",
+        str(env.root / "lib" / "genflake.nix"),
+        "cachePinnedInputs",
+    ]
+    stdout = capture(cmd, env={"ICEDOS_STAGE": "genflake"})
+    try:
+        data = json.loads(stdout)
+        return [str(x) for x in data] if isinstance(data, list) else []
+    except ValueError:
+        return []

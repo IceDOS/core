@@ -14,6 +14,7 @@ class Options:
     run_vm: bool = False
     genflake_only: bool = False
     dry: bool = False
+    lock_only: bool = False
     export_search_index: bool = False
     update_all: bool = False
     update_hooks: bool = False
@@ -22,6 +23,9 @@ class Options:
     update_repos: bool = False
     update_repos_inputs: bool = False
     state_inputs: list[str] = field(default_factory=list)
+    update_except: list[str] = field(default_factory=list)
+    freeze_inputs: list[str] = field(default_factory=list)
+    cache_pinned: list[str] = field(default_factory=list)
     repos_select: list[str] = field(default_factory=list)
     github_token: str | None = None
     github_token_path: str | None = None
@@ -42,6 +46,10 @@ error: --update-repos-select requires a space-separated list of repo urls
 _ERR_STATE_INPUTS = """\
 error: --update-state-inputs requires a space-separated list of input names
   usage: --update-state-inputs "nixpkgs home-manager\""""
+
+_ERR_UPDATE_EXCEPT = """\
+error: --update-except requires a space-separated list of input names
+  usage: --update-except "nixpkgs home-manager\""""
 
 
 def _die(message: str) -> NoReturn:
@@ -85,6 +93,10 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
         elif arg == "--genflake-only":
             opts.genflake_only = True
             i += 1
+        elif arg == "--lock-only":
+            opts.lock_only = True
+            opts.genflake_only = True
+            i += 1
         elif arg == "--export-search-index":
             opts.export_search_index = True
             i += 1
@@ -119,6 +131,11 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
             if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
                 _die(_ERR_STATE_INPUTS)
             opts.state_inputs.extend(_take_list(arg, argv[i + 1]))
+            i += 2
+        elif arg == "--update-except":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                _die(_ERR_UPDATE_EXCEPT)
+            opts.update_except.extend(_take_list(arg, argv[i + 1]))
             i += 2
         elif arg == "--ask":
             opts.nh_build_args.append("-a")
@@ -167,8 +184,37 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
         else:
             _die(f"Unknown arg: {arg}")
 
+    if opts.lock_only and opts.dry:
+        _die("error: --dry and --lock-only cannot be combined")
+    if opts.lock_only and opts.update_hooks:
+        _die("error: --lock-only and --update-hooks cannot be combined")
+
     if opts.dry and opts.update_hooks:
         log_warn("--update-hooks ignored under --dry")
         opts.update_hooks = False
+
+    if opts.lock_only:
+        updating = (
+            opts.update_all
+            or opts.update_core
+            or opts.update_core_only
+            or opts.update_repos
+            or opts.update_repos_inputs
+            or bool(opts.repos_select)
+            or bool(opts.state_inputs)
+        )
+        if not updating:
+            _die("error: --lock-only needs an update flag, e.g. icedos rebuild --update --lock-only")
+        if opts.action != "switch" or opts.nh_build_args or opts.global_build_args:
+            _die(
+                "error: --lock-only does not build; drop "
+                "--boot/--build/--build-vm/--run-vm/--ask/--builder/--target/--nh-args/--build-args"
+            )
+
+    if opts.update_except and not (opts.update_all or opts.update_core):
+        _die("error: --update-except only applies with --update or --update-core")
+    overlap = set(opts.update_except) & set(opts.state_inputs)
+    if overlap:
+        _die(f"error: '{sorted(overlap)[0]}' is both selected and excluded")
 
     return opts, previous_arguments
