@@ -426,7 +426,7 @@ New here? These cover almost everything:
 | `icedos rebuild` | Apply your `config.toml` changes to the system. |
 | `icedos configuration search --options` | Search what you can set (fuzzy, with paste-ready TOML). |
 | `icedos configuration get <path>` | Print the effective value of a specific option by dotted path. |
-| `icedos configuration diff` | See what you've changed since the last rebuild. |
+| `icedos configuration diff` | See what you've changed since the running system was built. |
 | `icedos configuration history` | List generations and which config snapshot built each one. |
 | `icedos configuration validate` | Check your config for schema/type errors without a rebuild. |
 | `icedos configuration rollback` | Undo — restore the last working system **and** its `config.toml`. |
@@ -499,7 +499,7 @@ icedos rebuild [FLAGS] [--build-args <extra rebuild args...>]
 
 With no flags this is a `switch`: it builds your configuration and activates it now. After a switch that changed the kernel or initrd, IceDOS offers to reboot. Each successful rebuild also copies whatever changed among your config files (`config.toml` and the `configs/` dirs) and the config and state flake files into one timestamped `.cache/` folder. `configuration rollback` restores your config from there.
 
-Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher API rate limits, private `github:` inputs). A literal token is resolved first: `--github-token <token>`, then the `ICEDOS_GITHUB_TOKEN` env var. Otherwise a token file is used: `--github-token-path <path>`, the `ICEDOS_GITHUB_TOKEN_PATH` env var, or the `icedos.system.githubTokenPath` option (default `/etc/icedos-github-token`). A token file your user can't read is fetched with `sudo cat` — you'll be asked for your sudo password once (on a terminal); in non-interactive sessions the rebuild falls back to running without the token. The toolset wrapper resolves the same file before invoking the orchestrator and exports `NIX_CONFIG`, so nix calls that precede it (e.g. a stale-lock `nix run` re-resolving `github:` inputs) authenticate as well. Avoid `icedos.system.githubToken` (a literal token in `config.toml`): it gets baked into the world-readable nix store, and every rebuild warns about it.
+Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher API rate limits, private `github:` inputs). A literal token is resolved first: `--github-token <token>`, then the `ICEDOS_GITHUB_TOKEN` env var. Otherwise a token file is used: `--github-token-path <path>`, the `ICEDOS_GITHUB_TOKEN_PATH` env var, or the `icedos.system.githubTokenPath` option (default `/etc/icedos-github-token`). A token file your user can't read is fetched with `sudo cat` — you'll be asked for your sudo password once (on a terminal); in non-interactive sessions the rebuild falls back to running without the token. The toolset wrapper resolves the same file before invoking the orchestrator and exports `NIX_CONFIG`, so nix calls that precede it (e.g. a stale-lock `nix run` re-resolving `github:` inputs) authenticate as well. Avoid `icedos.system.githubToken` (a literal token in `config.toml`). Every rebuild copies the config dir into the world-readable nix store, so the token is readable by every local user, and every rebuild warns about it. Only a token file keeps it out of the store.
 
 #### Action flags — *what kind of build*
 
@@ -615,7 +615,7 @@ git -C <config> checkout -- flake.lock .state/flake.lock
 **Most failures are a mistake in your own `config.toml`** — a typo, a wrong option name or value, or a module not spelled the way its repo names it. Check that first, before assuming a deeper problem:
 
 1. **Read the last lines of the error.** IceDOS validation messages name the exact option and file that's wrong, so the fix is usually one line.
-2. **See what you changed.** `icedos configuration diff` shows how your working `config.toml` differs from the last build that worked — the culprit is almost always in there.
+2. **See what you changed.** `icedos configuration diff` shows how your working `config.toml` differs from the one that built the running system — the culprit is almost always in there.
 3. **Run `icedos status`** for common environment issues (cache, disk space, missing hardware config).
 4. **Still stuck?** Re-run with `icedos rebuild --logs` for a full trace — and only then suspect a module bug worth reporting upstream.
 

@@ -282,8 +282,9 @@ in
               names="$(
                 {
                   shopt -s globstar dotglob
-                  for f in "$root/$d/"**/*.toml; do printf '%s\n' "''${f#"$root/$d/"}"; done
-                  for f in "${configRoot}/$d/"**/*.toml; do printf '%s\n' "''${f#"${configRoot}/$d/"}"; done
+                  # core skips symlinked config files, so they are not part of the set
+                  for f in "$root/$d/"**/*.toml; do [ -L "$f" ] || printf '%s\n' "''${f#"$root/$d/"}"; done
+                  for f in "${configRoot}/$d/"**/*.toml; do [ -L "$f" ] || printf '%s\n' "''${f#"${configRoot}/$d/"}"; done
                 } | sort -u
               )"
               while IFS= read -r b; do
@@ -292,6 +293,33 @@ in
               done <<< "$names"
             done
             shopt -u nullglob
+          }
+
+          # Sets `snapshot` to the folder that built the running generation. A
+          # `--build` also snapshots, so the newest folder is only the fallback.
+          built_snapshot() {
+            local gen ptr name d
+            snapshot=""
+            snapshot_label=""
+            gen="$(readlink /nix/var/nix/profiles/system 2>/dev/null || true)"
+            gen="''${gen#system-}"
+            gen="''${gen%-link}"
+            ptr="${configurationLocation}/.cache/generations/$gen"
+            if [ -n "$gen" ] && [ -f "$ptr" ]; then
+              name="$(cat "$ptr")"
+              if [ -n "$name" ] && [ -f "${configurationLocation}/.cache/$name/.config-set" ]; then
+                snapshot="${configurationLocation}/.cache/$name/"
+                snapshot_label="$name (generation $gen)"
+                return 0
+              fi
+            fi
+            shopt -s nullglob
+            for d in "${configurationLocation}/.cache"/*/; do
+              [ -f "''${d}.config-set" ] && snapshot="$d"
+            done
+            shopt -u nullglob
+            [ -n "$snapshot" ] && snapshot_label="$(basename "$snapshot") (last build)"
+            return 0
           }
         '';
       };

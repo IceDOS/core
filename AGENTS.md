@@ -81,8 +81,11 @@ nh os <switch|boot|build|build-vm> path:.
   `sudo cat` (passwordless `sudo -n` first, then a password prompt when stdin
   is a TTY), and when that is impossible (non-interactive session, declined
   prompt) it warns and continues without the token. A literal
-  `icedos.system.githubToken` is baked into the world-readable nix store, so
-  genflake emits a `builtins.trace` warning on every eval while it is set.
+  `icedos.system.githubToken` lands in the world-readable nix store twice: the
+  config dir is copied there as the `icedos-config` input, and the wrapper bakes
+  it into the app script. Dropping the bake would not close the leak, so the
+  option stays and genflake emits a `builtins.trace` warning on every eval while
+  it is set. Only a token file keeps the token out of the store.
 - **`icedos rebuild`.** `modules/rebuild.nix` is a thin bash shim. It prints help
   from `build/usage.txt`, handles `--dir`, pre-resolves the token and runs the owner
   check. Before any `nix run path:.` (`--dir`, or the cwd fallback when the baked
@@ -101,6 +104,9 @@ nh os <switch|boot|build|build-vm> path:.
   (this is where `validate.*` fires), resolves external repos, and emits the state
   flake as a Nix string (`flakeFinal`). Also exposes `optionsDoc` / `modulesDoc`
   (the search index behind `icedos configuration search`) and `evaluatedConfig`.
+  `modulesDoc` marks a module `explicit` when any config entry for its repo
+  (matched by base URL, across files) lists it. `icedos configuration disable`
+  refuses only modules that are enabled but not explicit, i.e. pulled in as a dependency.
 - Core's own modules are auto-imported via `getModules "${inputs.icedos-core}/modules"`
   (see `lib/genflake.nix`). A user's module dirs (`icedos.system.extraModules`, default
   `["modules"]`) are imported the same way.
@@ -114,6 +120,11 @@ nh os <switch|boot|build|build-vm> path:.
   is marked by `flake.nix`). An
   extra config file opts out of loading with a top-level `enable = false` (default true);
   `config-files.nix` strips the key so it never leaks into the raw passthrough.
+  The root `config.toml` always loads, so `configuration enable/disable` ignore an
+  `enable` key there (`config-manage.nix` passes `--main` to its TOML helper).
+  Symlinked `*.toml` files never load, because `readDir` reports them as symlinks.
+  `configuration enable/disable`, the index staleness check, the config snapshot and
+  `configuration diff` skip them as well.
 - **Raw NixOS passthrough** — any top-level TOML table that is **not** `icedos` is
   injected verbatim as a NixOS `config` body. It declares **no** IceDOS schema;
   nixpkgs' own module system types and validates each option. `genflake.nix` injects it
@@ -773,7 +784,12 @@ that exits non-zero, or cannot start, logs a warning and the rebuild continues. 
 exit code (127 or 126 when it cannot start), so later hooks and phases don't run. The
 shim lists required hooks by store path in the context's `requiredHooks`, so an older
 core that ignores the key treats every hook as non-required. The snapshot is taken
-before `postUpdate`, so a failing required post hook still leaves it. Ctrl-C during a hook
+before `postUpdate`, so a failing required post hook still leaves it.
+`icedos configuration diff` and the `icedos status` "Pending" line compare the working
+config set against the snapshot that built the running system: the generation pointer
+named by `/nix/var/nix/profiles/system`, else the newest snapshot (labelled "last
+build"). A `--build` records a snapshot but no pointer, so it does not hide the
+changes it built from the diff. Ctrl-C during a hook
 stops the rebuild with exit 130. `preUpdate` and `postUpdate` fire only with
 `--update`; run them alone, without a build, via `icedos rebuild --update-hooks`
 (e.g. `flatpak update`).

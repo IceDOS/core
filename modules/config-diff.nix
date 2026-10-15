@@ -6,13 +6,13 @@
 
 let
   inherit (icedosLib.bash) configSet genHelpFlags;
-  inherit (configSet config) cacheDir walk;
+  inherit (configSet config) walk;
 in
 {
   icedos.system.toolset.configurationCommands = [
     {
       command = "diff";
-      help = "diff working config set against the last rebuilt snapshot";
+      help = "diff working config set against the snapshot that built the running system";
 
       script = ''
         if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
@@ -25,18 +25,10 @@ in
 
         ${walk}
 
-        # Latest snapshot: date -Is names sort lexically, so the last glob match is
-        # the most recent.
-        shopt -s nullglob
-        latest=""
-        for d in "${cacheDir}"/*/; do
-          [ -f "''${d}.config-set" ] && latest="$d"
-        done
-        shopt -u nullglob
-
-        [ -n "$latest" ] || die "no config snapshots yet — run 'icedos rebuild' once"
-
-        l1="$(basename "$latest") (last build)"
+        built_snapshot
+        [ -n "$snapshot" ] || die "no config snapshots yet — run 'icedos rebuild' once"
+        latest="$snapshot"
+        l1="$snapshot_label"
 
         # Diff one snapshot/working pair. A missing side shows as /dev/null, so
         # adds and removes are visible.

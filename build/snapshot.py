@@ -64,7 +64,12 @@ def _same(a: Path, b: Path) -> bool:
 def _tomls(root: Path) -> set[Path]:
     if not root.is_dir():
         return set()
-    return {p.relative_to(root) for p in root.rglob("*.toml") if p.is_file()}
+    # Core never loads a symlinked config file, so it is not part of the set.
+    return {
+        p.relative_to(root)
+        for p in root.rglob("*.toml")
+        if p.is_file() and not p.is_symlink()
+    }
 
 
 def config_set_changed(

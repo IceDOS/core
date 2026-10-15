@@ -167,12 +167,8 @@ in
         '') freshInputs}
 
         echo -e "\n${purpleString "Pending"}"
-        shopt -s nullglob
-        latest=""
-        for d in "${cacheDir}"/*/; do
-          [ -f "''${d}.config-set" ] && latest="$d"
-        done
-        shopt -u nullglob
+        built_snapshot
+        latest="$snapshot"
 
         if [ -n "$latest" ]; then
           differs=0
@@ -187,9 +183,9 @@ in
           walk_config_set "$latest" diff_pair
 
           if [ "$differs" -eq 1 ]; then
-            chk_warn "config differs from last build — run icedos configuration diff"
+            chk_warn "config differs from the running system — run icedos configuration diff"
           else
-            chk_ok "no changes since last build"
+            chk_ok "no changes since the running system was built"
           fi
         else
           chk_warn "no config snapshot yet — run icedos rebuild"

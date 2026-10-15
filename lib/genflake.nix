@@ -424,12 +424,14 @@ let
       extraModules = filter (m: !(m._repoInfo ? files)) resolved.modules;
 
       # Names the user explicitly enabled, keyed by repo baseUrl (== _repoInfo.url).
-      explicitByRepo = listToAttrs (
-        map (r: {
-          name = (_parseFlakeUrl r.url).baseUrl;
-          value = r.modules or [ ];
-        }) repos
-      );
+      # A repo may be listed by several config files, so every entry's modules count.
+      explicitByRepo = builtins.foldl' (
+        acc: r:
+        let
+          inherit (_parseFlakeUrl r.url) baseUrl;
+        in
+        acc // { ${baseUrl} = (acc.${baseUrl} or [ ]) ++ (r.modules or [ ]); }
+      ) { } repos;
 
       depEntry = d: { modules = d.modules or [ ]; };
 
@@ -472,7 +474,7 @@ let
   # eval of this stage warns while one is configured.
   githubTokenStoreWarning =
     if (icedos.system.githubToken or "") != "" then
-      builtins.trace "warning: icedos.system.githubToken is embedded in the nix store (world-readable to every local user); prefer a token file via icedos.system.githubTokenPath" true
+      builtins.trace "warning: icedos.system.githubToken is in the nix store (the config dir copy and the rebuild app script), readable by every local user; use a token file via icedos.system.githubTokenPath" true
     else
       true;
 in

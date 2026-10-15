@@ -136,6 +136,14 @@ class ConfigSetTest(_CacheCase):
     def test_removed_config_toml_is_a_change(self):
         self.assertTrue(self.changed_after((self.config_root / "config.toml").unlink))
 
+    def test_symlinked_file_is_not_part_of_the_set(self):
+        def link():
+            (self.config_root / "configs/linked.toml").symlink_to(
+                self.config_root / "configs/apps.toml"
+            )
+
+        self.assertFalse(self.changed_after(link))
+
     def test_untouched_set_is_no_change(self):
         self.assertFalse(self.changed_after(lambda: None))
 

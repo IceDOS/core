@@ -53,7 +53,8 @@ let
     with open(config_path) as f:
         doc = tomlkit.parse(f.read())
 
-    if doc.get("enable") is False:
+    # Core skips extra files with enable = false, but always loads the root config.toml.
+    if doc.get("enable") is False and "--main" not in sys.argv:
         sys.exit(1)
 
     repos = doc.get("icedos", {}).get("repositories")
@@ -116,7 +117,7 @@ let
     shopt -s nullglob globstar dotglob
     for d in "''${CONFIG_DIRS[@]}"; do
       for src in "${configurationLocation}/../$d/"**/*.toml; do
-        [ -f "$src" ] && [ "$src" -nt "${modulesCache}" ] && stale=1
+        [ -f "$src" ] && [ ! -L "$src" ] && [ "$src" -nt "${modulesCache}" ] && stale=1
       done
     done
     shopt -u nullglob globstar dotglob
@@ -138,8 +139,8 @@ let
       local repo_url="$1" need_mod="$2" f best=""
 
       f="${configurationLocation}/../config.toml"
-      if [ -f "$f" ] && PYTHONIOENCODING=utf-8 ${tomlEdit} find-repo "$f" "$repo_url" 2>/dev/null; then
-        if [ -z "$need_mod" ] || PYTHONIOENCODING=utf-8 ${tomlEdit} find-entry "$f" "$repo_url" "$need_mod" 2>/dev/null; then
+      if [ -f "$f" ] && PYTHONIOENCODING=utf-8 ${tomlEdit} find-repo "$f" "$repo_url" --main 2>/dev/null; then
+        if [ -z "$need_mod" ] || PYTHONIOENCODING=utf-8 ${tomlEdit} find-entry "$f" "$repo_url" "$need_mod" --main 2>/dev/null; then
           printf '%s' "$f"; return 0
         fi
         best="$f"
@@ -149,6 +150,8 @@ let
       shopt -s nullglob globstar dotglob
       for d in "''${CONFIG_DIRS[@]}"; do
         for f in "${configurationLocation}/../$d/"**/*.toml; do
+          # core's readDir skips symlinks, so a linked file never loads
+          [ -L "$f" ] && continue
           PYTHONIOENCODING=utf-8 ${tomlEdit} find-repo "$f" "$repo_url" 2>/dev/null || continue
           if [ -n "$need_mod" ] && PYTHONIOENCODING=utf-8 ${tomlEdit} find-entry "$f" "$repo_url" "$need_mod" 2>/dev/null; then
             printf '%s' "$f"; shopt -u nullglob globstar dotglob; return 0
@@ -261,15 +264,17 @@ let
         [ "${action}" = "enable" ] && SEARCH_MOD=""
         CONFIG_FILE=$(find_repo_file "$REPO_BASE" "$SEARCH_MOD") \
           || die "no config file declares repo '$REPO_BASE'"
+        MAIN_FLAG=()
+        [ "$CONFIG_FILE" = "${configurationLocation}/../config.toml" ] && MAIN_FLAG=(--main)
 
         if [ "${action}" = "disable" ]; then
-          PYTHONIOENCODING=utf-8 ${tomlEdit} find-entry "$CONFIG_FILE" "$REPO_BASE" "$MODULE_NAME" \
+          PYTHONIOENCODING=utf-8 ${tomlEdit} find-entry "$CONFIG_FILE" "$REPO_BASE" "$MODULE_NAME" "''${MAIN_FLAG[@]}" \
             2>/dev/null || die "module '$MODULE_NAME' not found in $(basename "$CONFIG_FILE")"
         fi
 
         if [ "$DRY" -eq 1 ]; then
           echo "=== dry run ==="
-          DRY_OUTPUT=$(PYTHONIOENCODING=utf-8 ${tomlEdit} "${action}" "$CONFIG_FILE" "$REPO_BASE" "$MODULE_NAME" --dry) \
+          DRY_OUTPUT=$(PYTHONIOENCODING=utf-8 ${tomlEdit} "${action}" "$CONFIG_FILE" "$REPO_BASE" "$MODULE_NAME" --dry "''${MAIN_FLAG[@]}") \
             || die "TOML edit failed"
           printf '%s\n' "$DRY_OUTPUT" | diff -u --color=always "$CONFIG_FILE" - || true
           exit 0
@@ -278,7 +283,7 @@ let
         BACKUP="''${CONFIG_FILE}.bak"
         cp "$CONFIG_FILE" "$BACKUP" || die "failed to create backup"
 
-        PYTHONIOENCODING=utf-8 ${tomlEdit} "${action}" "$CONFIG_FILE" "$REPO_BASE" "$MODULE_NAME" \
+        PYTHONIOENCODING=utf-8 ${tomlEdit} "${action}" "$CONFIG_FILE" "$REPO_BASE" "$MODULE_NAME" "''${MAIN_FLAG[@]}" \
           || die "TOML edit failed — backup at $BACKUP"
 
         rm -f "$BACKUP"
