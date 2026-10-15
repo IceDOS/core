@@ -124,15 +124,24 @@ in
           fi
         }
 
+        # Runs before the nix run below, which copies the whole dir to the store first.
+        require_icedos_flake() {
+          if [ ! -f "$1/flake.nix" ]; then
+            echo -e "${redString "error"}: no flake.nix found in '$1'"
+            exit 1
+          fi
+          if [[ ! "$(<"$1/flake.nix")" =~ \.lib\.mkIceDOS ]]; then
+            echo -e "${redString "error"}: '$1/flake.nix' is not an IceDOS config flake (no mkIceDOS call)"
+            exit 1
+          fi
+        }
+
         if [ -n "$REBUILD_DIR" ]; then
           if [ ! -d "$REBUILD_DIR" ]; then
             echo -e "${redString "error"}: directory '$REBUILD_DIR' does not exist"
             exit 1
           fi
-          if [ ! -f "$REBUILD_DIR/flake.nix" ]; then
-            echo -e "${redString "error"}: no flake.nix found in '$REBUILD_DIR'"
-            exit 1
-          fi
+          require_icedos_flake "$REBUILD_DIR"
           cd "$REBUILD_DIR"
           env "''${tokenEnv[@]}" nix run path:. -- "''${args[@]}"
           rc=$?
@@ -146,6 +155,7 @@ in
           if [ -n "''${ICEDOS_OWNER_DECLINED:-}" ]; then
             die "no permission to access configuration path '${configurationLocation}'; run it as the owning user or fix the permissions."
           fi
+          require_icedos_flake "$PWD"
           printf -v PROMPT '%b' "${dimGreenString ">"} Configuration location (${configurationLocation}) does not exist. Use current directory ($PWD)? [y/N] "
           read -r -p "$PROMPT" ANSWER
           case "$ANSWER" in

@@ -115,6 +115,11 @@
                 if [ -n "$dir" ]; then
                   cd "$dir" || return 1
                 fi
+                # Fail before `nix run path:.` copies the whole dir to the store.
+                if [[ ! -f flake.nix || ! "$(<flake.nix)" =~ \.lib\.mkIceDOS ]]; then
+                  echo "no IceDOS config flake.nix (calling mkIceDOS) in $PWD" >&2
+                  return 1
+                fi
                 nix run path:. -- "''${args[@]}"
               }
 

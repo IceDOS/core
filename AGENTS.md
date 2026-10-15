@@ -85,7 +85,10 @@ nh os <switch|boot|build|build-vm> path:.
   genflake emits a `builtins.trace` warning on every eval while it is set.
 - **`icedos rebuild`.** `modules/rebuild.nix` is a thin bash shim. It prints help
   from `build/usage.txt`, handles `--dir`, pre-resolves the token and runs the owner
-  check. Then it calls `.state/build.sh` with `ICEDOS_REBUILD_CONTEXT`, a store JSON
+  check. Before any `nix run path:.` (`--dir`, or the cwd fallback when the baked
+  `configurationLocation` is missing) it requires a `flake.nix` that calls
+  `.lib.mkIceDOS`, since `nix run` copies the whole dir to the store before it fails.
+  Then it calls `.state/build.sh` with `ICEDOS_REBUILD_CONTEXT`, a store JSON
   that holds the hook script paths and `extraConfigs`, and with the invoking shell's
   `PATH`, `NIX_CONFIG` and `PYTHONPATH` as `ICEDOS_ORIG_*`. With that context `build/`
   runs the whole flow: hooks in `build/hooks.py`, the config snapshot, flake-file

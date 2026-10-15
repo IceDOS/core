@@ -3565,6 +3565,16 @@ in
       && !lib.strings.hasInfix "\\033[2K" (builtins.readFile ../modules/rebuild.nix)
     );
 
+  # `nix run path:.` copies the dir to the store before it can fail, so both the
+  # --dir and the cwd fallback must check for a mkIceDOS flake first.
+  rebuildChecksFlakeBeforeNixRun =
+    let
+      script = builtins.readFile ../modules/rebuild.nix;
+      checks = lib.length (lib.splitString ''require_icedos_flake "'' script) - 1;
+      runs = lib.length (lib.splitString "nix run path:." script) - 1;
+    in
+    expectOk (lib.strings.hasInfix "=~ \\.lib\\.mkIceDOS" script && checks == runs && runs == 2);
+
   tipsResizeTrap = expectOk (
     lib.strings.hasInfix "trap _icedos_tip_winch WINCH" (tipsHead [ "one" ])
   );
