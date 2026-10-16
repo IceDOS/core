@@ -37,14 +37,15 @@ needed regardless. And **never run a plain `icedos rebuild`** (that is a `switch
 | Repo | Kind | Purpose |
 |---|---|---|
 | **core** | framework | This repo. CLI (`icedos`), the `lib/` library, base modules, the `build/` Python orchestrator, flake-generation engine. The bible. |
-| `apps` | module repo | ~70 application modules (`btop`, `steam`, `me3`, `sunshine`, …). Per-module dirs. |
+| `apps` | module repo | Application modules (`btop`, `steam`, `sunshine`, …). Per-module dirs. |
+| `gaming` | module repo | Gaming tooling: `proton-launch`, `prefixer`, `mangohud`, `gamescope`, `me3`, FromSoftware mods, emulators. |
 | `hardware` | module repo | Kernel, graphics (`radeon`/`nvidia`), `pipewire`, `bluetooth`, `zram`, … |
 | `desktop` | module repo | Cross-DE desktop glue: `gdm`, `stylix`, `displays`, portals, `entries`, `session`. |
 | `gnome` | DE repo | GNOME desktop + extensions. Root `icedos.nix` + `modules/`. |
 | `hyprland` | DE repo | Hyprland WM + plugins. Root `icedos.nix` + `modules/`. |
 | `kde` | DE repo | KDE Plasma + in-tree KWin effects. `modules/`-only. |
 | `cosmic` | DE repo | COSMIC desktop + upstream patches. `modules/`-only. |
-| `tweaks` | module repo | Perf/behavior tweaks: `cachyos`, `gaming`, `kernel`, `dmem`. |
+| `tweaks` | module repo | Perf/behavior tweaks: `cachyos`, `kernel`, `dmem`. |
 | `providers` | module repo | Extra package sources: `nur`, `jovian`. |
 | `template` | starter | Minimal user config to fork when creating your own config root. Generic, no personal data. |
 | *(your config)* | **user config** | The user's own config repo — **any name/location**, not an IceDOS-org repo. Holds `config.toml` + `flake.nix` + `modules/` + `configs/` and drives everything. Created by forking `template`. |

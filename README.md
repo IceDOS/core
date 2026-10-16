@@ -29,7 +29,7 @@ IceDOS is a ready-made, gaming-friendly computer setup built on top of **NixOS**
 
 Each point leads with the benefit; the technical term is in parentheses for people who want it.
 
-- **🎮 Gaming that just works** — curated kernels, graphics drivers, and low-latency tweaks, plus one-line app enablement (Steam, MangoHud, emulators, and more) from the [tweaks](https://github.com/IceDOS/tweaks), [hardware](https://github.com/IceDOS/hardware), and [apps](https://github.com/IceDOS/apps) module repos.
+- **🎮 Gaming that just works** — curated kernels, graphics drivers, and low-latency tweaks, plus one-line app enablement (Steam, MangoHud, emulators, and more) from the [gaming](https://github.com/IceDOS/gaming), [tweaks](https://github.com/IceDOS/tweaks), [hardware](https://github.com/IceDOS/hardware), and [apps](https://github.com/IceDOS/apps) module repos.
 - **📝 One file to rule it all** — your whole machine is described in `config.toml`. Turn features on by name; you don't hand-write system code for the common cases.
 - **↩️ Undo anything** — every rebuild is saved, and `icedos configuration rollback` restores the last working system **and** the `config.toml` that built it, in one command *(generations + config snapshots)*.
 - **⚡ No waiting for compiles** — packages download pre-built from the IceDOS server instead of building on your machine *(self-hosted binary cache)*. Opt-in.
@@ -179,12 +179,13 @@ IceDOS is split into small repositories, pulled in as needed. You don't check th
 | Repo | What it is | What it holds |
 | --- | --- | --- |
 | **[core](https://github.com/IceDOS/core)** | the engine (**this repo**) | The `icedos` command, the `lib/` library, base modules, and the flake generator. |
-| [apps](https://github.com/IceDOS/apps) | modules | ~70 application modules (`btop`, `steam`, `sunshine`, …) with sensible defaults and extra options. |
+| [apps](https://github.com/IceDOS/apps) | modules | Application modules (`btop`, `steam`, `sunshine`, …) with sensible defaults and extra options. |
+| [gaming](https://github.com/IceDOS/gaming) | modules | Gaming tooling: Proton launchers (`proton-launch`, `prefixer`), `mangohud`, `gamescope`, game mods (`me3`), emulators, gaming tweaks. |
 | [hardware](https://github.com/IceDOS/hardware) | modules | Kernels, graphics (`radeon`/`nvidia`), audio (`pipewire`), `bluetooth`, `zram`, the CachyOS kernel, and more. |
 | [virtualisation](https://github.com/IceDOS/virtualisation) | modules | Containers & VMs: `docker`, `podman`, `virt-manager`, `virtualbox`, `waydroid`. |
 | [desktop](https://github.com/IceDOS/desktop) | modules | Cross-desktop glue: login screen (`ex. gdm, plm, cosmic-greeter...`), theming (`stylix`), displays, portals, desktop entries, sessions. |
 | [gnome](https://github.com/IceDOS/gnome) · [hyprland](https://github.com/IceDOS/hyprland) · [kde](https://github.com/IceDOS/kde) · [cosmic](https://github.com/IceDOS/cosmic) | modules | Desktop environments / window managers and their integrations. |
-| [tweaks](https://github.com/IceDOS/tweaks) | modules | Performance and behavior tweaks: `cachyos`, `gaming`, `kernel`, … |
+| [tweaks](https://github.com/IceDOS/tweaks) | modules | Performance and behavior tweaks: `cachyos`, `kernel`, … |
 | [providers](https://github.com/IceDOS/providers) | modules | Extra package sources: `nur`, `jovian`. |
 | [template](https://github.com/IceDOS/template) | starter | The minimal config you copy to create your own. |
 | [cache-server](https://github.com/IceDOS/cache-server) | infrastructure | The pre-built-package server (not a module repo). |
