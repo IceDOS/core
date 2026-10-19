@@ -199,6 +199,12 @@ class TransactionTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(state_nix.read_text(), "original")
 
+        # --keep-flake keeps what --genflake-only generated
+        rc = main(["--genflake-only", "--keep-flake"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(state_nix.read_text(), "dry-change")
+        state_nix.write_text("original")
+
         # --lock-only with rc=0 commits
         buf = io.StringIO()
         with redirect_stdout(buf):

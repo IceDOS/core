@@ -264,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
 
     txn = Transaction.for_env(env)
     txn.begin()
-    persist = not opts.genflake_only or opts.lock_only
+    persist = not opts.genflake_only or opts.lock_only or opts.keep_flake
     try:
         rc = _reported_rebuild(env, opts, ctx, previous_arguments)
     except SystemExit as exc:
