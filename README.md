@@ -541,7 +541,8 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 | `--github-token-path <path>` | Use `<path>` (a file containing a GitHub token) for nix's `github.com` fetches. Overrides `ICEDOS_GITHUB_TOKEN_PATH` and `icedos.system.githubTokenPath`. |
 | `--nh-args ...` | Forward extra args to `nh os` (place after other flags; consumes until `--build-args`). |
 | `--build-args ...` | Forward all remaining args to the final rebuild command. **Must be last.** |
-| `--genflake-only` | *(advanced)* Generate and lock the state flake, then exit without building. |
+| `--genflake-only` | *(advanced)* Generate and lock the state flake, then exit without building. The generated files are rolled back. |
+| `--keep-flake` | *(advanced)* With `--genflake-only`: keep the generated `flake.nix` and `flake.lock` in `.state`. |
 
 #### Good to know
 

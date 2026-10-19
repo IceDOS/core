@@ -572,7 +572,7 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
 `--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-except "..."`,
 `--update-repos`, `--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--update-hooks`,
-`--lock-only`, `--ask`, `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
+`--lock-only`, `--genflake-only`, `--keep-flake`, `--ask`, `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
 
 ## 8. Hard rules (do not violate)
 

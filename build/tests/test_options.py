@@ -139,6 +139,13 @@ class ParseArgsTest(unittest.TestCase):
         self.assertTrue(opts.genflake_only)
         self.assertFalse(opts.dry)
 
+    def test_keep_flake_needs_genflake_only(self):
+        opts, _ = _parse(["--genflake-only", "--keep-flake"])
+        self.assertTrue(opts.keep_flake)
+        for argv in (["--keep-flake"], ["--dry", "--keep-flake"], ["--update", "--lock-only", "--keep-flake"]):
+            with self.assertRaises(SystemExit, msg=argv):
+                _parse(argv)
+
     def test_update_hooks_is_parsed(self):
         opts, _ = _parse(["--update-hooks"])
         self.assertTrue(opts.update_hooks)

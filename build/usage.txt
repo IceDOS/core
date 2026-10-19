@@ -22,7 +22,8 @@ Flags:
   --lock-only               with an --update* flag: update and keep the locks, do not build
   --build-vm                build a VM test image
   --run-vm                  build and run a VM test image
-  --genflake-only           generate .state/flake.nix and exit (--dry's underlying mechanism)
+  --genflake-only           generate and lock .state/flake.nix, then roll both back and exit
+  --keep-flake              with --genflake-only: keep the generated flake.nix and flake.lock
   --ask                     ask for confirmation before applying (nh os -a)
   --builder <host>          build the system on a remote host
   --target <host>           deploy/activate the built system on a remote host
