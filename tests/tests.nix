@@ -2515,6 +2515,71 @@ in
     )
   );
 
+  efOverlayExposure =
+    let
+      overlay = fullIcedos.pkgs.icedosExtraFlakes {
+        extraFlakes = [
+          {
+            name = "extraApp";
+            url = "github:example/extraApp";
+          }
+        ];
+        inputs = {
+          extraApp = {
+            packages.x86_64-linux = {
+              default = "app-default";
+              extraApp = "app-pkg";
+            };
+          };
+        };
+      };
+      prev = {
+        stdenv.hostPlatform.system = "x86_64-linux";
+      };
+      applied = overlay { } prev;
+    in
+    expectEq {
+      default = "app-default";
+      extraApp = "app-pkg";
+    } applied.icedosExtraFlakes.extraApp;
+
+  efOverlayEmpty =
+    let
+      overlay = fullIcedos.pkgs.icedosExtraFlakes {
+        extraFlakes = [ ];
+        inputs = { };
+      };
+      prev = {
+        stdenv.hostPlatform.system = "x86_64-linux";
+      };
+      applied = overlay { } prev;
+    in
+    expectEq { } applied.icedosExtraFlakes;
+
+  efOverlayMapper =
+    let
+      overlay = fullIcedos.pkgs.icedosExtraFlakes {
+        extraFlakes = [
+          {
+            name = "extraApp";
+            url = "u";
+          }
+        ];
+        inputs = {
+          extraApp = {
+            packages.x86_64-linux = {
+              extraApp = "real-app-pkg";
+            };
+          };
+        };
+      };
+      prev = {
+        stdenv.hostPlatform.system = "x86_64-linux";
+      };
+      pkgs = prev // (overlay { } prev);
+    in
+    expectEq [ "real-app-pkg" ] (fullIcedos.pkgs.mapper pkgs [ "icedosExtraFlakes.extraApp.extraApp" ]);
+
   # --- end-to-end hardening (review regressions) ---------------------------
   # Derivation-bearing values key as opaque and never crash on the cycle.
   opaqueDerivationKeepsOpaque = expectOk (
