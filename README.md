@@ -310,6 +310,21 @@ url = "github:numtide/flake-utils"
 inputs = { nixpkgs.follows = "nixpkgs" }
 ```
 
+Packages from any extra flake are automatically available through the `icedosExtraFlakes` overlay. Reference them in `icedos.system.packages` or `icedos.users.<name>.packages` using `icedosExtraFlakes.<flake>.<package>`:
+
+```toml
+[[icedos.system.extra-flakes]]
+name = "zen-browser"
+url = "github:0xc000022070/zen-browser-flake"
+
+[icedos.system]
+packages = [
+  "icedosExtraFlakes.zen-browser.default",
+]
+```
+
+The overlay exposes the flake's package structure (`packages` and `legacyPackages` for your system architecture). Reference whatever package name the flake outputs, such as `default` or a named attribute.
+
 A `name` must not collide with a module-declared input (its sub-flake name or its masked bare names), a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — `extra-flakes` entries become top-level inputs, module-declared inputs live as bare names inside their module's sub-flake, and a duplicate would silently overwrite.
 
 ### Hardware configuration

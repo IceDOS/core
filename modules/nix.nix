@@ -32,6 +32,11 @@ let
 
   inherit (icedosLib.pkgs) mapper;
 
+  icedosExtraFlakes = icedosLib.pkgs.icedosExtraFlakes {
+    extraFlakes = config.icedos.system.extra-flakes;
+    inherit inputs;
+  };
+
   nom = "${pkgs.nix-output-monitor}/bin";
 
   # nix-build with nom progress on stderr when it is a terminal; stdout stays the out path.
@@ -337,6 +342,7 @@ in
   };
 
   nixpkgs.config = icedosLib.pkgs.mkConfig config.icedos;
+  nixpkgs.overlays = [ icedosExtraFlakes ];
 
   icedos.system.tips.list = [
     "icedos pkgs list shows everything in your system, dependencies included."
