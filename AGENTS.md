@@ -171,7 +171,7 @@ Exposed to every module as **`icedosLib`**.
 | `lib/toolset.nix` | `toolset.mk{Dispatcher,BashCompletion,ZshCompletion,FishCompletion}` — the CLI dispatcher generator (used to build `icedos` itself and every subcommand attrset that has children) + the per-shell completion generators. |
 | `lib/users.nix` | `users.{getNormal,genDefaults,mkGroupInjector}`. |
 | `lib/color.nix` | `color.hexToRgbInts`. |
-| `lib/pkgs.nix` | `pkgs.{mapper,mkConfig,overlaysFromChannel}`. |
+| `lib/pkgs.nix` | `pkgs.{mapper,mkConfig,overlaysFromChannel,icedosExtraFlakes}`. |
 | `lib/packaging.nix` | `packaging.{extractAppImage,installDesktopEntry}` — shell-snippet builders for `installPhase`/`postFixup` bodies in icedos `package.nix` files. |
 | `lib/scan.nix` | `getModules`, `scanModules`, `hasModule` — module discovery. `hasModule` aborts on a malformed call (no `name` and no `modules`, or an empty `modules = []`) — always pass a `name` or a non-empty `modules` list. |
 | `lib/inputs.nix` | `moduleInputName` (sub-flake-relative path of a module-declared input — `"<sub-flake>/<input>"` — the string-context twin of `_getModuleInputs`; a **breaking change** from the old top-level name), `moduleSubFlakeName`, `mkInputName`, flake-revision helpers (`_resolveFlakeRevisionLocked` — pure tail given a lock + node key — and `_resolveFlakeRevisionNested`/`_resolveFlakeRevisionNestedLocked` — two-hop lookup for a sub-flake input, the latter driven directly by the tests), `_parseFlakeUrl`, `_getModuleKey`, `freshInputs`. |
