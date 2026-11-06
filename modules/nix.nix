@@ -10,7 +10,18 @@
 let
   inherit (config.icedos) configurationLocation;
   inherit (config.icedos.system) packages;
-  inherit (lib) mapAttrs mapAttrsToList;
+  inherit (lib)
+    elem
+    filterAttrs
+    mapAttrs
+    mapAttrsToList
+    ;
+
+  registryInputs = [
+    "nixpkgs"
+    "home-manager"
+  ]
+  ++ map (c: c.name) config.icedos.system.channels;
 
   inherit (icedosLib.bash)
     prelude
@@ -309,7 +320,8 @@ in
   nix = {
     # Use flake's nixpkgs input for nix-shell
     nixPath = mapAttrsToList (key: _: "${key}=flake:${key}") config.nix.registry;
-    registry = mapAttrs (_: v: { flake = v; }) inputs;
+    # Pinning every input re-hashes the toplevel whenever any module repo moves.
+    registry = mapAttrs (_: v: { flake = v; }) (filterAttrs (n: _: elem n registryInputs) inputs);
 
     settings = {
       auto-optimise-store = true;
