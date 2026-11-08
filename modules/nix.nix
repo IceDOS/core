@@ -56,7 +56,7 @@ let
   '';
 in
 {
-  environment.systemPackages = (mapper { inherit pkgs inputs; } packages) ++ [ pkgs.nixfmt ];
+  environment.systemPackages = (mapper pkgs packages) ++ [ pkgs.nixfmt ];
 
   icedos.system.toolset.commands = [
     {

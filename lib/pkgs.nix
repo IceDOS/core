@@ -1,6 +1,7 @@
 {
+  config,
   icedosLib,
-  inputs ? { },
+  inputs,
   lib,
   self,
   ...
@@ -8,6 +9,7 @@
 
 let
   inherit (builtins)
+    elem
     elemAt
     isAttrs
     length
@@ -17,8 +19,7 @@ let
 
   inherit (lib)
     concatStringsSep
-    getAttrFromPath
-    hasAttrByPath
+    isDerivation
     splitString
     sublist
     ;
@@ -29,57 +30,46 @@ let
     generateAttrPath
     ;
 
+  extraFlakes = config.system.extra-flakes or [ ];
+  extraFlakeNames = map (f: f.name) extraFlakes;
+
   resolvePackage =
-    {
-      pkgs,
-      inputs ? inputs,
-    }:
-    pkgName:
+    pkgs: pkgName:
     let
-      inherit (pkgs.stdenv.hostPlatform) system;
       parts = splitString "." pkgName;
     in
-    if (length parts >= 2) && (elemAt parts 0 == "icedosExtraFlakes") then
+    if elemAt parts 0 == "icedosExtraFlakes" then
       let
+        inherit (pkgs.stdenv.hostPlatform) system;
         lengthGuard =
           abortIf (length parts < 3)
             "icedos.system.extra-flakes: package string '${pkgName}' is missing package name (format: icedosExtraFlakes.<flake>.<package>)";
         flakeName = elemAt parts 1;
+        nameGuard = seq lengthGuard (
+          abortIf (!(elem flakeName extraFlakeNames))
+            "icedos.system.extra-flakes: '${flakeName}' is not a configured extra-flake (add it to [[icedos.system.extra-flakes]])"
+        );
         attrPath = sublist 2 (length parts - 2) parts;
         attrString = concatStringsSep "." attrPath;
-        flake = seq lengthGuard (_selectExtraFlakeOutput flakeName "" inputs);
+        flake = inputs.${flakeName} or { };
         packages = flake.packages.${system} or null;
         legacyPackages = flake.legacyPackages.${system} or null;
-        systemGuard = abortIf (
-          packages == null && legacyPackages == null
-        ) "icedos.system.extra-flakes: flake '${flakeName}' has no packages for system '${system}'";
-        hasPkg = packages != null && hasAttrByPath attrPath packages;
-        hasLegacyPkg = legacyPackages != null && hasAttrByPath attrPath legacyPackages;
-        pkgGuard = seq systemGuard (
-          abortIf (!hasPkg && !hasLegacyPkg)
-            "icedos.system.extra-flakes: package '${attrString}' is not found in flake '${flakeName}' for system '${system}'"
-        );
+        useLegacy =
+          (packages == null || !lib.hasAttrByPath attrPath packages)
+          && (legacyPackages != null && lib.hasAttrByPath attrPath legacyPackages);
+        outputPath = "${if useLegacy then "legacyPackages" else "packages"}.${system}.${attrString}";
+        selected = seq nameGuard (_selectExtraFlakeOutput flakeName outputPath inputs);
+        drvGuard = abortIf (
+          isAttrs selected && !isDerivation selected
+        ) "icedos.system.extra-flakes: output '${outputPath}' on flake input '${flakeName}' is an attribute set, not a package";
       in
-      seq pkgGuard (
-        if hasPkg then getAttrFromPath attrPath packages else getAttrFromPath attrPath legacyPackages
-      )
+      seq drvGuard selected
     else
       generateAttrPath pkgs pkgName;
 in
 rec {
   pkgs = rec {
-    mapper =
-      pkgsOrArgs:
-      let
-        isArgs = isAttrs pkgsOrArgs && pkgsOrArgs ? pkgs;
-        resolvedPkgs = if isArgs then pkgsOrArgs.pkgs else pkgsOrArgs;
-        resolvedInputs = if isArgs then (pkgsOrArgs.inputs or inputs) else inputs;
-      in
-      pkgList:
-      map (resolvePackage {
-        pkgs = resolvedPkgs;
-        inputs = resolvedInputs;
-      }) pkgList;
+    mapper = pkgs: pkgList: map (resolvePackage pkgs) pkgList;
 
     # The one nixpkgs `config` every consumer routes through. Hardware keys
     # (cudaSupport, …) are written per-key by hardware modules and merge in.
