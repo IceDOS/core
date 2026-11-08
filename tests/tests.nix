@@ -18,6 +18,7 @@ let
     ICEDOS_STATE_DIR = (import ../lib/constants.nix { }).ICEDOS_STATE_DIR;
     INPUTS_PREFIX = (import ../lib/constants.nix { }).INPUTS_PREFIX;
     generateAttrPath = throw "generateAttrPath is not stubbed in tests";
+    _selectExtraFlakeOutput = (import ../lib/common.nix { inherit lib; })._selectExtraFlakeOutput;
   };
 
   validate = (import ../lib/options/validate.nix { inherit icedosLib lib; }).validate;
@@ -524,6 +525,27 @@ let
       inherit list;
     }).head;
   tipsSampleHead = tipsHead [ "a tip" ];
+
+  efMapperPkgs = {
+    btop = "drv-btop";
+    stdenv.hostPlatform.system = "x86_64-linux";
+  };
+
+  efMapperInputs = {
+    extraApp = {
+      packages.x86_64-linux = {
+        app = "app-from-packages";
+        overlap = "overlap-from-packages";
+      };
+      legacyPackages.x86_64-linux = {
+        legacyOnly = "legacy-only-pkg";
+        overlap = "overlap-from-legacy";
+      };
+    };
+    armOnly = {
+      packages.aarch64-linux.app = "arm-pkg";
+    };
+  };
 in
 {
   intHappy = expectOk (
@@ -2529,70 +2551,97 @@ in
     )
   );
 
-  efOverlayExposure =
-    let
-      overlay = fullIcedos.pkgs.icedosExtraFlakes {
-        extraFlakes = [
-          {
-            name = "extraApp";
-            url = "github:example/extraApp";
-          }
-        ];
-        inputs = {
-          extraApp = {
-            packages.x86_64-linux = {
-              default = "app-default";
-              extraApp = "app-pkg";
-            };
-          };
-        };
-      };
-      prev = {
-        stdenv.hostPlatform.system = "x86_64-linux";
-      };
-      applied = overlay { } prev;
-    in
-    expectEq {
-      default = "app-default";
-      extraApp = "app-pkg";
-    } applied.icedosExtraFlakes.extraApp;
+  efMapperPackages = expectEq [ "app-from-packages" ] (
+    fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.extraApp.app"
+      ]
+  );
 
-  efOverlayEmpty =
-    let
-      overlay = fullIcedos.pkgs.icedosExtraFlakes {
-        extraFlakes = [ ];
-        inputs = { };
-      };
-      prev = {
-        stdenv.hostPlatform.system = "x86_64-linux";
-      };
-      applied = overlay { } prev;
-    in
-    expectEq { } applied.icedosExtraFlakes;
+  efMapperLegacyPackages = expectEq [ "legacy-only-pkg" ] (
+    fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.extraApp.legacyOnly"
+      ]
+  );
 
-  efOverlayMapper =
-    let
-      overlay = fullIcedos.pkgs.icedosExtraFlakes {
-        extraFlakes = [
-          {
-            name = "extraApp";
-            url = "u";
-          }
-        ];
-        inputs = {
-          extraApp = {
-            packages.x86_64-linux = {
-              extraApp = "real-app-pkg";
-            };
-          };
-        };
-      };
-      prev = {
-        stdenv.hostPlatform.system = "x86_64-linux";
-      };
-      pkgs = prev // (overlay { } prev);
-    in
-    expectEq [ "real-app-pkg" ] (fullIcedos.pkgs.mapper pkgs [ "icedosExtraFlakes.extraApp.extraApp" ]);
+  efMapperPrecedence = expectEq [ "overlap-from-packages" ] (
+    fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.extraApp.overlap"
+      ]
+  );
+
+  efMapperRegular = expectEq [ "drv-btop" ] (
+    fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "btop"
+      ]
+  );
+
+  efMapperMissingInput = expectThrow (
+    builtins.deepSeq (fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.nonExistent.app"
+      ]
+    ) true
+  );
+
+  efMapperMissingSystem = expectThrow (
+    builtins.deepSeq (fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.armOnly.app"
+      ]
+    ) true
+  );
+
+  efMapperMissingPackage = expectThrow (
+    builtins.deepSeq (fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.extraApp.doesNotExist"
+      ]
+    ) true
+  );
+
+  efMapperMissingPackageName = expectThrow (
+    builtins.deepSeq (fullIcedos.pkgs.mapper
+      {
+        pkgs = efMapperPkgs;
+        inputs = efMapperInputs;
+      }
+      [
+        "icedosExtraFlakes.extraApp"
+      ]
+    ) true
+  );
 
   # --- end-to-end hardening (review regressions) ---------------------------
   # Derivation-bearing values key as opaque and never crash on the cycle.

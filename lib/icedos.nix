@@ -23,6 +23,8 @@ let
     flatten
     ;
 
+  inherit (icedosLib) _selectExtraFlakeOutput;
+
   finalIcedosLib = icedosLib // rec {
     repositories = config.repositories or [ ];
 
@@ -962,27 +964,6 @@ let
         _originalName = f.name;
         name = f.name;
       }) flakes;
-
-    # Resolve a dotted `modulesToLoad` path against the flake's outputs, naming
-    # the missing input/segment instead of failing on a bare attr miss.
-    _selectExtraFlakeOutput =
-      flakeName: path: inputs:
-      let
-        segments = lib.splitString "." path;
-        input = seq (icedosLib.abortIf (!(inputs ? ${flakeName}))
-          "icedos.system.extra-flakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
-        ) inputs.${flakeName};
-        walk =
-          node: seg:
-          seq (icedosLib.abortIf (!(node ? ${seg}))
-            "icedos.system.extra-flakes: output path '${path}' on flake input '${flakeName}' is missing segment '${seg}'"
-          ) node.${seg};
-        selected = foldl' walk input segments;
-        nullGuard = icedosLib.abortIf (
-          selected == null
-        ) "icedos.system.extra-flakes: output '${path}' on flake input '${flakeName}' is missing or null";
-      in
-      seq nullGuard selected;
 
     # Selected outputs as NixOS modules, in the same shim shape
     # `_extractNixosModules` emits so `_dedupeNixosModules` can key them.
