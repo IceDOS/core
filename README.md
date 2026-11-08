@@ -534,6 +534,7 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 | `--ask` | Ask for confirmation before applying (`nh os -a`). |
 | `--dry`, `-n`, `--dry-run` | Validate flake generation and locking without keeping any change (restores locks afterwards). |
 | `--lock-only` | With an `--update*` flag: update and keep the locks, do not build. |
+| `--keep-locks` | Keep the updated locks if this build fails, overriding `rollbackLocks`. Not valid with `--dry`, `--genflake-only` or `--lock-only`. |
 | `--logs` | Verbose logging + full traces — use when a build fails. |
 | `--builder <host>` | Build the system on a remote host. |
 | `--target <host>` | Deploy/activate the built system on a remote host (pairs with `--builder`). |
@@ -550,7 +551,7 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 - **`--nh-args` swallows args until `--build-args`** — place it after your other IceDOS flags. To pass both, use `--nh-args … --build-args …`.
 - **Unknown flags fail fast** — an unsupported flag prints `Unknown arg: …` and exits `1`.
 - **A failed build changes nothing** — your current system keeps running until a switch actually succeeds.
-- A failed `icedos rebuild` restores `flake.lock` and `.state/flake.{nix,lock}` to their state before the run, unless the system had already switched to the new generation.
+- A failed `icedos rebuild` restores `flake.lock` and `.state/flake.{nix,lock}` to their state before the run. It keeps them if the system had already switched to the new generation, if you passed `--keep-locks`, or if `icedos.system.toolset.rebuild.rollbackLocks` is `false`.
 
 ### Examples
 
@@ -603,6 +604,15 @@ icedos rebuild --update --lock-only
 icedos rebuild  # fails in a module; fix config and retry
 icedos rebuild  # builds
 ```
+
+To keep the locks of any failed build instead, including one interrupted with Ctrl-C:
+
+```toml
+[icedos.system.toolset.rebuild]
+rollbackLocks = false # default: true
+```
+
+The setting applies after the next successful rebuild, because the installed system supplies it. On a build that is already failing, use `icedos rebuild --update --keep-locks`. After a kept `--update`, the next successful build runs the update hooks, so `preUpdate` can run twice.
 
 To abandon an update and restore the old locks:
 

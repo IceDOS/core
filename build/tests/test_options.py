@@ -31,6 +31,7 @@ _DOCUMENTED_FLAGS = [
     "--github-token-path",
     "--help",
     "-h",
+    "--keep-locks",
     "--logs",
     "--nh-args",
     "--run-vm",
@@ -143,6 +144,19 @@ class ParseArgsTest(unittest.TestCase):
         opts, _ = _parse(["--genflake-only", "--keep-flake"])
         self.assertTrue(opts.keep_flake)
         for argv in (["--keep-flake"], ["--dry", "--keep-flake"], ["--update", "--lock-only", "--keep-flake"]):
+            with self.assertRaises(SystemExit, msg=argv):
+                _parse(argv)
+
+    def test_keep_locks_is_parsed(self):
+        opts, _ = _parse(["--keep-locks"])
+        self.assertTrue(opts.keep_locks)
+
+    def test_keep_locks_rejects_runs_that_do_not_build(self):
+        for argv in (
+            ["--dry", "--keep-locks"],
+            ["--genflake-only", "--keep-locks"],
+            ["--update", "--lock-only", "--keep-locks"],
+        ):
             with self.assertRaises(SystemExit, msg=argv):
                 _parse(argv)
 

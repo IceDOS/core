@@ -24,7 +24,7 @@ let
 
   inherit (config) icedos;
   inherit (icedos) configurationLocation;
-  inherit (icedos.system.toolset.rebuild) hooks;
+  inherit (icedos.system.toolset.rebuild) hooks rollbackLocks;
 
   # One script per hook, so each runs in a fresh shell (isolated env/traps/exit)
   # with the prelude available.
@@ -48,6 +48,7 @@ let
     builtins.toJSON {
       version = 1;
       configDirs = icedos.system.extraConfigs;
+      inherit rollbackLocks;
       hooks = genAttrs hookNames (name: map (h: h.path) (hookScripts name));
       # A separate key, because older cores reject non-string hook entries.
       requiredHooks = concatMap (

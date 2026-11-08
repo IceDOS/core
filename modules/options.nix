@@ -121,6 +121,9 @@ in
         desktopEntries = mkBoolOption { default = false; };
         sessionCommands = mkListOption { default = [ ]; } toolsetCommandType;
 
+        # Restore flake.lock and .state/flake.{nix,lock} when a rebuild fails.
+        rebuild.rollbackLocks = mkBoolOption { default = true; };
+
         rebuild.hooks = {
           preRebuild = mkRebuildHooksOption ''
             Shell snippets run before the build (`preRebuild`). Always run as

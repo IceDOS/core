@@ -42,6 +42,16 @@ class LoadRebuildContextTest(unittest.TestCase):
         self.assertEqual(ctx.hook_scripts("preRebuild"), ("/nix/store/a-hook",))
         self.assertEqual(ctx.hook_scripts("postUpdate"), ())
 
+    def test_rollback_locks_defaults_to_true(self):
+        ctx = self.load({})
+        assert ctx is not None
+        self.assertTrue(ctx.rollback_locks)
+
+    def test_reads_rollback_locks(self):
+        ctx = self.load({"rollbackLocks": False})
+        assert ctx is not None
+        self.assertFalse(ctx.rollback_locks)
+
     def test_missing_keys_get_defaults(self):
         ctx = self.load({})
         assert ctx is not None
@@ -77,6 +87,7 @@ class LoadRebuildContextTest(unittest.TestCase):
             {"hooks": {"preRebuild": "/x"}},
             {"hooks": {"preRebuild": [1]}},
             {"requiredHooks": {"preRebuild": ["/x"]}},
+            {"rollbackLocks": "no"},
         ]
         for payload in payloads:
             with self.subTest(payload=payload), self.assertRaises(SystemExit):

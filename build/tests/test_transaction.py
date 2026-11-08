@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from build.context import BuildEnv
+from build.context import BuildEnv, RebuildContext
 from build.main import main
 from build.options import Options
 from build.transaction import Transaction, keep_after_failure
@@ -36,6 +36,89 @@ class TransactionTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def _txn(self, keep_on_failure: bool) -> Transaction:
+        return Transaction.for_env(
+            self.env, profile_path=str(self.profile), keep_on_failure=keep_on_failure
+        )
+
+    def _crash(self, txn: Transaction) -> None:
+        if txn._lock_file:
+            txn._lock_file.close()
+            txn._lock_file = None
+
+    def test_keep_on_failure_keeps_changes_and_clears_store(self) -> None:
+        state_lock = self.state_dir / "flake.lock"
+        state_lock.write_text("old")
+
+        txn = self._txn(keep_on_failure=True)
+        txn.begin()
+        state_lock.write_text("new")
+        txn.finish(ok=False, action="switch", remote_target=False)
+
+        self.assertEqual(state_lock.read_text(), "new")
+        self.assertFalse((self.state_dir / ".txn").exists())
+
+    def test_keep_on_failure_does_not_claim_a_remote_restore(self) -> None:
+        state_lock = self.state_dir / "flake.lock"
+        state_lock.write_text("old")
+
+        txn = self._txn(keep_on_failure=True)
+        txn.begin()
+        state_lock.write_text("new")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            txn.finish(ok=False, action="switch", remote_target=True)
+
+        self.assertEqual(state_lock.read_text(), "new")
+        self.assertNotIn("locks restored", err.getvalue())
+
+    def test_stale_txn_follows_the_crashed_run_when_it_kept(self) -> None:
+        state_lock = self.state_dir / "flake.lock"
+        state_lock.write_text("old")
+
+        crashed = self._txn(keep_on_failure=True)
+        crashed.begin()
+        state_lock.write_text("from-crash")
+        self._crash(crashed)
+
+        next_run = self._txn(keep_on_failure=False)
+        next_run.begin()
+        self.assertEqual(state_lock.read_text(), "from-crash")
+        next_run.finish(ok=True, action="build", remote_target=False)
+
+    def test_stale_txn_follows_the_crashed_run_when_it_rolled_back(self) -> None:
+        state_lock = self.state_dir / "flake.lock"
+        state_lock.write_text("old")
+
+        crashed = self._txn(keep_on_failure=False)
+        crashed.begin()
+        state_lock.write_text("from-crash")
+        self._crash(crashed)
+
+        next_run = self._txn(keep_on_failure=True)
+        next_run.begin()
+        self.assertEqual(state_lock.read_text(), "old")
+        next_run.finish(ok=True, action="build", remote_target=False)
+
+    def test_stale_manifest_without_the_key_restores(self) -> None:
+        state_lock = self.state_dir / "flake.lock"
+        state_lock.write_text("old")
+
+        crashed = self._txn(keep_on_failure=True)
+        crashed.begin()
+        state_lock.write_text("from-crash")
+        self._crash(crashed)
+
+        manifest = self.state_dir / ".txn" / "manifest.json"
+        data = json.loads(manifest.read_text())
+        del data["keep_on_failure"]
+        manifest.write_text(json.dumps(data))
+
+        next_run = self._txn(keep_on_failure=False)
+        next_run.begin()
+        self.assertEqual(state_lock.read_text(), "old")
+        next_run.finish(ok=True, action="build", remote_target=False)
 
     def test_begin_modify_rollback_restores_byte_for_byte(self) -> None:
         config_lock = self.config_root / "flake.lock"
@@ -241,6 +324,91 @@ class TransactionTest(unittest.TestCase):
         )
         self.assertEqual(txn.original_lock("config"), {})
         txn.finish(ok=True, action="build", remote_target=False)
+
+    def _rollback_off(self) -> RebuildContext:
+        return RebuildContext(config_dirs=("configs",), hooks={}, rollback_locks=False)
+
+    def _fail_after_change(self, exc: BaseException):
+        def run(*_args, **_kwargs):
+            (self.state_dir / "flake.nix").write_text("changed")
+            raise exc
+
+        return run
+
+    @patch("build.main.load_rebuild_context")
+    @patch("build.main.from_environment")
+    @patch("build.main._reported_rebuild")
+    def test_main_rollback_locks_off_keeps_a_failed_build(
+        self, mock_run, mock_env, mock_ctx
+    ) -> None:
+        mock_env.return_value = self.env
+        mock_ctx.return_value = self._rollback_off()
+        (self.state_dir / "flake.nix").write_text("initial")
+
+        mock_run.side_effect = self._fail_after_change(SystemExit(1))
+        with self.assertRaises(SystemExit):
+            main(["--build"])
+
+        self.assertEqual((self.state_dir / "flake.nix").read_text(), "changed")
+        self.assertFalse((self.state_dir / ".txn").exists())
+
+    @patch("build.main.load_rebuild_context")
+    @patch("build.main.from_environment")
+    @patch("build.main._reported_rebuild")
+    def test_main_keep_locks_flag_overrides_the_default(
+        self, mock_run, mock_env, mock_ctx
+    ) -> None:
+        mock_env.return_value = self.env
+        mock_ctx.return_value = None
+        (self.state_dir / "flake.nix").write_text("initial")
+
+        mock_run.side_effect = self._fail_after_change(SystemExit(1))
+        with self.assertRaises(SystemExit):
+            main(["--build", "--keep-locks"])
+        self.assertEqual((self.state_dir / "flake.nix").read_text(), "changed")
+
+        (self.state_dir / "flake.nix").write_text("initial")
+        mock_run.side_effect = self._fail_after_change(KeyboardInterrupt())
+        with self.assertRaises(KeyboardInterrupt):
+            main(["--build", "--keep-locks"])
+        self.assertEqual((self.state_dir / "flake.nix").read_text(), "changed")
+
+    @patch("build.main.load_rebuild_context")
+    @patch("build.main.from_environment")
+    @patch("build.main._reported_rebuild")
+    def test_main_runs_that_do_not_build_still_roll_back(
+        self, mock_run, mock_env, mock_ctx
+    ) -> None:
+        mock_env.return_value = self.env
+        mock_ctx.return_value = self._rollback_off()
+        (self.state_dir / "flake.nix").write_text("initial")
+
+        mock_run.side_effect = self._fail_after_change(SystemExit(1))
+        for argv in (["--dry"], ["--genflake-only"], ["--update", "--lock-only"]):
+            with self.subTest(argv=argv):
+                with self.assertRaises(SystemExit):
+                    main(argv)
+                self.assertEqual((self.state_dir / "flake.nix").read_text(), "initial")
+                self.assertFalse((self.state_dir / ".update-pending").exists())
+
+    @patch("build.main.load_rebuild_context")
+    @patch("build.main.from_environment")
+    @patch("build.main._reported_rebuild")
+    def test_main_kept_update_leaves_update_pending(
+        self, mock_run, mock_env, mock_ctx
+    ) -> None:
+        mock_env.return_value = self.env
+        mock_ctx.return_value = None
+        pending = self.state_dir / ".update-pending"
+
+        mock_run.side_effect = self._fail_after_change(SystemExit(1))
+        with self.assertRaises(SystemExit):
+            main(["--build", "--keep-locks"])
+        self.assertFalse(pending.exists())
+
+        with self.assertRaises(SystemExit):
+            main(["--update", "--keep-locks"])
+        self.assertTrue(pending.exists())
 
 
 if __name__ == "__main__":

@@ -34,16 +34,23 @@ class Transaction:
         lock_path: Path,
         files: list[Path],
         profile_path: str = DEFAULT_PROFILE,
+        keep_on_failure: bool = False,
     ) -> None:
         self.store = store
         self.lock_path = lock_path
         self.files = files
         self.profile_path = profile_path
+        self.keep_on_failure = keep_on_failure
         self.profile_before = read_profile(profile_path)
         self._lock_file: IO[str] | None = None
 
     @classmethod
-    def for_env(cls, env: BuildEnv, profile_path: str = DEFAULT_PROFILE) -> Transaction:
+    def for_env(
+        cls,
+        env: BuildEnv,
+        profile_path: str = DEFAULT_PROFILE,
+        keep_on_failure: bool = False,
+    ) -> Transaction:
         files: list[Path] = []
         if env.config_root:
             files.append(env.config_root / "flake.lock")
@@ -54,7 +61,17 @@ class Transaction:
             lock_path=env.state_dir / ".txn.lock",
             files=files,
             profile_path=profile_path,
+            keep_on_failure=keep_on_failure,
         )
+
+    @staticmethod
+    def _stale_run_kept(manifest_file: Path) -> bool:
+        # The crashed run's setting decides, so a killed --dry still restores.
+        try:
+            data = read_json(manifest_file)
+        except Exception:
+            return False
+        return isinstance(data, dict) and data.get("keep_on_failure") is True
 
     def begin(self) -> None:
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,11 +85,18 @@ class Transaction:
         if self.store.exists():
             manifest_file = self.store / "manifest.json"
             if manifest_file.exists():
-                warn(
-                    "warning: previous rebuild did not finish; "
-                    "restored flake.lock and .state/flake.{nix,lock} from before it"
-                )
-                self.rollback()
+                if self._stale_run_kept(manifest_file):
+                    warn(
+                        "warning: previous rebuild did not finish; "
+                        "keeping its flake.lock and .state/flake.{nix,lock}"
+                    )
+                    shutil.rmtree(self.store, ignore_errors=True)
+                else:
+                    warn(
+                        "warning: previous rebuild did not finish; "
+                        "restored flake.lock and .state/flake.{nix,lock} from before it"
+                    )
+                    self.rollback()
             else:
                 shutil.rmtree(self.store, ignore_errors=True)
 
@@ -90,6 +114,7 @@ class Transaction:
         manifest_data = {
             "files": manifest_entries,
             "profile_before": self.profile_before,
+            "keep_on_failure": self.keep_on_failure,
         }
         tmp_manifest = self.store / "manifest.json.tmp"
         with tmp_manifest.open("w") as f:
@@ -139,6 +164,12 @@ class Transaction:
     def finish(self, ok: bool, action: str, remote_target: bool) -> None:
         try:
             if ok:
+                self.commit()
+            elif self.keep_on_failure:
+                warn(
+                    "warning: rebuild failed; keeping the updated "
+                    "flake.lock and .state/flake.{nix,lock}"
+                )
                 self.commit()
             elif keep_after_failure(
                 action, self.profile_before, read_profile(self.profile_path), remote_target

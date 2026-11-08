@@ -28,6 +28,9 @@ class ShimContractTest(unittest.TestCase):
     def test_help_is_the_shared_usage_file(self):
         self.assertIn("${../build/usage.txt}", self.source)
 
+    def test_context_passes_rollback_locks(self):
+        self.assertIn("inherit rollbackLocks;", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

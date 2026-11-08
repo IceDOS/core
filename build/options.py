@@ -16,6 +16,7 @@ class Options:
     dry: bool = False
     lock_only: bool = False
     keep_flake: bool = False
+    keep_locks: bool = False
     export_search_index: bool = False
     update_all: bool = False
     update_hooks: bool = False
@@ -96,6 +97,9 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
             i += 1
         elif arg == "--keep-flake":
             opts.keep_flake = True
+            i += 1
+        elif arg == "--keep-locks":
+            opts.keep_locks = True
             i += 1
         elif arg == "--lock-only":
             opts.lock_only = True
@@ -190,6 +194,8 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
 
     if opts.keep_flake and (opts.dry or not opts.genflake_only or opts.lock_only):
         _die("error: --keep-flake only applies with --genflake-only")
+    if opts.keep_locks and opts.genflake_only:
+        _die("error: --keep-locks only applies to runs that build")
     if opts.lock_only and opts.dry:
         _die("error: --dry and --lock-only cannot be combined")
     if opts.lock_only and opts.update_hooks:

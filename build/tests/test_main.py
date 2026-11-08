@@ -25,7 +25,7 @@ CTX = RebuildContext(config_dirs=("configs",), hooks={})
 
 class _NoTransaction:
     @classmethod
-    def for_env(cls, _env: BuildEnv) -> _NoTransaction:
+    def for_env(cls, _env: BuildEnv, **_kwargs: object) -> _NoTransaction:
         return cls()
 
     def begin(self) -> None:

@@ -273,7 +273,7 @@ Optional module fields:
 - `meta.dependencies = [ { url?; modules = [ … ]; } ];` and `meta.optionalDependencies`
   — other modules this one needs (pulled automatically).
 
-**Rebuild transactions and lock safety:** Every rebuild runs inside an atomic transaction managed by `build/transaction.py`. Before modifying `config/flake.lock`, `.state/flake.lock` or `.state/flake.nix`, the orchestrator takes an exclusive non-blocking flock on `.state/.txn.lock` and backs up the files in `.state/.txn/` with a manifest. A re-exec'd process runs with `ICEDOS_TXN=1` inside the parent's transaction. On failure, interrupt, or error, the transaction rolls back the tracked files byte-for-byte (and deletes any tracked files that did not exist before). If a run fails after the system profile has changed (under `switch`/`boot` where the system profile symlink changed), the transaction commits to keep the configuration matched with the installed generation. If `.state/.txn/` exists from a previous crash/kill, `begin()` warns and restores the files before starting.
+**Rebuild transactions and lock safety:** Every rebuild runs inside an atomic transaction managed by `build/transaction.py`. Before modifying `config/flake.lock`, `.state/flake.lock` or `.state/flake.nix`, the orchestrator takes an exclusive non-blocking flock on `.state/.txn.lock` and backs up the files in `.state/.txn/` with a manifest. A re-exec'd process runs with `ICEDOS_TXN=1` inside the parent's transaction. On failure, interrupt, or error, the transaction rolls back the tracked files byte-for-byte (and deletes any tracked files that did not exist before). If a run fails after the system profile has changed (under `switch`/`boot` where the system profile symlink changed), the transaction commits to keep the configuration matched with the installed generation. `icedos.system.toolset.rebuild.rollbackLocks = false` or `--keep-locks` makes a failed or interrupted run that builds commit instead; `--dry`, `--genflake-only` and `--lock-only` always roll back on failure. If `.state/.txn/` exists from a previous crash/kill, `begin()` warns and restores the files before starting, unless the manifest of the crashed run has `keep_on_failure = true`.
 
 **Frozen inputs and cache pins:** `ICEDOS_FREEZE_INPUTS` passes excluded input names to genflake so frozen inputs keep their locked revs during `--update` or `--update-core`. `cachePinnedInputs` in `genflake.nix` exports root inputs pinned to the binary cache (`nixpkgs`, `home-manager`); updating a pinned input via `--update-state-inputs` updates `icedos/cache-server` in the config lock rather than the state flake. Overlay inputs (`icedos-overlay-*`) are not controlled by genflake and can be updated selectively via `--update-state-inputs`.
 
@@ -569,7 +569,7 @@ consumed via flake inputs, and a committed lock would pin core's own inputs —
 `icedos rebuild` flags (full list in `README.md`): `--boot`, `--build`, `--build-vm`, `--dry`/`-n`/`--dry-run`,
 `--run-vm`, `--update`, `--update-core`, `--update-core-only`, `--update-state-inputs "..."`, `--update-except "..."`,
 `--update-repos`, `--update-repos-only`, `--update-repos-select "..."`, `--update-repo-inputs-only`, `--update-hooks`,
-`--lock-only`, `--genflake-only`, `--keep-flake`, `--ask`, `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
+`--lock-only`, `--genflake-only`, `--keep-flake`, `--keep-locks`, `--ask`, `--builder <host>`, `--logs`, `--nh-args …`, `--build-args …` (must be last).
 
 ## 8. Hard rules (do not violate)
 

@@ -24,6 +24,7 @@ Flags:
   --run-vm                  build and run a VM test image
   --genflake-only           generate and lock .state/flake.nix, then roll both back and exit
   --keep-flake              with --genflake-only: keep the generated flake.nix and flake.lock
+  --keep-locks              keep the updated locks if this build fails, whatever rollbackLocks says
   --ask                     ask for confirmation before applying (nh os -a)
   --builder <host>          build the system on a remote host
   --target <host>           deploy/activate the built system on a remote host

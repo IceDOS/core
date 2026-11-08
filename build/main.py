@@ -236,6 +236,12 @@ def _reported_rebuild(
         raise
 
 
+def _keep_on_failure(opts: Options, ctx: RebuildContext | None) -> bool:
+    if opts.genflake_only:
+        return False
+    return opts.keep_locks or (ctx is not None and not ctx.rollback_locks)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     opts, previous_arguments = parse_args(args)
@@ -262,8 +268,12 @@ def main(argv: list[str] | None = None) -> int:
     if os.environ.get("ICEDOS_TXN") == "1":
         return _reported_rebuild(env, opts, ctx, previous_arguments)
 
-    txn = Transaction.for_env(env)
+    keep_on_failure = _keep_on_failure(opts, ctx)
+    txn = Transaction.for_env(env, keep_on_failure=keep_on_failure)
     txn.begin()
+    # A kept failed --update still owes its update hooks; a successful build clears this.
+    if keep_on_failure and opts.update_all:
+        (env.state_dir / ".update-pending").touch()
     persist = not opts.genflake_only or opts.lock_only or opts.keep_flake
     try:
         rc = _reported_rebuild(env, opts, ctx, previous_arguments)

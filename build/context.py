@@ -30,6 +30,7 @@ class RebuildContext:
     config_dirs: tuple[str, ...]
     hooks: Mapping[str, tuple[str, ...]]
     required_hooks: frozenset[str] = frozenset()
+    rollback_locks: bool = True
 
     def hook_scripts(self, name: str) -> tuple[str, ...]:
         return self.hooks.get(name, ())
@@ -91,6 +92,12 @@ def load_rebuild_context(environ: Mapping[str, str]) -> RebuildContext | None:
         if name in hooks_raw
     }
     required = _strings(data.get("requiredHooks", []), raw, "requiredHooks")
+    rollback_locks = data.get("rollbackLocks", True)
+    if not isinstance(rollback_locks, bool):
+        _invalid(raw, "rollbackLocks must be a boolean")
     return RebuildContext(
-        config_dirs=config_dirs, hooks=hooks, required_hooks=frozenset(required)
+        config_dirs=config_dirs,
+        hooks=hooks,
+        required_hooks=frozenset(required),
+        rollback_locks=rollback_locks,
     )
