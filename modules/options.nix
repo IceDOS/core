@@ -402,11 +402,15 @@ in
       # The same pre-parsed set load-user-config.nix merges, so validation and the
       # raw passthrough never see a different list.
       configFiles = import ../lib/config/config-files.nix "${inputs.icedos-config}";
+      orderLists = import ../lib/config/order-lists.nix lib;
     in
-    map (
-      f:
-      lib.setDefaultModuleLocation f.rel {
-        config.icedos = f.content.icedos or { };
-      }
+    lib.imap0 (
+      index: f:
+      lib.setDefaultModuleLocation f.rel (
+        { options, ... }:
+        {
+          config.icedos = orderLists index options.icedos (f.content.icedos or { });
+        }
+      )
     ) configFiles;
 }

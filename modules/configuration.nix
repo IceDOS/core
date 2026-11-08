@@ -377,6 +377,7 @@ in
     "Put custom Nix modules under modules/; files and folders load automatically."
     "Set [icedos.system] extraConfigs/extraModules to scan more folders for configs/modules."
     "Add enable = false at the top of any extra config *.toml to skip that file."
+    "Add order = 500 at the top of an extra config *.toml to load it earlier (default 1000)."
     "<extra_config_dirs>/.name.toml stays out of git, but it is not a place for secrets."
   ];
 }

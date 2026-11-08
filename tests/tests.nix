@@ -3575,6 +3575,102 @@ in
     in
     expectOk (lib.strings.hasInfix "=~ \\.lib\\.mkIceDOS" script && checks == runs && runs == 2);
 
+  configFilesOrder = expectOk (
+    map (f: f.rel) (import ../lib/config/config-files.nix (toString ./fixtures/config-order)) == [
+      "config.toml"
+      "configs/b.toml"
+      "configs/a.toml"
+      "configs/sub/d.toml"
+      "configs/c.toml"
+    ]
+  );
+
+  configFilesStripOrder = expectOk (
+    builtins.all (f: !(f.content ? order || f.content ? enable)) (
+      import ../lib/config/config-files.nix (toString ./fixtures/config-order)
+    )
+  );
+
+  configFilesRejectBadOrder = expectOk (
+    !(builtins.tryEval (
+      builtins.deepSeq (import ../lib/config/config-files.nix (toString ./fixtures/config-order-bad)) true
+    )).success
+  );
+
+  orderLists =
+    let
+      inherit (lib) mkOption types;
+      list = types.listOf types.str;
+      option = type: mkOption { inherit type; };
+      submodule = options: types.submodule { inherit options; };
+
+      schema.options.root = {
+        plain = option list;
+        nullable = option (types.nullOr list);
+        one = option (submodule {
+          x = option list;
+        });
+        two = option (submodule {
+          y = option (submodule {
+            x = option list;
+          });
+        });
+        users = option (
+          types.attrsOf (submodule {
+            x = option list;
+          })
+        );
+        map = option (types.attrsOf list);
+        raw = option types.attrs;
+      };
+
+      file =
+        index: name:
+        { options, ... }:
+        {
+          config.root = import ../lib/config/order-lists.nix lib index options.root {
+            plain = [ name ];
+            nullable = [ name ];
+            one.x = [ name ];
+            two.y.x = [ name ];
+            users.u.x = [ name ];
+            map.m = [ name ];
+            raw.${name} = [ name ];
+          };
+        };
+
+      root =
+        (lib.evalModules {
+          modules = [
+            schema
+            {
+              imports = lib.imap0 file [
+                "a"
+                "b"
+                "c"
+              ];
+            }
+          ];
+        }).config.root;
+
+      expected = [
+        "a"
+        "b"
+        "c"
+      ];
+    in
+    expectOk (
+      lib.all (v: v == expected) [
+        root.plain
+        root.nullable
+        root.one.x
+        root.two.y.x
+        root.users.u.x
+        root.map.m
+      ]
+      && root.raw.a == [ "a" ]
+    );
+
   tipsResizeTrap = expectOk (
     lib.strings.hasInfix "trap _icedos_tip_winch WINCH" (tipsHead [ "one" ])
   );

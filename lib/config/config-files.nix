@@ -1,16 +1,16 @@
-# The ordered user config set -> [ { rel; content; } ]: config.toml, then every
-# `*.toml` (hidden included, `enable = false` skipped) under extraConfigs, recursively.
+# The ordered user config set -> [ { rel; content; } ]: config.toml, then every `*.toml`
+# (hidden included, `enable = false` skipped) under extraConfigs, recursively, by `order`.
 configRoot:
 let
   inherit (builtins)
     attrNames
     concatMap
     filter
-    fromTOML
+    isInt
     pathExists
     readDir
     readFile
-    removeAttrs
+    seq
     sort
     stringLength
     substring
@@ -55,10 +55,17 @@ let
     else
       sort (a: b: a.rel < b.rel) (files ++ concatMap (n: tomlFilesIn "${dir}/${n}") subdirs);
 
-  # Extra config files. A top-level `enable = false` drops the file (default:
-  # loaded). config.toml (the base) is never subject to this gate.
-  enabledExtra = filter (e: (e.content.enable or true) != false) (
-    concatMap tomlFilesIn extraConfigsDirs
+  orderOf =
+    e:
+    let
+      order = e.content.order or 1000;
+    in
+    if isInt order then order else throw "top-level 'order' in '${e.rel}' must be an integer";
+
+  # Extra config files. A top-level `enable = false` drops the file (default: loaded).
+  # Lower `order` loads first (default 1000); the stable sort keeps path order on ties.
+  enabledExtra = sort (a: b: orderOf a < orderOf b) (
+    filter (e: (e.content.enable or true) != false) (concatMap tomlFilesIn extraConfigsDirs)
   );
 
   baseEntries =
@@ -74,8 +81,14 @@ let
 
   entries = baseEntries ++ enabledExtra;
 in
-# Strip the `enable` toggle so it never reaches config (raw NixOS passthrough).
+# Strip the loader keys so they never reach config (raw NixOS passthrough).
 map (e: {
   inherit (e) rel;
-  content = removeAttrs e.content [ "enable" ];
+  # Forced here because sort never calls its comparator for a single file.
+  content = seq (orderOf e) (
+    removeAttrs e.content [
+      "enable"
+      "order"
+    ]
+  );
 }) entries

@@ -374,6 +374,8 @@ target = "shared"
 
 Any extra config file can opt out of loading with a top-level `enable = false` (default `true`) — a quick per-file kill switch without deleting it. `config.toml`, when present, is the base and always loads.
 
+A top-level integer `order` (default `1000`, lower loads first) changes where an extra config file merges. Files with equal `order` keep path order. It decides the order of joined lists, such as patches that must apply in sequence.
+
 `config.toml` is itself **optional** — a config root can be defined entirely by `configs/*.toml` and/or `modules/`. With no `config.toml`, `extraConfigs`/`extraModules` keep their defaults (`configs`/`modules`), so those dirs still load.
 
 A **hidden** config `configs/.<name>.toml` (dot-prefixed) loads exactly the same, but is gitignored — the template's `.gitignore`, which you keep in your own config repo, ships `.*.toml` (and `.*.nix`, `modules/.*/`) — so it stays on this one machine and out of your repo (forks made before that rule existed should add the patterns themselves). It's a **gitignore-only** channel for per-host or private values, **not a secrets vault**: hidden configs are plaintext in the Nix store (world-readable, and shared with any machine that shares the closure), and every `icedos rebuild` whose config set changed snapshots them into `.state/.cache/`. Anyone with read access to the machine can read them — keep real secrets (passwords, tokens, keys) in a proper secret store (e.g. agenix, sops-nix).
