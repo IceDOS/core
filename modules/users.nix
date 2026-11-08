@@ -1,7 +1,8 @@
 {
   config,
-  lib,
   icedosLib,
+  inputs ? { },
+  lib,
   pkgs,
   ...
 }:
@@ -43,7 +44,7 @@ in
       initialPassword = userAttrs.initialPassword;
       isNormalUser = userAttrs.isNormalUser;
       isSystemUser = userAttrs.isSystemUser;
-      packages = icedosLib.pkgs.mapper pkgs users.${user}.packages;
+      packages = icedosLib.pkgs.mapper { inherit pkgs inputs; } users.${user}.packages;
     }
   ) users;
 
