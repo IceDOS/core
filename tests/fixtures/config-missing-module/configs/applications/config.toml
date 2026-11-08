@@ -1,0 +1,3 @@
+[[icedos.repositories]]
+url = "github:icedos/apps"
+modules = ["btop", "peos"]

@@ -1454,6 +1454,86 @@ let
           path = icedosLib.ICEDOS_CONFIG_ROOT;
         };
 
+    # One error for every missing reference, split by origin: config names the
+    # user fixes per file, module dependencies they report upstream.
+    _mkMissingModulesError =
+      { configFiles, missing }:
+      let
+        inherit (lib)
+          any
+          concatMap
+          concatStringsSep
+          optional
+          ;
+
+        # Show the active overrideUrl, so the user sees the path searched.
+        overrideNote = override: if override != null then " (override: ${override})" else "";
+
+        configMissing = filter (m: m.origin.kind == "config") missing;
+        moduleMissing = filter (m: m.origin.kind == "module") missing;
+
+        # Config-origin urls are the raw entry urls, so exact equality is safe.
+        listedIn =
+          file: m:
+          any (r: (r.url or null) == m.url && elem m.name (r.modules or [ ])) (
+            file.content.icedos.repositories or [ ]
+          );
+
+        configView =
+          label: entries:
+          let
+            configLine = m: "  ${m.url}${overrideNote m.override} -> module \"${m.name}\"";
+          in
+          concatStringsSep "\n" (
+            [
+              "${label} — remove or fix these in your repository `modules` lists:"
+              ""
+            ]
+            ++ map configLine entries
+          );
+
+        fileViews = concatMap (
+          file:
+          let
+            entries = filter (listedIn file) configMissing;
+          in
+          optional (entries != [ ]) (configView file.rel entries)
+        ) configFiles;
+
+        # Never drop a reference the file scan could not place.
+        unattributed = filter (m: !any (file: listedIn file m) configFiles) configMissing;
+
+        # One line per missing dependency; a dep resolving to another repo
+        # also names that repo.
+        moduleView =
+          let
+            depKind = origin: if origin.optional then "optional dependency" else "dependency";
+            moduleLine =
+              m:
+              let
+                inherit (m) origin;
+              in
+              "  ${origin.repo}${overrideNote origin.repoOverride} -> module \"${origin.module}\" -> ${depKind origin} \"${m.name}\""
+              + (if m.url != origin.repo then " (expected in ${m.url}${overrideNote m.override})" else "");
+          in
+          concatStringsSep "\n" (
+            [
+              "module dependencies — declared by a module, report upstream:"
+              ""
+            ]
+            ++ map moduleLine moduleMissing
+          );
+
+        views =
+          fileViews
+          ++ optional (unattributed != [ ]) (configView "config files" unattributed)
+          ++ optional (moduleMissing != [ ]) moduleView;
+      in
+      ''
+        referenced icedos modules do not exist
+
+        ${concatStringsSep "\n\n" views}'';
+
     # Resolve every module the config asks for and combine external + extra
     # outputs. The only entry point genflake and the build stage use.
     modulesFromConfig =
@@ -1465,63 +1545,10 @@ let
           ;
 
         inherit (lib)
-          concatStringsSep
           flatten
           mapAttrs
-          optional
           unique
           ;
-
-        # One error for every missing reference, split by origin: config.toml
-        # names the user fixes, module dependencies they report upstream.
-        mkMissingModulesError =
-          missing:
-          let
-            # Show the active overrideUrl, so the user sees the path searched.
-            overrideNote = override: if override != null then " (override: ${override})" else "";
-
-            configMissing = filter (m: m.origin.kind == "config") missing;
-            moduleMissing = filter (m: m.origin.kind == "module") missing;
-
-            configView =
-              let
-                configLine = m: "  ${m.url}${overrideNote m.override} -> module \"${m.name}\"";
-              in
-              concatStringsSep "\n" (
-                [
-                  "config.toml — remove or fix these in your repository `modules` lists:"
-                  ""
-                ]
-                ++ map configLine configMissing
-              );
-
-            # One line per missing dependency; a dep resolving to another repo
-            # also names that repo.
-            moduleView =
-              let
-                depKind = origin: if origin.optional then "optional dependency" else "dependency";
-                moduleLine =
-                  m:
-                  let
-                    inherit (m) origin;
-                  in
-                  "  ${origin.repo}${overrideNote origin.repoOverride} -> module \"${origin.module}\" -> ${depKind origin} \"${m.name}\""
-                  + (if m.url != origin.repo then " (expected in ${m.url}${overrideNote m.override})" else "");
-              in
-              concatStringsSep "\n" (
-                [
-                  "module dependencies — declared by a module, report upstream:"
-                  ""
-                ]
-                ++ map moduleLine moduleMissing
-              );
-
-            views = optional (configMissing != [ ]) configView ++ optional (moduleMissing != [ ]) moduleView;
-          in
-          ''
-            referenced icedos modules do not exist
-
-            ${concatStringsSep "\n\n" views}'';
 
         externalResult = resolveExternalDependencyRecursively {
           newDeps = repositories;
@@ -1531,9 +1558,11 @@ let
         # Fail once, listing every missing reference.
         missingModules = unique externalResult.missing;
 
-        externalModules = seq (icedosLib.abortIf (missingModules != [ ]) (
-          mkMissingModulesError missingModules
-        )) externalResult.modules;
+        externalModules = seq (icedosLib.abortIf (missingModules != [ ]) (_mkMissingModulesError {
+          # Lazy: abortIf only forces this when a reference is missing.
+          configFiles = import ./config/config-files.nix "${_getConfigFlake}";
+          missing = missingModules;
+        })) externalResult.modules;
 
         # Dedupe by (url, name).
         deduped = attrValues (

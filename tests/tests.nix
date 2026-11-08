@@ -495,6 +495,20 @@ let
       deps = i.repoFetchDeps;
     };
 
+  # --- _mkMissingModulesError (icedos.nix) ---------------------------------
+  missingModulesError = (mkIcedos { })._mkMissingModulesError;
+
+  missingConfigEntry = url: name: {
+    inherit name url;
+    override = null;
+    origin.kind = "config";
+  };
+
+  missingConfigFile = rel: url: modules: {
+    inherit rel;
+    content.icedos.repositories = [ { inherit url modules; } ];
+  };
+
   # --- icedosLib.bash.printTip (icedos.system.tips bottom bar) -------------
   tipsLib =
     (import ../lib/bash.nix {
@@ -3596,6 +3610,80 @@ in
       builtins.deepSeq (import ../lib/config/config-files.nix (toString ./fixtures/config-order-bad)) true
     )).success
   );
+
+  missingModuleNestedConfigFile =
+    expectEq
+      ''
+        referenced icedos modules do not exist
+
+        configs/applications/config.toml — remove or fix these in your repository `modules` lists:
+
+          github:icedos/apps -> module "peos"''
+      (missingModulesError {
+        configFiles = import ../lib/config/config-files.nix (toString ./fixtures/config-missing-module);
+        missing = [ (missingConfigEntry "github:icedos/apps" "peos") ];
+      });
+
+  missingModuleListedInTwoFiles =
+    expectEq
+      ''
+        referenced icedos modules do not exist
+
+        config.toml — remove or fix these in your repository `modules` lists:
+
+          github:icedos/apps -> module "peos"
+
+        configs/b.toml — remove or fix these in your repository `modules` lists:
+
+          github:icedos/apps -> module "peos"''
+      (missingModulesError {
+        configFiles = [
+          (missingConfigFile "config.toml" "github:icedos/apps" [ "peos" ])
+          (missingConfigFile "configs/a.toml" "github:icedos/apps" [ "btop" ])
+          (missingConfigFile "configs/b.toml" "github:icedos/apps" [ "peos" ])
+          (missingConfigFile "configs/c.toml" "github:icedos/gaming" [ "peos" ])
+        ];
+        missing = [ (missingConfigEntry "github:icedos/apps" "peos") ];
+      });
+
+  missingModuleUnattributed =
+    expectEq
+      ''
+        referenced icedos modules do not exist
+
+        config files — remove or fix these in your repository `modules` lists:
+
+          github:icedos/apps -> module "peos"''
+      (missingModulesError {
+        configFiles = [ ];
+        missing = [ (missingConfigEntry "github:icedos/apps" "peos") ];
+      });
+
+  missingModuleDependencyView =
+    expectEq
+      ''
+        referenced icedos modules do not exist
+
+        module dependencies — declared by a module, report upstream:
+
+          github:icedos/apps -> module "steam" -> dependency "ghost"''
+      (missingModulesError {
+        configFiles = [ ];
+        missing = [
+          {
+            name = "ghost";
+            url = "github:icedos/apps";
+            override = null;
+            origin = {
+              kind = "module";
+              module = "steam";
+              repo = "github:icedos/apps";
+              repoOverride = null;
+              optional = false;
+            };
+          }
+        ];
+      });
 
   orderLists =
     let
