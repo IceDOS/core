@@ -325,7 +325,7 @@ packages = [
 ]
 ```
 
-The package is resolved from the flake's `packages` (or `legacyPackages`) for your machine's architecture.
+The package is resolved from the flake's `packages` (or `legacyPackages`) for your machine's architecture. Because it comes from the flake's own nixpkgs instance, `icedos.system.allowUnfree`, `permittedInsecurePackages`, and overlays do not apply to it. Package names with dots cannot be referenced here because the path is split on `.`.
 
 ### Hardware configuration
 
