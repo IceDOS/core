@@ -18,7 +18,6 @@ let
     ICEDOS_STATE_DIR = (import ../lib/constants.nix { }).ICEDOS_STATE_DIR;
     INPUTS_PREFIX = (import ../lib/constants.nix { }).INPUTS_PREFIX;
     generateAttrPath = throw "generateAttrPath is not stubbed in tests";
-    _selectExtraFlakeOutput = (import ../lib/common.nix { inherit lib; })._selectExtraFlakeOutput;
   };
 
   validate = (import ../lib/options/validate.nix { inherit icedosLib lib; }).validate;
@@ -526,6 +525,19 @@ let
     }).head;
   tipsSampleHead = tipsHead [ "a tip" ];
 
+  efMapperDrvApp = {
+    type = "derivation";
+    name = "app-from-packages";
+  };
+  efMapperDrvOverlap = {
+    type = "derivation";
+    name = "overlap-from-packages";
+  };
+  efMapperDrvLegacyOnly = {
+    type = "derivation";
+    name = "legacy-only-pkg";
+  };
+
   efMapperPkgs = {
     btop = "drv-btop";
     stdenv.hostPlatform.system = "x86_64-linux";
@@ -542,18 +554,34 @@ let
   efMapperInputs = {
     extraApp = {
       packages.x86_64-linux = {
-        app = "app-from-packages";
-        overlap = "overlap-from-packages";
+        app = efMapperDrvApp;
+        overlap = efMapperDrvOverlap;
         nullPkg = null;
         subSet = { };
+        fnPkg = x: x;
+        strPkg = "not-a-derivation";
       };
       legacyPackages.x86_64-linux = {
-        legacyOnly = "legacy-only-pkg";
-        overlap = "overlap-from-legacy";
+        legacyOnly = efMapperDrvLegacyOnly;
+        overlap = {
+          type = "derivation";
+          name = "overlap-from-legacy";
+        };
+      };
+    };
+    legacyOnly = {
+      legacyPackages.x86_64-linux = {
+        pkg = {
+          type = "derivation";
+          name = "legacy-only-pkg";
+        };
       };
     };
     armOnly = {
-      packages.aarch64-linux.app = "arm-pkg";
+      packages.aarch64-linux.app = {
+        type = "derivation";
+        name = "arm-pkg";
+      };
     };
   };
 
@@ -562,6 +590,7 @@ let
     config = {
       system.extra-flakes = [
         { name = "extraApp"; }
+        { name = "legacyOnly"; }
         { name = "armOnly"; }
       ];
     };
@@ -2575,19 +2604,19 @@ in
     )
   );
 
-  efMapperPackages = expectEq [ "app-from-packages" ] (
+  efMapperPackages = expectEq [ efMapperDrvApp ] (
     efMapperIcedos.pkgs.mapper efMapperPkgs [
       "icedosExtraFlakes.extraApp.app"
     ]
   );
 
-  efMapperLegacyPackages = expectEq [ "legacy-only-pkg" ] (
+  efMapperLegacyPackages = expectEq [ efMapperDrvLegacyOnly ] (
     efMapperIcedos.pkgs.mapper efMapperPkgs [
       "icedosExtraFlakes.extraApp.legacyOnly"
     ]
   );
 
-  efMapperPrecedence = expectEq [ "overlap-from-packages" ] (
+  efMapperPrecedence = expectEq [ efMapperDrvOverlap ] (
     efMapperIcedos.pkgs.mapper efMapperPkgs [
       "icedosExtraFlakes.extraApp.overlap"
     ]
@@ -2620,6 +2649,18 @@ in
   efMapperAttrSetNotPackage = expectThrow (
     builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
       "icedosExtraFlakes.extraApp.subSet"
+    ]) true
+  );
+
+  efMapperFunctionNotPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.fnPkg"
+    ]) true
+  );
+
+  efMapperStringNotPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.strPkg"
     ]) true
   );
 
@@ -2661,11 +2702,19 @@ in
     ]) true
   );
 
-  efMapperMissingPackageName = expectThrow (
-    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+  efMapperLegacyOnlyTypoBlamesPackage = expectThrowMatch (builtins.deepSeq (efMapperIcedos.pkgs.mapper
+    efMapperPkgs
+    [
+      "icedosExtraFlakes.legacyOnly.helo"
+    ]
+  ) true) "not found";
+
+  efMapperMissingPackageName = expectThrowMatch (builtins.deepSeq (efMapperIcedos.pkgs.mapper
+    efMapperPkgs
+    [
       "icedosExtraFlakes.extraApp"
-    ]) true
-  );
+    ]
+  ) true) "missing package name";
 
   # --- end-to-end hardening (review regressions) ---------------------------
   # Derivation-bearing values key as opaque and never crash on the cycle.

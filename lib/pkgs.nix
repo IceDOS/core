@@ -11,7 +11,7 @@ let
   inherit (builtins)
     elem
     elemAt
-    isAttrs
+    head
     length
     listToAttrs
     seq
@@ -19,13 +19,14 @@ let
 
   inherit (lib)
     concatStringsSep
+    drop
+    getAttrFromPath
+    hasAttrByPath
     isDerivation
     splitString
-    sublist
     ;
 
   inherit (icedosLib)
-    _selectExtraFlakeOutput
     abortIf
     generateAttrPath
     ;
@@ -38,9 +39,12 @@ let
     let
       parts = splitString "." pkgName;
     in
-    if elemAt parts 0 == "icedosExtraFlakes" then
+    if head parts == "icedosExtraFlakes" then
       let
-        inherit (pkgs.stdenv.hostPlatform) system;
+        systemGuard = abortIf (
+          !(pkgs ? stdenv.hostPlatform.system) && !(config ? system.arch)
+        ) "icedos.system.extra-flakes: cannot determine system architecture";
+        system = seq systemGuard (pkgs.stdenv.hostPlatform.system or config.system.arch);
         lengthGuard =
           abortIf (length parts < 3)
             "icedos.system.extra-flakes: package string '${pkgName}' is missing package name (format: icedosExtraFlakes.<flake>.<package>)";
@@ -49,19 +53,32 @@ let
           abortIf (!(elem flakeName extraFlakeNames))
             "icedos.system.extra-flakes: '${flakeName}' is not a configured extra-flake (add it to [[icedos.system.extra-flakes]])"
         );
-        attrPath = sublist 2 (length parts - 2) parts;
+        inputGuard = seq nameGuard (
+          abortIf (!(inputs ? ${flakeName}))
+            "icedos.system.extra-flakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
+        );
+        attrPath = drop 2 parts;
         attrString = concatStringsSep "." attrPath;
         flake = inputs.${flakeName} or { };
-        packages = flake.packages.${system} or null;
-        legacyPackages = flake.legacyPackages.${system} or null;
-        useLegacy =
-          (packages == null || !lib.hasAttrByPath attrPath packages)
-          && (legacyPackages != null && lib.hasAttrByPath attrPath legacyPackages);
+        packages = flake.packages.${system} or { };
+        legacyPackages = flake.legacyPackages.${system} or { };
+        hasPackages = hasAttrByPath attrPath packages;
+        hasLegacy = hasAttrByPath attrPath legacyPackages;
+        notFoundGuard =
+          abortIf (!hasPackages && !hasLegacy)
+            "icedos.system.extra-flakes: output 'packages.${system}.${attrString}' or 'legacyPackages.${system}.${attrString}' on flake input '${flakeName}' not found";
+        useLegacy = !hasPackages && hasLegacy;
         outputPath = "${if useLegacy then "legacyPackages" else "packages"}.${system}.${attrString}";
-        selected = seq nameGuard (_selectExtraFlakeOutput flakeName outputPath inputs);
-        drvGuard = abortIf (
-          isAttrs selected && !isDerivation selected
-        ) "icedos.system.extra-flakes: output '${outputPath}' on flake input '${flakeName}' is an attribute set, not a package";
+        selected = seq inputGuard (
+          seq notFoundGuard (getAttrFromPath attrPath (if useLegacy then legacyPackages else packages))
+        );
+        nullGuard =
+          abortIf (selected == null)
+            "icedos.system.extra-flakes: output '${outputPath}' on flake input '${flakeName}' is missing or null";
+        drvGuard = seq nullGuard (
+          abortIf (!isDerivation selected)
+            "icedos.system.extra-flakes: output '${outputPath}' on flake input '${flakeName}' is not a package"
+        );
       in
       seq drvGuard selected
     else
