@@ -51,24 +51,8 @@ in
   stringStartsWith = text: original: text == (substring 0 (stringLength text) original);
   generateAttrPath = base: string: foldl' (acc: cur: acc.${cur}) base (splitString "." string);
 
-  # Resolve a dotted path against a flake's outputs, naming the missing input/segment.
-  _selectExtraFlakeOutput =
-    flakeName: path: inputs:
-    let
-      inherit (builtins) seq;
-      input = seq (abortIf (!(inputs ? ${flakeName}))
-        "icedos.system.extra-flakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
-      ) inputs.${flakeName};
-      segments = splitString "." path;
-      walk =
-        node: seg:
-        seq (abortIf (!(node ? ${seg}))
-          "icedos.system.extra-flakes: output path '${path}' on flake input '${flakeName}' is missing segment '${seg}'"
-        ) node.${seg};
-      selected = foldl' walk input segments;
-      nullGuard = abortIf (
-        selected == null
-      ) "icedos.system.extra-flakes: output '${path}' on flake input '${flakeName}' is missing or null";
-    in
-    seq nullGuard selected;
+  _guardExtraFlakeInput =
+    flakeName: inputs:
+    abortIf (!(inputs ? ${flakeName}))
+      "icedos.system.extra-flakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)";
 }
