@@ -374,7 +374,7 @@ part of that parent; a standalone module keeps its OWN `.users` tree and is *con
   `genDefaults` materialises it (see Rule 2a for the `default` caveat). Also applies to the
   DE per-user contributions (`gnome`, `cosmic` → `desktop.users.<n>.…`).
 - **Do NOT nest** a standalone module that several parents use. `alimit` is its own ai-tools
-  module (`icedos.ai-tools.alimit.users.<n>`); prime-agent **consumes** it — it reads
+  module (`icedos.ai-tools.alimit.users.<n>`); claude-code **consumes** it — it reads
   `config.icedos.ai-tools.alimit.users.${name}.statusLine or false` and does not own its config.
 
 | Feature | Path | Materialised by |
