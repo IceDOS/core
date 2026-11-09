@@ -442,6 +442,7 @@ modules = [ "btop", "steam", "me3" ]      # which modules to enable
   repo was fetched.
 - Channels/overlays: `[[icedos.system.channels]]` and
   `[[icedos.system.overlays.from-channel]]` add extra nixpkgs instances/overlays.
+- Extra flakes: `[[icedos.system.extra-flakes]]` registers arbitrary flakes as top-level inputs. `modulesToLoad` loads selected modules as NixOS modules, and packages can be referenced in `icedos.system.packages` or user `packages` via `icedosExtraFlakes.<flake>.<package>` (resolved by `icedosLib.pkgs.mapper`).
 
 ### Declaring user options from TOML: `[extraOptions]`
 

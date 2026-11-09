@@ -312,6 +312,21 @@ inputs = { nixpkgs.follows = "nixpkgs" }
 
 A `name` must not collide with a module-declared input (its sub-flake name or its masked bare names), a repository input, a `[[icedos.system.channels]]`/overlay input, or the framework-reserved set (`nixpkgs`, `home-manager`, `self`, `icedos-config`, `icedos-core`, `icedos-state`) — `extra-flakes` entries become top-level inputs, module-declared inputs live as bare names inside their module's sub-flake, and a duplicate would silently overwrite.
 
+Packages from an extra flake can be referenced directly in `icedos.system.packages` or `icedos.users.<name>.packages` using `icedosExtraFlakes.<flake>.<package>`:
+
+```toml
+[[icedos.system.extra-flakes]]
+name = "zen-browser"
+url = "github:0xc000022070/zen-browser-flake"
+
+[icedos.system]
+packages = [
+  "icedosExtraFlakes.zen-browser.default",
+]
+```
+
+The package is resolved from the flake's `packages` (or `legacyPackages`) for your machine's architecture. Because it comes from the flake's own nixpkgs instance, `icedos.system.allowUnfree`, `permittedInsecurePackages`, and overlays do not apply to it.
+
 ### Hardware configuration
 
 Your machine's `/etc/nixos/hardware-configuration.nix` is loaded into the system automatically, so the essentials (filesystems, kernel modules, microcode) always apply and the machine stays bootable. This is `icedos.system.loadHardwareConfiguration`, **`true` by default**:

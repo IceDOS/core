@@ -524,6 +524,81 @@ let
       inherit list;
     }).head;
   tipsSampleHead = tipsHead [ "a tip" ];
+
+  efMapperDrvApp = {
+    type = "derivation";
+    name = "app-from-packages";
+  };
+  efMapperDrvOverlap = {
+    type = "derivation";
+    name = "overlap-from-packages";
+  };
+  efMapperDrvLegacyOnly = {
+    type = "derivation";
+    name = "legacy-only-pkg";
+  };
+
+  efMapperPkgs = {
+    btop = "drv-btop";
+    stdenv.hostPlatform.system = "x86_64-linux";
+  };
+
+  efMapperPkgsWithPkgsAttr = {
+    pkgs = {
+      wrong = "wrong";
+    };
+    requests = "pkg-requests";
+    stdenv.hostPlatform.system = "x86_64-linux";
+  };
+
+  efMapperInputs = {
+    extraApp = {
+      packages.x86_64-linux = {
+        app = efMapperDrvApp;
+        overlap = efMapperDrvOverlap;
+        nullPkg = null;
+        subSet = { };
+        fnPkg = x: x;
+        strPkg = "not-a-derivation";
+      };
+      legacyPackages.x86_64-linux = {
+        legacyOnly = efMapperDrvLegacyOnly;
+        overlap = {
+          type = "derivation";
+          name = "overlap-from-legacy";
+        };
+      };
+    };
+    legacyOnly = {
+      legacyPackages.x86_64-linux = {
+        pkg = {
+          type = "derivation";
+          name = "legacy-only-pkg";
+        };
+      };
+    };
+    armOnly = {
+      packages.aarch64-linux.app = {
+        type = "derivation";
+        name = "arm-pkg";
+      };
+    };
+  };
+
+  efMapperIcedos = import ../lib/default.nix {
+    inherit lib;
+    config = {
+      system.extra-flakes = [
+        { name = "extraApp"; }
+        { name = "legacyOnly"; }
+        { name = "armOnly"; }
+      ];
+    };
+    inputs = efMapperInputs;
+    pkgs = { };
+    enableLogging = false;
+    self = "tests";
+  };
 in
 {
   intHappy = expectOk (
@@ -2528,6 +2603,118 @@ in
       )
     )
   );
+
+  efMapperPackages = expectEq [ efMapperDrvApp ] (
+    efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.app"
+    ]
+  );
+
+  efMapperLegacyPackages = expectEq [ efMapperDrvLegacyOnly ] (
+    efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.legacyOnly"
+    ]
+  );
+
+  efMapperPrecedence = expectEq [ efMapperDrvOverlap ] (
+    efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.overlap"
+    ]
+  );
+
+  efMapperRegular = expectEq [ "drv-btop" ] (
+    efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "btop"
+    ]
+  );
+
+  efMapperSetWithPkgsAttr = expectEq [ "pkg-requests" ] (
+    efMapperIcedos.pkgs.mapper efMapperPkgsWithPkgsAttr [
+      "requests"
+    ]
+  );
+
+  efMapperUnconfiguredFlake = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.nixpkgs.hello"
+    ]) true
+  );
+
+  efMapperBarePrefix = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes"
+    ]) true
+  );
+
+  efMapperAttrSetNotPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.subSet"
+    ]) true
+  );
+
+  efMapperFunctionNotPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.fnPkg"
+    ]) true
+  );
+
+  efMapperStringNotPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.strPkg"
+    ]) true
+  );
+
+  efMapperNullPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.nullPkg"
+    ]) true
+  );
+
+  efMapperMissingInput = expectThrow (
+    builtins.deepSeq (
+      let
+        libMissingInput = import ../lib/default.nix {
+          inherit lib;
+          config = {
+            system.extra-flakes = [ { name = "nonExistent"; } ];
+          };
+          inputs = efMapperInputs;
+          pkgs = { };
+          enableLogging = false;
+          self = "tests";
+        };
+      in
+      libMissingInput.pkgs.mapper efMapperPkgs [
+        "icedosExtraFlakes.nonExistent.app"
+      ]
+    ) true
+  );
+
+  efMapperMissingSystem = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.armOnly.app"
+    ]) true
+  );
+
+  efMapperMissingPackage = expectThrow (
+    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "icedosExtraFlakes.extraApp.doesNotExist"
+    ]) true
+  );
+
+  efMapperLegacyOnlyTypoBlamesPackage = expectThrowMatch (builtins.deepSeq (efMapperIcedos.pkgs.mapper
+    efMapperPkgs
+    [
+      "icedosExtraFlakes.legacyOnly.helo"
+    ]
+  ) true) "not found";
+
+  efMapperMissingPackageName = expectThrowMatch (builtins.deepSeq (efMapperIcedos.pkgs.mapper
+    efMapperPkgs
+    [
+      "icedosExtraFlakes.extraApp"
+    ]
+  ) true) "missing package name";
 
   # --- end-to-end hardening (review regressions) ---------------------------
   # Derivation-bearing values key as opaque and never crash on the cycle.
