@@ -17,11 +17,12 @@ error() {
 
 # --- GitHub API -------------------------------------------------------------
 # Unauthenticated is 60 req/h per IP; the workflows pass GITHUB_TOKEN for 5000/h.
+# -L follows repo renames, which the API answers with a 301 JSON body.
 gh_api() {
   if [ -n "${GITHUB_TOKEN:-}" ]; then
-    curl -sf -H "Authorization: Bearer $GITHUB_TOKEN" "$1"
+    curl -sfL -H "Authorization: Bearer $GITHUB_TOKEN" "$1"
   else
-    curl -sf "$1"
+    curl -sfL "$1"
   fi
 }
 
