@@ -62,6 +62,21 @@ gc_del_entry() {
   _GC_ENTRY_COUNT=$(( _GC_ENTRY_COUNT + 1 ))
 }
 
+# Lists `find ARGS...` matches newest first: DEL when older than DAYS (0 = all), else OK.
+# The age test matches find's `-mtime +DAYS` rounding.
+gc_by_age() {
+  local days="$1" now entry
+  shift
+  now=$(date +%s)
+  while IFS= read -r -d '' entry; do
+    if [ "$days" -eq 0 ] || [ $(( now - ${entry%%.*} )) -ge $(( (days + 1) * 86400 )) ]; then
+      gc_del "${entry#* }"
+    else
+      gc_ok "${entry#* }"
+    fi
+  done < <(find "$@" -printf '%T@ %p\0' 2>/dev/null | sort -z -rn)
+}
+
 gc_freed_kb() {
   local n="${1:-0}"
   _GC_EXTRA_FREED_KB=$(( _GC_EXTRA_FREED_KB + n ))

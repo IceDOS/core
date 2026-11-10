@@ -737,12 +737,13 @@ their store paths from the rebuild context. Gc hooks are started by `modules/nh.
 
 ### Gc hooks and gc.sh
 
-Gc hooks receive `prelude.sh` and `lib/gc.sh` (`icedosLib.bash.gcLib`) automatically. Hooks must never format or print gc output lines by hand. All gc output must go through the shared functions in `gc.sh` so every part of `icedos gc` matches the `nh clean all` format.
+Gc hooks receive `prelude.sh` and `lib/gc.sh` (`icedosLib.bash.gcLib`) automatically. Hooks must never format or print gc output lines by hand. All gc output must go through the shared functions in `gc.sh` so every part of `icedos gc` matches the `nh clean all` format. Like nh lists the generations it keeps, a hook records every item it considers: `gc_del` for what goes and `gc_ok` for what stays, so its section shows even when nothing is deleted. `gc_by_age` does both for age-based retention, and a retention note (`gc_note "Keeping paths newer than Nd"`) goes above the list.
 
 | Function | Behaviour |
 |---|---|
 | `gc_section HEADER [NOUN]` | Starts a section. Commits any open section first. `NOUN` (default `path`) is used in the summary. |
 | `gc_ok PATH` | Records a kept item, printed as `- OK  PATH`. |
+| `gc_by_age DAYS FIND_ARGS...` | Runs `find FIND_ARGS...` and records each match newest first: `gc_del` when older than DAYS days (same rounding as `-mtime +DAYS`, 0 = all), else `gc_ok`. Pass match tests only, no `-print`/`-printf` action. |
 | `gc_del PATH` | Queues a path for removal, printed as `- DEL PATH`. Size measured with `du -sk` at commit. Skips paths that do not exist. |
 | `gc_skip PATH REASON` | Prints `- SKIP PATH (REASON)` with yellow `SKIP`. |
 | `gc_del_entry LABEL` | Records a non-path item the hook deletes itself (such as SQLite rows). Printed as `- DEL LABEL`. The hook performs the deletion and reports freed bytes with `gc_freed_kb`. |

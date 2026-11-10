@@ -397,9 +397,8 @@ postUpdate  = [ "flatpak update" ]          # runs with --update, after build
 postGc = [
   """
   gc_section "$HOME/.cache/my-app" "cache file"
-  for f in "$HOME"/.cache/my-app/*.tmp; do
-    [ -e "$f" ] && gc_del "$f"
-  done
+  gc_note "Keeping cache files newer than 7d"
+  gc_by_age 7 "$HOME/.cache/my-app" -maxdepth 1 -type f -name '*.tmp'
   """
 ]
 ```
@@ -408,7 +407,7 @@ postGc = [
 
 Rebuild hooks run in your config's `.state` directory with your shell's `PATH`. They can read `ICEDOS_CONFIG_ROOT` and `ICEDOS_STATE_DIR`, and `postUpdate`/`postRebuild` also get `ICEDOS_BUILD_DIR`. Your GitHub token is never passed to a hook. A hook that fails prints a warning and the rebuild carries on. Write it as `{ script = "...", required = true }` to stop the rebuild with the hook's exit code instead, so later hooks and build steps don't run. Ctrl-C stops the rebuild. With `--update`, `--update-core` or `--update-core-only`, the rebuild updates the core first and restarts on it, so the updated core runs your hooks.
 
-Hooks don't run as root by default. Rebuild hooks always run as the invoking user. Gc hooks run once per normal user, as that user, identically from `icedos gc` and from the automatic `nh-clean.service` timer (the command elevates once with `sudo` and runs all per-user invocations inside that single root context). Gc hooks receive `gc.sh` functions (`gc_section`, `gc_del`, `gc_ok`, `gc_skip`) automatically and must not format gc output lines by hand. A hook may still escalate itself with `sudo` where its user has permission. Write identity-independent gc hooks (e.g. sweeping `~/.cache`) rather than assuming a specific `$USER`/`$HOME`. `rootPreGc`/`rootPostGc` run once as root, after the per-user `preGc`/`postGc` hooks, for system-wide cleanup such as old core dumps or journals. `icedos gc --dry` skips all gc hooks.
+Hooks don't run as root by default. Rebuild hooks always run as the invoking user. Gc hooks run once per normal user, as that user, identically from `icedos gc` and from the automatic `nh-clean.service` timer (the command elevates once with `sudo` and runs all per-user invocations inside that single root context). Gc hooks receive `gc.sh` functions (`gc_section`, `gc_del`, `gc_ok`, `gc_skip`, `gc_by_age`) automatically and must not format gc output lines by hand. List kept items with `gc_ok` too, as nh does for generations, so a section shows even when nothing is deleted. A hook may still escalate itself with `sudo` where its user has permission. Write identity-independent gc hooks (e.g. sweeping `~/.cache`) rather than assuming a specific `$USER`/`$HOME`. `rootPreGc`/`rootPostGc` run once as root, after the per-user `preGc`/`postGc` hooks, for system-wide cleanup such as old core dumps or journals. `icedos gc --dry` skips all gc hooks.
 
 ### Patches (without forking)
 
