@@ -187,7 +187,7 @@ gc_commit() {
       fi
 
       if [ -n "$summary_file" ]; then
-        printf '%s\n' "$summary_line" > "$summary_file"
+        printf '%s\n' "$summary_line" >> "$summary_file"
       else
         _gc_sep
         printf '%s\n' "$summary_line"

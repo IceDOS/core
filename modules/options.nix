@@ -112,6 +112,26 @@ in
               NixOS login `PATH` set — no XDG/DBus/invoker-PATH leakage.
             '';
           };
+
+          rootPreGc = mkLinesListOption {
+            default = [ ];
+            description = ''
+              Shell snippets run once as root before garbage collection, after the
+              per-user `preGc` hooks. For system-wide cleanup that needs root.
+              Each starts from `env -i` with root's `HOME`, `USER`, `LOGNAME` and
+              a system `PATH`, and gets the same prelude and gc.sh helpers.
+            '';
+          };
+
+          rootPostGc = mkLinesListOption {
+            default = [ ];
+            description = ''
+              Shell snippets run once as root after garbage collection, after the
+              per-user `postGc` hooks. For system-wide cleanup that needs root.
+              Each starts from `env -i` with root's `HOME`, `USER`, `LOGNAME` and
+              a system `PATH`, and gets the same prelude and gc.sh helpers.
+            '';
+          };
         };
       };
 

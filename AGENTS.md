@@ -45,7 +45,7 @@ needed regardless. And **never run a plain `icedos rebuild`** (that is a `switch
 | `hyprland` | DE repo | Hyprland WM + plugins. Root `icedos.nix` + `modules/`. |
 | `kde` | DE repo | KDE Plasma + in-tree KWin effects. `modules/`-only. |
 | `cosmic` | DE repo | COSMIC desktop + upstream patches. `modules/`-only. |
-| `tweaks` | module repo | Perf/behavior tweaks: `cachyos`, `kernel`, `dmem`. |
+| `tweaks` | module repo | Perf/behavior tweaks: `cachyos`, `kernel`, `dmem`, `gc`. |
 | `providers` | module repo | Extra package sources: `nur`, `jovian`. |
 | `template` | starter | Minimal user config to fork when creating your own config root. Generic, no personal data. |
 | *(your config)* | **user config** | The user's own config repo — **any name/location**, not an IceDOS-org repo. Holds `config.toml` + `flake.nix` + `modules/` + `configs/` and drives everything. Created by forking `template`. |
@@ -721,7 +721,7 @@ stray keystrokes in a later `read`.
 ## 11. Hook authoring contract
 
 `icedos.system.toolset.rebuild.hooks.{preRebuild,postRebuild,preUpdate,postUpdate}`
-and `icedos.system.gc.hooks.{preGc,postGc}` are lists of shell snippets. A rebuild
+and `icedos.system.gc.hooks.{preGc,postGc,rootPreGc,rootPostGc}` are lists of shell snippets. A rebuild
 hook entry may also be `{ script = "..."; required = true; }`; a plain string means
 `required = false`. Each
 snippet is compiled to its **own** `pkgs.writeShellScript` (`modules/rebuild.nix`, `modules/nh.nix`).
@@ -756,9 +756,13 @@ Gc hooks receive `prelude.sh` and `lib/gc.sh` (`icedosLib.bash.gcLib`) automatic
 It creates a temp totals dir (mode 711), logs nh's output there through `script` (a pty keeps
 colours and nh's sudo prompt; only output is logged, never keystrokes) and parses the freed line.
 Before each per-user hook it pre-creates a file owned by that user and passes it as
-`ICEDOS_GC_TOTAL_FILE` through `env -i`. `--dry` prints no total, and the `nh-clean.service`
+`ICEDOS_GC_TOTAL_FILE` through `env -i`; root hooks get a root-owned 644 file the same way. `--dry` runs no gc hooks and prints no total, and the `nh-clean.service`
 timer path does not collect totals. `gc.sh` must stay builtins-plus-coreutils only: the timer's
 PATH has no awk or bc.
+
+Core cleanup sections in `modules/nh.nix` cover only junk IceDOS itself creates:
+- `nh-clean-extra`: removes stale `/tmp/icedos-build*` temporary build directories.
+- `nh-cache-clean`: cleans old `.state/.cache` snapshots based on `icedos.system.gc.cache.{days,generations}`.
 
 `gc.sh` installs `trap gc_commit EXIT`, so open sections commit automatically when a hook exits. If a hook needs multiple sections or its own EXIT trap, call `gc_commit` explicitly.
 
@@ -770,6 +774,7 @@ PATH has no awk or bc.
 | `preUpdate` / `postUpdate` | `icedos rebuild --update` / `--update-hooks` | the **invoking user** |
 | `preGc` / `postGc` | `icedos gc` | **once per normal user**, as that user (self-elevates with `sudo` when not already root) |
 | `preGc` / `postGc` | `nh-clean.service` (automatic timer) | **once per normal user**, as that user (`runuser -u <user> --`) |
+| `rootPreGc` / `rootPostGc` | `icedos gc` and `nh-clean.service` | **once, as root**, after the per-user hooks of the same phase (`env -i` with root `HOME`/`USER`/`LOGNAME` and `PATH=/run/wrappers/bin:/run/current-system/sw/bin`) |
 
 Gc hooks run identically from `icedos gc` and from the timer: once per normal user,
 as that user. They are **not** run as root by default — the timer (already root) uses
@@ -786,7 +791,7 @@ by any user — no `XDG_*`/`DBUS_*`/invoker-PATH leakage into other users' hooks
 sudo internally (nh's own store-GC step, `crates/nh-clean/src/clean.rs`), but that is
 nh's process, not the hooks. Write **identity-independent** hooks (e.g. `unshade --all`
 sweeping `~/.cache`) that make sense for any user rather than assuming a specific
-`$USER`/`$HOME`. A config with no normal users skips gc hooks in both paths.
+`$USER`/`$HOME`. A config with no normal users skips the per-user gc hooks in both paths. System-wide cleanup that needs root (old core dumps, archived journals) belongs in a module repo as a `rootPreGc`/`rootPostGc` hook, not in core; `tweaks/modules/gc` is the reference.
 
 Environment a rebuild hook can rely on. Its cwd is the `.state` dir.
 

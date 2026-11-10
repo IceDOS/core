@@ -3814,4 +3814,112 @@ in
       && lib.strings.hasInfix ''"''${prelude}\n''${gcLib}\n''${s}"'' nhSource
       && lib.strings.hasInfix gcLib rendered
     );
+
+  gcRootHooksOptionsAndService =
+    let
+      mockIcedosLib =
+        (import ../lib/options/helpers.nix {
+          inherit lib;
+          icedosLib = {
+            abortIf = icedosLib.abortIf;
+            validate = validate;
+          };
+        })
+        // (import ../lib/bash.nix { inherit lib; })
+        // (import ../lib/color.nix {
+          inherit lib;
+          self = "core";
+          icedosLib = { };
+        })
+        // (import ../lib/users.nix {
+          inherit lib;
+          self = "core";
+          icedosLib = { };
+        });
+
+      optionsModule = import ../modules/options.nix {
+        icedosLib = mockIcedosLib;
+        inherit lib;
+        inputs.icedos-config = ./.;
+      };
+
+      dummyPkgs = {
+        util-linux = "/stub-util-linux";
+        coreutils = "/stub-coreutils";
+        bash = "/stub-bash";
+        nh = "/stub-nh";
+        writeShellScript = name: text: "/stub-${name}";
+        writeShellScriptBin = name: text: "/stub-${name}";
+      };
+
+      evalWith =
+        extraConfig:
+        (lib.evalModules {
+          modules = [
+            optionsModule
+            (import ../modules/nh.nix)
+            {
+              options.icedos.configurationLocation = lib.mkOption {
+                type = lib.types.str;
+                default = "/tmp";
+              };
+              options.programs.nh.enable = lib.mkOption {
+                type = lib.types.bool;
+                default = false;
+              };
+              options.programs.nh.clean.enable = lib.mkOption {
+                type = lib.types.bool;
+                default = false;
+              };
+              options.programs.nh.clean.extraArgs = lib.mkOption {
+                type = lib.types.str;
+                default = "";
+              };
+              options.programs.nh.clean.dates = lib.mkOption {
+                type = lib.types.str;
+                default = "";
+              };
+              options.systemd.services = lib.mkOption {
+                type = lib.types.attrsOf lib.types.attrs;
+                default = { };
+              };
+              config = {
+                _module.args = {
+                  pkgs = dummyPkgs;
+                  icedosLib = mockIcedosLib;
+                };
+                icedos.system.gc.automatic = true;
+              }
+              // extraConfig;
+            }
+          ];
+        }).config;
+
+      defaultEval = evalWith { };
+      hookEval = evalWith {
+        icedos.system.gc.hooks = {
+          rootPreGc = [ "echo pre" ];
+          rootPostGc = [ "echo post" ];
+        };
+      };
+
+      serviceOf = eval: eval.systemd.services.nh-clean.serviceConfig;
+      hasRootHook =
+        name: list:
+        lib.any (
+          entry: lib.strings.hasInfix "icedos-hook-${name}-0" entry && lib.strings.hasInfix "USER=root" entry
+        ) list;
+      gcScript =
+        eval: (lib.findFirst (c: c.command == "gc") null eval.icedos.system.toolset.commands).script;
+    in
+    expectOk (
+      defaultEval.icedos.system.gc.hooks.rootPreGc == [ ]
+      && defaultEval.icedos.system.gc.hooks.rootPostGc == [ ]
+      && !hasRootHook "rootPostGc" (serviceOf defaultEval).ExecStartPost
+      && hasRootHook "rootPreGc" (serviceOf hookEval).ExecStartPre
+      && hasRootHook "rootPostGc" (serviceOf hookEval).ExecStartPost
+      && lib.strings.hasInfix "icedos-hook-rootPreGc-0" (gcScript hookEval)
+      && lib.strings.hasInfix "icedos-hook-rootPostGc-0" (gcScript hookEval)
+      && !lib.strings.hasInfix "icedos-hook-root" (gcScript defaultEval)
+    );
 }

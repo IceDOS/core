@@ -36,7 +36,12 @@ let
     hooks
     interval
     ;
-  inherit (hooks) postGc preGc;
+  inherit (hooks)
+    postGc
+    preGc
+    rootPostGc
+    rootPreGc
+    ;
   inherit (config.icedos) users;
 
   days = "${toString gc.days}d";
@@ -301,12 +306,36 @@ let
       ) (hookPaths name scripts)
     ) normalUsers;
 
-  # `icedos gc` elevates once and runs every per-user hook in that root context.
-  # The trailing `exit 0` keeps `|| die` firing on elevation failure only.
-  gcHookRunBlock =
+  # Root hooks run once as root, from the same minimal env as the per-user ones.
+  rootEnv = concatStringsSep " " [
+    ''"HOME=/root"''
+    ''"USER=root"''
+    ''"LOGNAME=root"''
+    ''"PATH=/run/wrappers/bin:/run/current-system/sw/bin"''
+  ];
+
+  runHooksAsRoot =
+    name: scripts: map (h: "${coreutilsEnv} -i ${rootEnv} ${h}") (hookPaths name scripts);
+
+  runRootHooksWithTotals =
     name: scripts:
+    imap0 (
+      i: h:
+      let
+        file = "$_gc_tot/${name}-root-${toString i}";
+      in
+      concatStringsSep "\n" [
+        "${pkgs.coreutils}/bin/install -m 644 /dev/null \"${file}\" 2>/dev/null || true"
+        "${coreutilsEnv} -i ${rootEnv} \"ICEDOS_GC_TOTAL_FILE=${file}\" ${h}"
+      ]
+    ) (hookPaths name scripts);
+
+  # `icedos gc` elevates once and runs every per-user and root hook in that root
+  # context. The trailing `exit 0` keeps `|| die` firing on elevation failure only.
+  gcHookRunBlock =
+    hookRuns:
     let
-      runs = concatStringsSep "\n" (runHooksWithTotals name scripts);
+      runs = concatStringsSep "\n" hookRuns;
       script = escapeShellArg ("_gc_tot=\"$1\"\n" + runs + "\nexit 0");
     in
     if runs == "" then
@@ -317,7 +346,7 @@ let
           "${pkgs.bash}/bin/bash" -c ${script} _ "$_gc_tot"
         else
           /run/wrappers/bin/sudo "${pkgs.bash}/bin/bash" -c ${script} _ "$_gc_tot" \
-            || die "sudo failed; cannot run gc hooks per user"
+            || die "sudo failed; cannot run gc hooks"
         fi
       '';
 in
@@ -331,7 +360,7 @@ in
 
         if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
           echo "Usage: icedos gc [--dry|-n|--dry-run] [--days <N>] [--gens <N>]"
-          echo "Clean the nix store, home-manager profiles, temp build dirs, and .state/.cache snapshots."
+          echo "Clean the nix store, home-manager profiles, temp build dirs, and .state/.cache snapshots, then run gc hooks."
           echo
           echo "Options:"
           echo -e "  ${dimYellowString "--dry, -n, --dry-run"}: preview what would be deleted without actually cleaning"
@@ -372,7 +401,7 @@ in
         [ "$HAS_GENS" -eq 1 ] && CACHE_ARGS="$CACHE_ARGS --gens $GC_GENS"
 
         if [ -n "$DRY_RUN" ]; then
-          log_step "dry run — no changes will be made"
+          log_step "dry run, no changes will be made"
         fi
 
         # Every section writes the KiB it freed here; hooks run as other users, so
@@ -383,7 +412,9 @@ in
 
         if [ -z "$DRY_RUN" ]; then
           :
-          ${gcHookRunBlock "preGc" preGc}
+          ${gcHookRunBlock (
+            runHooksWithTotals "preGc" preGc ++ runRootHooksWithTotals "rootPreGc" rootPreGc
+          )}
         fi
 
         # Log nh's output to read the store-GC "freed" line; `script` keeps a pty so
@@ -412,16 +443,18 @@ in
           [ -f "$_summary_cache" ] && cat "$_summary_cache"
           unset ICEDOS_GC_TOTAL_FILE
           :
-          ${gcHookRunBlock "postGc" postGc}
+          ${gcHookRunBlock (
+            runHooksWithTotals "postGc" postGc ++ runRootHooksWithTotals "rootPostGc" rootPostGc
+          )}
           gc_print_total "$_gc_tot" "$(gc_parse_freed_kb "$_nh_log")"
         else
           ${cleanExtra} -n
           ${cacheCleanScript} $CACHE_ARGS -n
-          log_warn "dry run — nothing deleted; hooks skipped"
+          log_warn "dry run: nothing deleted, hooks skipped"
         fi
       '';
 
-      help = "clean nix store, home-manager profiles, temp build dirs, and .state/.cache snapshots (--dry/-n/--dry-run for no-op preview; --days/--gens for retention override)";
+      help = "clean nix store, home-manager profiles, temp build dirs, and .state/.cache snapshots, then run gc hooks (--dry/-n/--dry-run for no-op preview; --days/--gens for retention override)";
     }
   ];
 
@@ -437,12 +470,13 @@ in
 
   systemd.services = mkIf automatic {
     nh-clean.serviceConfig = {
-      ExecStartPre = runHooksAsUsers "preGc" preGc;
+      ExecStartPre = runHooksAsUsers "preGc" preGc ++ runHooksAsRoot "rootPreGc" rootPreGc;
       ExecStartPost = [
         "-${cleanExtra}"
         "-${cacheCleanScript}"
       ]
-      ++ runHooksAsUsers "postGc" postGc;
+      ++ runHooksAsUsers "postGc" postGc
+      ++ runHooksAsRoot "rootPostGc" rootPostGc;
     };
   };
 
