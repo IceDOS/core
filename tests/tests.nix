@@ -3782,4 +3782,36 @@ in
       && !lib.strings.hasInfix "_icedos_max" sample
       && !lib.strings.hasInfix "vislen" sample
     );
+
+  gcLibPublicFunctions =
+    let
+      gcSh = (import ../lib/bash.nix { inherit lib; }).bash.gcLib;
+      funcs = [
+        "gc_section"
+        "gc_ok"
+        "gc_del"
+        "gc_skip"
+        "gc_del_entry"
+        "gc_freed_kb"
+        "gc_commit"
+        "gc_human_kb"
+      ];
+    in
+    expectOk (lib.all (fn: lib.strings.hasInfix "${fn}()" gcSh) funcs);
+
+  gcHookPathsContainsGcLib =
+    let
+      nhSource = builtins.readFile ../modules/nh.nix;
+      gcLib = (import ../lib/bash.nix { inherit lib; }).bash.gcLib;
+      mockHookPaths =
+        name: scripts:
+        lib.imap0 (i: s: "mock-script-${name}-${toString i}: ${prelude}\n${gcLib}\n${s}") scripts;
+      prelude = (import ../lib/bash.nix { inherit lib; }).bash.prelude;
+      rendered = builtins.head (mockHookPaths "test" [ "echo my-hook" ]);
+    in
+    expectOk (
+      lib.strings.hasInfix "hookPaths =" nhSource
+      && lib.strings.hasInfix ''"''${prelude}\n''${gcLib}\n''${s}"'' nhSource
+      && lib.strings.hasInfix gcLib rendered
+    );
 }

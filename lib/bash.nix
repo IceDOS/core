@@ -25,6 +25,7 @@ in
   # toolset.nix) and standalone .sh files that source lib/prelude.sh.
   bash = {
     prelude = builtins.readFile ./prelude.sh;
+    gcLib = builtins.readFile ./gc.sh;
 
     # PATH for systemd user services that shell out to host binaries and the
     # per-user profile; `~/.nix-profile/bin` is a harmless legacy fallback.

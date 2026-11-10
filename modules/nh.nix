@@ -9,10 +9,8 @@
 let
   inherit (icedosLib.bash)
     configSet
-    dimBlueString
-    dimGreenString
-    dimRedString
     dimYellowString
+    gcLib
     genHelpFlags
     prelude
     ;
@@ -29,7 +27,6 @@ let
 
   inherit (pkgs) writeShellScript writeShellScriptBin;
 
-  bc = "${pkgs.bc}/bin/bc";
   flock = "${pkgs.util-linux}/bin/flock";
 
   inherit (config.icedos.system) gc;
@@ -51,25 +48,23 @@ let
     in
     "${writeShellScriptBin command ''
       ${prelude}
-
-      _phase="both"
-      _summary_file=""
-      DRY=""
+      ${gcLib}
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          --preview|-p) _phase=preview; shift ;;
-          --remove|-r)  _phase=remove; shift ;;
-          --summary-file) [ $# -ge 2 ] || die "--summary-file value required"; _summary_file="$2"; shift 2 ;;
-          -n|--dry-run) DRY="-n"; shift ;;
+          --preview|-p) export ICEDOS_GC_PHASE=preview; shift ;;
+          --remove|-r)  export ICEDOS_GC_PHASE=remove; shift ;;
+          --summary-file) [ $# -ge 2 ] || die "--summary-file value required"; export ICEDOS_GC_SUMMARY_FILE="$2"; shift 2 ;;
+          -n|--dry-run) export ICEDOS_GC_DRY=1; shift ;;
           *) die "nh-clean-extra: unknown arg: $1" ;;
         esac
       done
 
+      # Newest first, like nh's generation lists.
       declare -a tempBuildDirs=()
-      while IFS= read -r -d $'\0' dir; do
-        tempBuildDirs+=("$dir")
-      done < <(find /tmp -type d -name 'icedos-build*' -print0 2>/dev/null)
+      while IFS= read -r -d $'\0' entry; do
+        tempBuildDirs+=("''${entry#* }")
+      done < <(find /tmp -type d -name 'icedos-build*' -printf '%T@ %p\0' 2>/dev/null | sort -z -rn)
 
       # A live build holds a flock on `.lock` (released on exit/crash), so only
       # live dirs are skipped; unreadable ones are another user's.
@@ -83,50 +78,15 @@ let
         fi
       done
 
-      totalSize=0
-      buildPathsCount=0
+      gc_section "/tmp/icedos-build*" "build path"
 
       for dir in "''${buildDirs[@]}"; do
-        sizeKb=$(du -sk "$dir" | cut -f1)
-        sizeMb=$(echo "scale=2; $sizeKb / 1024" | ${bc})
-        totalSize=$(echo "scale=2; $totalSize + $sizeMb" | ${bc})
-        buildPathsCount=$(( buildPathsCount + 1 ))
+        gc_del "$dir"
       done
-
-      formattedTotal=$(printf "%.2f" "$totalSize")
-      _summary_line="''$buildPathsCount build path''$([ $buildPathsCount != 1 ] && echo s) deleted, ''${formattedTotal} MiB freed"
-
-      if [ "$_phase" != remove ] && ( [ "$buildPathsCount" -gt 0 ] || [ "''${#inFlightDirs[@]}" -gt 0 ] ); then
-        echo -e "${dimBlueString "/tmp/icedos-build*"}"
-        for dir in "''${buildDirs[@]}"; do
-          if [ -n "$DRY" ]; then
-            echo -e "- ${dimRedString "would DEL"} $dir"
-          else
-            echo -e "- ${dimRedString "DEL"} $dir"
-          fi
-        done
-        for dir in "''${inFlightDirs[@]}"; do
-          echo -e "- ${dimYellowString "skip"} $dir (build in flight or not ours)"
-        done
-        echo
-      fi
-
-      if [ "$_phase" != preview ] && [ "$buildPathsCount" -gt 0 ]; then
-        for dir in "''${buildDirs[@]}"; do
-          if [ -z "$DRY" ]; then
-            echo -e "${dimGreenString ">"} Removing $dir"
-            rm -r "$dir"
-          fi
-        done
-        if [ -n "$DRY" ]; then
-          _summary_line="''$buildPathsCount build path''$([ $buildPathsCount != 1 ] && echo s) would be deleted, ''${formattedTotal} MiB would be freed"
-        fi
-        if [ -n "$_summary_file" ]; then
-          echo "$_summary_line" > "$_summary_file"
-        else
-          echo "$_summary_line"
-        fi
-      fi
+      for dir in "''${inFlightDirs[@]}"; do
+        gc_skip "$dir" "build in flight or not ours"
+      done
+      exit 0
     ''}/bin/${command}";
 
   cacheCleanScript =
@@ -135,21 +95,19 @@ let
     in
     "${writeShellScriptBin command ''
       ${prelude}
+      ${gcLib}
 
       GC_DAYS=${toString cache.days}
       GC_GENS=${toString cache.generations}
-      DRY=""
-      _phase="both"
-      _summary_file=""
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --days|-d) [ $# -ge 2 ] || die "cacheClean: --days value required"; GC_DAYS="$2"; shift 2 ;;
           --gens|-g) [ $# -ge 2 ] || die "cacheClean: --gens value required"; GC_GENS="$2"; shift 2 ;;
-          --preview|-p) _phase=preview; shift ;;
-          --remove|-r)  _phase=remove; shift ;;
-          --summary-file) [ $# -ge 2 ] || die "cacheClean: --summary-file value required"; _summary_file="$2"; shift 2 ;;
-          -n|--dry-run) DRY="-n"; shift ;;
+          --preview|-p) export ICEDOS_GC_PHASE=preview; shift ;;
+          --remove|-r)  export ICEDOS_GC_PHASE=remove; shift ;;
+          --summary-file) [ $# -ge 2 ] || die "cacheClean: --summary-file value required"; export ICEDOS_GC_SUMMARY_FILE="$2"; shift 2 ;;
+          -n|--dry-run) export ICEDOS_GC_DRY=1; shift ;;
           *) die "cacheClean: unknown arg: $1" ;;
         esac
       done
@@ -257,64 +215,43 @@ let
         DELETE=("''${FINAL_DELETE[@]}")
       fi
 
-      if [ "$_phase" != remove ] && [ ''${#SNAPSHOTS[@]} -gt 0 ]; then
-        echo -e "${dimBlueString ".state/.cache snapshots"}"
-        [ "$GC_GENS" -gt 0 ] && echo -e "Keeping ''${DIM_GREEN}$GC_GENS''${NC} snapshot generation(s)"
-        [ "$GC_DAYS" -gt 0 ] && echo -e "Keeping snapshots newer than ''${DIM_GREEN}$GC_DAYS''${NC}d"
-        if [ "$GC_GENS" -gt 0 ] || [ "$GC_DAYS" -gt 0 ]; then echo; fi
-        for sd in "''${KEEP[@]}"; do
-          echo -e "- ${dimGreenString "OK"} $CACHE_DIR/$sd"
+      # Snapshot names carry differing UTC offsets, so sort by epoch, newest first.
+      sortByTsDesc() {
+        local -n _arr=$1
+        local sd ts
+        local -a lines=()
+        for sd in "''${_arr[@]}"; do
+          ts=$(date -d "$sd" +%s 2>/dev/null) || ts=0
+          lines+=("$ts|$sd")
         done
-        for sd in "''${DELETE[@]}"; do
-          if [ -n "$DRY" ]; then
-            echo -e "- ${dimRedString "would DEL"} $CACHE_DIR/$sd"
-          else
-            echo -e "- ${dimRedString "DEL"} $CACHE_DIR/$sd"
-          fi
-        done
-        echo
-      fi
+        _arr=()
+        while IFS= read -r line; do
+          [ -n "$line" ] && _arr+=("''${line#*|}")
+        done < <(printf '%s\n' "''${lines[@]}" | sort -t'|' -k1,1nr)
+      }
+      sortByTsDesc KEEP
+      sortByTsDesc DELETE
 
-      if [ "$_phase" != preview ] && [ ''${#DELETE[@]} -gt 0 ]; then
-        if [ -n "$DRY" ]; then
-          total_kb=0
-          for sd in "''${DELETE[@]}"; do
-            skb=$(du -sk "$sd" 2>/dev/null | cut -f1)
-            total_kb=$(( total_kb + ''${skb:-0} ))
-          done
-          total_mib=$(echo "scale=2; $total_kb / 1024" | ${bc})
-          total_mib=$(printf "%.2f" "$total_mib")
-          _summary_line="''${#DELETE[@]} snapshot path''$([ ''${#DELETE[@]} != 1 ] && echo s) would be deleted, ''${total_mib} MiB would be freed"
-        else
-          freed=0
-          deleted=0
-          for sd in "''${DELETE[@]}"; do
-            echo -e "${dimGreenString ">"} Removing $CACHE_DIR/$sd"
-            skb=$(du -sk "$sd" 2>/dev/null | cut -f1) || skb=0
-            if rm -rf "$sd" 2>/dev/null; then
-              deleted=$(( deleted + 1 ))
-              freed=$(( freed + ''${skb:-0} ))
-            else
-              log_warn "failed to remove $sd"
-            fi
-          done
-          freed_mib=$(echo "scale=2; $freed / 1024" | ${bc})
-          freed_mib=$(printf "%.2f" "$freed_mib")
-          _summary_line="$deleted snapshot path''$([ $deleted != 1 ] && echo s) deleted, ''${freed_mib} MiB freed"
-        fi
-        if [ -n "$_summary_file" ]; then
-          echo "$_summary_line" > "$_summary_file"
-        else
-          echo "$_summary_line"
-        fi
-      fi
+      gc_section "$CACHE_DIR" "snapshot path"
+      [ "$GC_GENS" -gt 0 ] && gc_note "Keeping ''${DIM_GREEN}$GC_GENS''${NC} snapshot generation(s)"
+      [ "$GC_DAYS" -gt 0 ] && gc_note "Keeping snapshots newer than ''${DIM_GREEN}$GC_DAYS''${NC}d"
+
+      for sd in "''${KEEP[@]}"; do
+        gc_ok "$CACHE_DIR/$sd"
+      done
+      for sd in "''${DELETE[@]}"; do
+        gc_del "$CACHE_DIR/$sd"
+      done
+      exit 0
     ''}/bin/${command}";
 
   # One script per hook, so each runs in a fresh shell (isolated env/traps/exit)
-  # with the prelude available.
+  # with the prelude and gcLib available.
   hookPaths =
     name: scripts:
-    imap0 (i: s: writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${s}") scripts;
+    imap0 (
+      i: s: writeShellScript "icedos-hook-${name}-${toString i}" "${prelude}\n${gcLib}\n${s}"
+    ) scripts;
 
   # Hooks run once per normal user AS that user (never root by default); the
   # shared system steps stay root.
@@ -346,23 +283,41 @@ let
       map (h: "${runuser} -u \"${u}\" -- ${coreutilsEnv} -i ${loginEnv u} ${h}") (hookPaths name scripts)
     ) normalUsers;
 
+  # Same runs for `icedos gc`, but each hook gets its own user-owned file in the
+  # totals dir ($1) where gc.sh records the KiB it freed.
+  runHooksWithTotals =
+    name: scripts:
+    concatMap (
+      u:
+      imap0 (
+        i: h:
+        let
+          file = ''"$_gc_tot/${name}-${u}-${toString i}"'';
+        in
+        concatStringsSep "\n" [
+          "${pkgs.coreutils}/bin/install -m 644 -o \"${u}\" /dev/null ${file} 2>/dev/null || true"
+          "${runuser} -u \"${u}\" -- ${coreutilsEnv} -i ${loginEnv u} \"ICEDOS_GC_TOTAL_FILE=$_gc_tot/${name}-${u}-${toString i}\" ${h}"
+        ]
+      ) (hookPaths name scripts)
+    ) normalUsers;
+
   # `icedos gc` elevates once and runs every per-user hook in that root context.
   # The trailing `exit 0` keeps `|| die` firing on elevation failure only.
   gcHookRunBlock =
     name: scripts:
     let
-      runs = concatStringsSep "\n" (runHooksAsUsers name scripts);
+      runs = concatStringsSep "\n" (runHooksWithTotals name scripts);
+      script = escapeShellArg ("_gc_tot=\"$1\"\n" + runs + "\nexit 0");
     in
     if runs == "" then
       ""
     else
       ''
         if [ "$("${pkgs.coreutils}/bin/id" -u)" -eq 0 ]; then
-          ${runs}
+          "${pkgs.bash}/bin/bash" -c ${script} _ "$_gc_tot"
         else
-          /run/wrappers/bin/sudo "${pkgs.bash}/bin/bash" -c ${
-            escapeShellArg (runs + "\nexit 0")
-          } || die "sudo failed; cannot run gc hooks per user"
+          /run/wrappers/bin/sudo "${pkgs.bash}/bin/bash" -c ${script} _ "$_gc_tot" \
+            || die "sudo failed; cannot run gc hooks per user"
         fi
       '';
 in
@@ -372,6 +327,8 @@ in
       command = "gc";
 
       script = ''
+        ${gcLib}
+
         if [[ ${genHelpFlags { excludeNoArgs = true; }} ]]; then
           echo "Usage: icedos gc [--dry|-n|--dry-run] [--days <N>] [--gens <N>]"
           echo "Clean the nix store, home-manager profiles, temp build dirs, and .state/.cache snapshots."
@@ -418,27 +375,45 @@ in
           log_step "dry run — no changes will be made"
         fi
 
+        # Every section writes the KiB it freed here; hooks run as other users, so
+        # the dir is traversable (711) and each hook gets its own pre-owned file.
+        _gc_tot=$(mktemp -d) || die "mktemp failed"
+        chmod 711 "$_gc_tot"
+        trap "rm -rf '$_gc_tot'; command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip" EXIT
+
         if [ -z "$DRY_RUN" ]; then
           :
           ${gcHookRunBlock "preGc" preGc}
         fi
 
-        "${pkgs.nh}/bin/nh" clean all -k "$GC_GENS" -K "''${GC_DAYS}d" $DRY_RUN \
-          || die "nh clean failed"
+        # Log nh's output to read the store-GC "freed" line; `script` keeps a pty so
+        # colours and nh's sudo prompt still work (it logs output only, not keystrokes).
+        _nh_log="$_gc_tot/nh.log"
+        : > "$_nh_log" && chmod 600 "$_nh_log"
+        _nh_cmd=("${pkgs.nh}/bin/nh" clean all -k "$GC_GENS" -K "''${GC_DAYS}d" $DRY_RUN)
+        if [ -t 1 ]; then
+          SHELL="${pkgs.bash}/bin/bash" "${pkgs.util-linux}/bin/script" -qefc "$(printf '%q ' "''${_nh_cmd[@]}")" "$_nh_log" \
+            || die "nh clean failed"
+        else
+          "''${_nh_cmd[@]}" 2>&1 | "${pkgs.coreutils}/bin/tee" "$_nh_log"
+          [ "''${PIPESTATUS[0]}" -eq 0 ] || die "nh clean failed"
+        fi
 
-        echo
         if [ -z "$DRY_RUN" ]; then
+          : > "$_gc_tot/core"
+          export ICEDOS_GC_TOTAL_FILE="$_gc_tot/core"
           ${cleanExtra} --preview
           ${cacheCleanScript} $CACHE_ARGS --preview
-          _summary_clean=$(mktemp) || die "mktemp failed"
-          _summary_cache=$(mktemp) || die "mktemp failed"
-          trap "rm -f '$_summary_clean' '$_summary_cache'; command -v _icedos_tip >/dev/null 2>&1 && _icedos_tip" EXIT
+          _summary_clean="$_gc_tot/summary-clean.log"
+          _summary_cache="$_gc_tot/summary-cache.log"
           ${cleanExtra} --remove --summary-file "$_summary_clean"
           ${cacheCleanScript} $CACHE_ARGS --remove --summary-file "$_summary_cache"
-          cat "$_summary_clean"
-          cat "$_summary_cache"
+          [ -f "$_summary_clean" ] && cat "$_summary_clean"
+          [ -f "$_summary_cache" ] && cat "$_summary_cache"
+          unset ICEDOS_GC_TOTAL_FILE
           :
           ${gcHookRunBlock "postGc" postGc}
+          gc_print_total "$_gc_tot" "$(gc_parse_freed_kb "$_nh_log")"
         else
           ${cleanExtra} -n
           ${cacheCleanScript} $CACHE_ARGS -n

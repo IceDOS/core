@@ -394,15 +394,21 @@ postUpdate  = [ "flatpak update" ]          # runs with --update, after build
 # preRebuild = [ { script = "./check.sh", required = true } ]
 
 [icedos.system.gc.hooks]
-preGc  = [ "echo 'before gc'" ]
-postGc = [ "echo 'after gc'" ]
+postGc = [
+  """
+  gc_section "$HOME/.cache/my-app" "cache file"
+  for f in "$HOME"/.cache/my-app/*.tmp; do
+    [ -e "$f" ] && gc_del "$f"
+  done
+  """
+]
 ```
 
-`preUpdate`/`postUpdate` only fire when `--update` is passed. You can also run them on their own — without a system rebuild — via `icedos rebuild --update-hooks` (handy for refreshing non-Nix things like `flatpak update`).
+`preUpdate`/`postUpdate` only fire when `--update` is passed. You can also run them on their own, without a system rebuild, via `icedos rebuild --update-hooks` (handy for refreshing non-Nix things like `flatpak update`).
 
 Rebuild hooks run in your config's `.state` directory with your shell's `PATH`. They can read `ICEDOS_CONFIG_ROOT` and `ICEDOS_STATE_DIR`, and `postUpdate`/`postRebuild` also get `ICEDOS_BUILD_DIR`. Your GitHub token is never passed to a hook. A hook that fails prints a warning and the rebuild carries on. Write it as `{ script = "...", required = true }` to stop the rebuild with the hook's exit code instead, so later hooks and build steps don't run. Ctrl-C stops the rebuild. With `--update`, `--update-core` or `--update-core-only`, the rebuild updates the core first and restarts on it, so the updated core runs your hooks.
 
-Hooks don't run as root by default. Rebuild hooks always run as the invoking user. Gc hooks run once per normal user, as that user — identically from `icedos gc` and from the automatic `nh-clean.service` timer (the command elevates once with `sudo` and runs all per-user invocations inside that single root context). A hook may still escalate itself with `sudo` where its user has permission. Write identity-independent gc hooks (e.g. sweeping `~/.cache`) rather than assuming a specific `$USER`/`$HOME`.
+Hooks don't run as root by default. Rebuild hooks always run as the invoking user. Gc hooks run once per normal user, as that user, identically from `icedos gc` and from the automatic `nh-clean.service` timer (the command elevates once with `sudo` and runs all per-user invocations inside that single root context). Gc hooks receive `gc.sh` functions (`gc_section`, `gc_del`, `gc_ok`, `gc_skip`) automatically and must not format gc output lines by hand. A hook may still escalate itself with `sudo` where its user has permission. Write identity-independent gc hooks (e.g. sweeping `~/.cache`) rather than assuming a specific `$USER`/`$HOME`.
 
 ### Patches (without forking)
 

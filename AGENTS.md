@@ -724,17 +724,45 @@ stray keystrokes in a later `read`.
 and `icedos.system.gc.hooks.{preGc,postGc}` are lists of shell snippets. A rebuild
 hook entry may also be `{ script = "..."; required = true; }`; a plain string means
 `required = false`. Each
-snippet is compiled to its **own** `pkgs.writeShellScript` with `bash.prelude` prepended
-(`modules/rebuild.nix`, `modules/nh.nix`), so it runs in a fresh shell with the same
-helpers a command gets (`log_*`, `die`, `is_help_flag`, colour vars, `CLR_LINE`;
-colours and `CLR_LINE` auto-strip when stdout isn't a TTY). A hook runs in its own
-shell, so it never owns the tips bar — it inherits `ICEDOS_TIP_ACTIVE` from the
-rebuild that spawned it and must not pin one of its own.
+snippet is compiled to its **own** `pkgs.writeShellScript` (`modules/rebuild.nix`, `modules/nh.nix`).
+Rebuild hooks get `bash.prelude` prepended. Gc hooks get `bash.prelude` and `bash.gcLib` (`lib/gc.sh`),
+so they run with the same logging helpers (`log_*`, `die`, `is_help_flag`, colour vars, `CLR_LINE`)
+plus gc output formatting functions matching the `nh clean all` style. Colours and `CLR_LINE`
+auto-strip when stdout is not a TTY. A hook runs in its own
+shell, so it never owns the tips bar, inheriting `ICEDOS_TIP_ACTIVE` from the
+rebuild that spawned it without pinning its own.
 
 Rebuild hooks are started by the Python orchestrator in `build/hooks.py`, which reads
 their store paths from the rebuild context. Gc hooks are started by `modules/nh.nix`.
 
-### Execution identity — hooks don't run as root by default
+### Gc hooks and gc.sh
+
+Gc hooks receive `prelude.sh` and `lib/gc.sh` (`icedosLib.bash.gcLib`) automatically. Hooks must never format or print gc output lines by hand. All gc output must go through the shared functions in `gc.sh` so every part of `icedos gc` matches the `nh clean all` format.
+
+| Function | Behaviour |
+|---|---|
+| `gc_section HEADER [NOUN]` | Starts a section. Commits any open section first. `NOUN` (default `path`) is used in the summary. |
+| `gc_ok PATH` | Records a kept item, printed as `- OK  PATH`. |
+| `gc_del PATH` | Queues a path for removal, printed as `- DEL PATH`. Size measured with `du -sk` at commit. Skips paths that do not exist. |
+| `gc_skip PATH REASON` | Prints `- SKIP PATH (REASON)` with yellow `SKIP`. |
+| `gc_del_entry LABEL` | Records a non-path item the hook deletes itself (such as SQLite rows). Printed as `- DEL LABEL`. The hook performs the deletion and reports freed bytes with `gc_freed_kb`. |
+| `gc_freed_kb N` | Adds N KiB to the section's freed total. |
+| `gc_commit` | Renders the open section: blank line, header, OK/SKIP/DEL lines, blank line, then `> Removing PATH` and `rm -rf --` per queued path, followed by the summary line. Every block opens with a blank line and none ends with one (nh's convention), so output from separate hook processes never runs together. Prints nothing when the section has no OK/DEL/SKIP lines. Idempotent. When `ICEDOS_GC_TOTAL_FILE` names a writable file, appends the KiB the section freed to it. |
+| `gc_human_kb N` | Formats KiB into IEC units: `25.0 GiB`, `312.4 MiB`, `12.0 KiB`. |
+| `gc_parse_freed_kb FILE` | KiB from the last `... 23.8 GiB freed` line in FILE (nix store gc output), else `0`. |
+| `gc_print_total DIR [KIB]` | Prints `Total: X freed`: KIB plus every number in the non-`.log` files under DIR. |
+
+`icedos gc` ends with one grand total line covering nh's store GC, the core sections and every hook.
+It creates a temp totals dir (mode 711), logs nh's output there through `script` (a pty keeps
+colours and nh's sudo prompt; only output is logged, never keystrokes) and parses the freed line.
+Before each per-user hook it pre-creates a file owned by that user and passes it as
+`ICEDOS_GC_TOTAL_FILE` through `env -i`. `--dry` prints no total, and the `nh-clean.service`
+timer path does not collect totals. `gc.sh` must stay builtins-plus-coreutils only: the timer's
+PATH has no awk or bc.
+
+`gc.sh` installs `trap gc_commit EXIT`, so open sections commit automatically when a hook exits. If a hook needs multiple sections or its own EXIT trap, call `gc_commit` explicitly.
+
+### Execution identity: hooks do not run as root by default
 
 | Hook | Invoked by | Runs as |
 |---|---|---|
