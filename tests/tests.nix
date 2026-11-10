@@ -540,6 +540,7 @@ let
 
   efMapperPkgs = {
     btop = "drv-btop";
+    kdePackages.kate = "drv-kate";
     stdenv.hostPlatform.system = "x86_64-linux";
   };
 
@@ -2629,6 +2630,12 @@ in
   efMapperRegular = expectEq [ "drv-btop" ] (
     efMapperIcedos.pkgs.mapper efMapperPkgs [
       "btop"
+    ]
+  );
+
+  efMapperRegularDotted = expectEq [ "drv-kate" ] (
+    efMapperIcedos.pkgs.mapper efMapperPkgs [
+      "kdePackages.kate"
     ]
   );
 
