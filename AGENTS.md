@@ -342,6 +342,8 @@ no `meta.name`) — they declare `options`/`config` straight up and are loaded b
   repeat. Blank lines around multiline `let` bindings.
 - **Format with `icedos nixf .`** (a core toolset command, `modules/toolset.nix`) after
   editing any `.nix`.
+- **User state:** persistent state written in a user's home goes under
+  `${XDG_STATE_HOME:-~/.local/state}/icedos/<name>/`, never directly under `~/.local/state/<name>`.
 
 ### Per-user (`users`) options
 
