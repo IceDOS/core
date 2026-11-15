@@ -58,6 +58,11 @@ let
         attrPath = drop 2 parts;
         attrString = concatStringsSep "." attrPath;
         flake = inputs.${flakeName} or { };
+        hasSystem = (flake ? packages.${system}) || (flake ? legacyPackages.${system});
+        archGuard = seq inputGuard (
+          abortIf (!hasSystem)
+            "icedos.system.extra-flakes: requested architecture '${system}' is missing from flake input '${flakeName}'"
+        );
         packages = flake.packages.${system} or { };
         legacyPackages = flake.legacyPackages.${system} or { };
         hasPackages = hasAttrByPath attrPath packages;
@@ -66,11 +71,12 @@ let
         legacyCandidate = if hasLegacy then getAttrFromPath attrPath legacyPackages else null;
         useLegacy =
           (!isDerivation pkgCandidate && isDerivation legacyCandidate) || (!hasPackages && hasLegacy);
-        notFoundGuard =
+        notFoundGuard = seq archGuard (
           abortIf (!hasPackages && !hasLegacy)
-            "icedos.system.extra-flakes: output 'packages.${system}.${attrString}' or 'legacyPackages.${system}.${attrString}' on flake input '${flakeName}' not found";
+            "icedos.system.extra-flakes: output 'packages.${system}.${attrString}' or 'legacyPackages.${system}.${attrString}' on flake input '${flakeName}' not found"
+        );
         outputPath = "${if useLegacy then "legacyPackages" else "packages"}.${system}.${attrString}";
-        selected = seq inputGuard (seq notFoundGuard (if useLegacy then legacyCandidate else pkgCandidate));
+        selected = seq notFoundGuard (if useLegacy then legacyCandidate else pkgCandidate);
         drvGuard =
           abortIf (!isDerivation selected)
             "icedos.system.extra-flakes: output '${outputPath}' on flake input '${flakeName}' is not a package";

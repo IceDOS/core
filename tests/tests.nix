@@ -2701,11 +2701,11 @@ in
     ) true
   );
 
-  efMapperMissingSystem = expectThrow (
-    builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
+  efMapperMissingSystem = expectThrowMatch (builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs
+    [
       "icedosExtraFlakes.armOnly.app"
-    ]) true
-  );
+    ]
+  ) true) "requested architecture 'x86_64-linux' is missing from flake input 'armOnly'";
 
   efMapperMissingPackage = expectThrow (
     builtins.deepSeq (efMapperIcedos.pkgs.mapper efMapperPkgs [
