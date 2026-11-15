@@ -4170,4 +4170,65 @@ in
       && lib.strings.hasInfix "icedos-hook-rootPostGc-0" (gcScript hookEval)
       && !lib.strings.hasInfix "icedos-hook-root" (gcScript defaultEval)
     );
+  usersOptionValidUser =
+    let
+      mockIcedosLib = import ../lib/options/helpers.nix {
+        inherit lib;
+        config = {
+          users = {
+            valid = { };
+          };
+        };
+        icedosLib = {
+          abortIf = icedosLib.abortIf;
+          validate = validate;
+        };
+      };
+      eval =
+        (lib.evalModules {
+          modules = [
+            {
+              options.icedos.test = mockIcedosLib.mkUsersOption {
+                enable = lib.mkOption {
+                  type = lib.types.bool;
+                  default = false;
+                };
+              };
+              config.icedos.test.valid.enable = true;
+            }
+          ];
+        }).config;
+    in
+    expectOk (eval.icedos.test.valid.enable == true);
+
+  usersOptionInvalidUser =
+    let
+      mockIcedosLib = import ../lib/options/helpers.nix {
+        inherit lib;
+        config = {
+          users = {
+            valid = { };
+          };
+        };
+        icedosLib = {
+          abortIf = icedosLib.abortIf;
+          validate = validate;
+        };
+      };
+      eval =
+        (lib.evalModules {
+          modules = [
+            {
+              options.icedos.test = mockIcedosLib.mkUsersOption {
+                enable = lib.mkOption {
+                  type = lib.types.bool;
+                  default = false;
+                };
+              };
+              config.icedos.test.invalid.enable = true;
+            }
+          ];
+        }).config;
+    in
+    expectThrowMatch eval.icedos.test "user(s) invalid not defined in icedos.users";
 }
