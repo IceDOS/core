@@ -22,6 +22,7 @@ let
     mkSubmoduleAttrsOption
     mkSubmoduleListOption
     mkSubmoduleOption
+    mkUsersOption
     ;
 
   toolsetCommandType = types.submodule {
@@ -261,7 +262,7 @@ in
         forceFirstBuild = mkBoolOption { default = false; };
         generations = mkNumberOption { default = 10; };
 
-        git.users = mkSubmoduleAttrsOption { default = { }; } {
+        git.users = mkUsersOption {
           username = mkStrOption { default = ""; };
           email = mkStrOption { default = ""; };
         };

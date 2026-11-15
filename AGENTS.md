@@ -348,9 +348,10 @@ no `meta.name`) — they declare `options`/`config` straight up and are loaded b
 ### Per-user (`users`) options
 
 A per-user option is an `attrsOf submodule` keyed by username —
-`mkUsersOption {...}` (≡ `mkSubmoduleAttrsOption { default = {}; } {...}`). Its default
-is `{}`, so **it populates no user by itself**: field defaults only materialise for a
-user once that user's key exists in the attrset.
+`mkUsersOption {...}` (`mkSubmoduleAttrsOption { default = {}; }` with validation
+rejecting keys that aren't in `icedos.users`). Its default is `{}`, so **it populates
+no user by itself**: field defaults only materialise for a user once that user's key
+exists in the attrset.
 
 **Rule 1 — always materialise with `genDefaults`.** The always-loaded module that owns
 the path must fill every normal user, in its `outputs.nixosModules` config:
