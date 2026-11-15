@@ -969,9 +969,7 @@ let
       flakeName: path: inputs:
       let
         segments = lib.splitString "." path;
-        input = seq (icedosLib.abortIf (!(inputs ? ${flakeName}))
-          "icedos.system.extra-flakes: input '${flakeName}' is not present in the flake inputs (registered as a top-level input via `name`)"
-        ) inputs.${flakeName};
+        input = seq (icedosLib._guardExtraFlakeInput flakeName inputs) inputs.${flakeName};
         walk =
           node: seg:
           seq (icedosLib.abortIf (!(node ? ${seg}))
