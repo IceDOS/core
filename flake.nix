@@ -93,6 +93,9 @@
             shellHook = ''
               source ${self}/lib/prelude.sh
 
+              # Non-NixOS hosts lack these, so `nix run path:.` would fail; extra- appends to user config.
+              export NIX_CONFIG="''${NIX_CONFIG:+$NIX_CONFIG$'\n'}extra-experimental-features = flakes nix-command pipe-operators"
+
               icedos() {
                 if [ "$1" != "rebuild" ]; then
                   echo "Available commands:"
