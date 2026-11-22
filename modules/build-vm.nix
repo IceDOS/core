@@ -5,6 +5,7 @@ let
     elemAt
     imap0
     listToAttrs
+    mkIf
     optionals
     splitString
     toInt
@@ -18,7 +19,7 @@ in
   virtualisation.vmVariant.virtualisation = {
     memorySize = build-vm.memory;
     cores = build-vm.cores;
-    diskSize = build-vm.diskSize;
+    diskSize = mkIf (build-vm.diskSize != 0) build-vm.diskSize;
 
     resolution = {
       x = toInt (elemAt resParts 0);

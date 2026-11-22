@@ -362,7 +362,7 @@ See [How do I set a password?](#how-do-i-set-a-password) for the security caveat
 | --- | --- | --- |
 | `memory` | `1024` | VM RAM, in MiB. |
 | `cores` | `1` | VM CPU cores. |
-| `diskSize` | `"auto"` | VM disk size in MiB, or `"auto"`. |
+| `diskSize` | `0` | VM disk size in MiB; 0 keeps the NixOS default. |
 | `resolution` | `"1920x1080"` | VM display resolution, `<width>x<height>`. |
 | `ssh.enable` | `false` | forward a host port to the VM's SSH. |
 | `ssh.hostPort` | `2222` | host-side port for the SSH forward. |

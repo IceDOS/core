@@ -190,7 +190,7 @@ in
         build-vm = {
           memory = mkNumberOption { default = 1024; };
           cores = mkNumberOption { default = 1; };
-          diskSize = with types; mkEitherOption { default = "auto"; } str number;
+          diskSize = mkNumberOption { default = 0; };
 
           shared-directories = mkSubmoduleListOption { default = [ ]; } {
             source = mkStrOption { };
