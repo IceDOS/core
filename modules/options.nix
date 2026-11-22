@@ -229,6 +229,11 @@ in
           pinInputs = mkBoolOption { default = false; };
 
           priority = mkNumberOption { default = 100; };
+
+          pending = mkBoolOption {
+            readOnly = true;
+            description = "Whether the IceDOS binary cache is enabled but not yet registered in /etc/icedos/substituters.";
+          };
         };
 
         channels = mkSubmoduleListOption { default = [ ]; } {

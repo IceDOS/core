@@ -266,6 +266,8 @@ For example, the IceDOS binary cache is **opt-in** — turn it on to download pr
 enable = true
 ```
 
+On a fresh install, `icedos.system.cache.pending` is `true` during the initial rebuild until `/etc/icedos/substituters` is registered; run `icedos rebuild` a second time to download heavy packages from the cache.
+
 ### Channels & overlays
 
 Register an extra [channel](#-nix-terms-in-plain-english) (another version of the package set) with `[[icedos.system.channels]]`. Its packages become reachable as `<channel>.<package>`:

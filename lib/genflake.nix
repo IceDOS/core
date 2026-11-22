@@ -293,6 +293,7 @@ let
       })
       # No default (readOnly), so `toJSON evaluated` would throw without this.
       { icedos.system.isFirstBuild = isFirstBuild; }
+      { icedos.system.cache.pending = false; }
 
       # Computed from the RAW config, so injecting it here cannot recurse.
       {
