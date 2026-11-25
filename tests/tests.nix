@@ -604,6 +604,32 @@ let
     enableLogging = false;
     self = "tests";
   };
+  evalUsersOption =
+    username:
+    let
+      mockIcedosLib = import ../lib/options/helpers.nix {
+        inherit lib;
+        config.users.valid = { };
+        icedosLib = {
+          inherit (icedosLib) abortIf;
+          inherit validate;
+        };
+      };
+    in
+    (lib.evalModules {
+      modules = [
+        {
+          options.icedos.test = mockIcedosLib.mkUsersOption {
+            enable = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+            };
+          };
+          config.icedos.test.${username}.enable = true;
+        }
+      ];
+    }).config.icedos.test;
+
 in
 {
   intHappy = expectOk (
@@ -4170,4 +4196,7 @@ in
       && lib.strings.hasInfix "icedos-hook-rootPostGc-0" (gcScript hookEval)
       && !lib.strings.hasInfix "icedos-hook-root" (gcScript defaultEval)
     );
+  usersOptionValidUser = expectOk ((evalUsersOption "valid").valid.enable == true);
+
+  usersOptionInvalidUser = expectThrowMatch (evalUsersOption "invalid") "user(s) invalid not defined in icedos.users";
 }

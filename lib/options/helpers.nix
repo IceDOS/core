@@ -1,7 +1,19 @@
-{ icedosLib, lib, ... }:
+{
+  config ? { },
+  icedosLib,
+  lib,
+  ...
+}:
 
 let
-  inherit (lib) mkOption types;
+  inherit (builtins) attrNames;
+  inherit (lib)
+    concatStringsSep
+    elem
+    filter
+    mkOption
+    types
+    ;
   inherit (icedosLib) abortIf validate;
 
   requireArg =
@@ -155,5 +167,23 @@ rec {
       }
     );
 
-  mkUsersOption = options: mkSubmoduleAttrsOption { default = { }; } options;
+  mkUsersOption =
+    options:
+    let
+      definedUsers = attrNames (config.users or { });
+      checkUsers =
+        val:
+        let
+          unknownUsers = filter (u: !elem u definedUsers) (attrNames val);
+        in
+        abortIf (definedUsers != [ ] && unknownUsers != [ ])
+          "user(s) ${concatStringsSep ", " unknownUsers} not defined in icedos.users; define each one under [icedos.users.<name>] in your config";
+    in
+    mkSubmoduleAttrsOption {
+      default = { };
+      apply =
+        val:
+        assert checkUsers val;
+        val;
+    } options;
 }
