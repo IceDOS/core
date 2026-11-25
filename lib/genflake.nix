@@ -222,13 +222,59 @@ let
   nixpkgsFrozenRev = _frozenRev { name = "nixpkgs"; };
   homeManagerFrozenRev = _frozenRev { name = "home-manager"; };
 
+  # `--unpin` entries: a live one beats the cache pin (the input moves to
+  # the rev the user unpinned it to) until the cache's rev catches up.
+  cacheUnpins = icedosLib._cacheUnpins;
+  nixpkgsUnpinRev = icedosLib._cacheUnpinRev {
+    name = "nixpkgs";
+    unpins = cacheUnpins;
+  };
+  homeManagerUnpinRev = icedosLib._cacheUnpinRev {
+    name = "home-manager";
+    unpins = cacheUnpins;
+  };
+
+  nixpkgsCacheLastModified = icedosLib._cacheRootLastModified "nixpkgs";
+  homeManagerCacheLastModified = icedosLib._cacheRootLastModified "home-manager";
+
+  # Cache unpins. `cacheUnpinInfo`: name -> { url; latestUrl; cacheRev;
+  # cacheLastModified; } for every input the cache currently pins (nixpkgs only
+  # on the default channel, leaves only while the cache tracks them).
+  # `latestUrl` is where "latest upstream" is read from (`url` has no ref, so it
+  # would resolve the default branch); `url` is the rev-less base Python appends
+  # /<cacheRev> to for the cache rev's date. Nix only applies what is in the
+  # file, so a name absent here pins nothing.
+  cacheUnpinInfo =
+    (lib.optionalAttrs (nixpkgsChannel == defaultNixpkgsChannel && nixpkgsCacheRev != "") {
+      nixpkgs = {
+        url = "github:nixos/nixpkgs";
+        # The channel url itself: "latest" is the channel's tip, not master's.
+        latestUrl = nixpkgsChannel;
+        cacheRev = nixpkgsCacheRev;
+        cacheLastModified = nixpkgsCacheLastModified;
+      };
+    })
+    // (lib.optionalAttrs (homeManagerCacheRev != "") {
+      "home-manager" = {
+        url = "github:nix-community/home-manager";
+        latestUrl = "github:nix-community/home-manager";
+        cacheRev = homeManagerCacheRev;
+        cacheLastModified = homeManagerCacheLastModified;
+      };
+    })
+    // (lib.filterAttrs (_: info: info.cacheRev != "") modulesFromConfig.cacheUnpin);
+
   nixpkgsInput = {
     name = "nixpkgs";
 
     value = {
+      # An unpin only applies while `cacheUnpinInfo` has the input, which for
+      # nixpkgs means the default channel: the cache does not follow a custom one.
       url =
         if nixpkgsFrozenRev != "" && nixpkgsChannel == defaultNixpkgsChannel then
           "github:nixos/nixpkgs/${nixpkgsFrozenRev}"
+        else if cacheUnpinInfo ? nixpkgs && nixpkgsUnpinRev != "" then
+          "github:nixos/nixpkgs/${nixpkgsUnpinRev}"
         else if nixpkgsCacheRev != "" then
           "github:nixos/nixpkgs/${nixpkgsCacheRev}"
         else
@@ -242,7 +288,13 @@ let
     value = {
       url = icedosLib._appendRev {
         baseUrl = "github:nix-community/home-manager";
-        rev = if homeManagerFrozenRev != "" then homeManagerFrozenRev else homeManagerCacheRev;
+        rev =
+          if homeManagerFrozenRev != "" then
+            homeManagerFrozenRev
+          else if cacheUnpinInfo ? "home-manager" && homeManagerUnpinRev != "" then
+            homeManagerUnpinRev
+          else
+            homeManagerCacheRev;
       };
       inputs.nixpkgs.follows = "nixpkgs";
     };
@@ -660,4 +712,6 @@ assert githubTokenStoreWarning;
   cachePinnedInputs = icedosLib._cachePinnedInputs {
     inherit nixpkgsCacheRev homeManagerCacheRev;
   };
+
+  inherit cacheUnpinInfo;
 }

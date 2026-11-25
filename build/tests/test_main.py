@@ -51,6 +51,10 @@ class _Run:
 
         return fake
 
+    def unpins(self, *_args: object) -> tuple[dict[str, object], bool]:
+        self.calls.append("unpins")
+        return {}, False
+
     def hooks(
         self, _ctx: RebuildContext, name: str, *, cwd: Path, hooks_only: bool = False
     ) -> None:
@@ -96,6 +100,8 @@ def _main(
         "_nix_config": lambda _opts: build_main.BASE_NIX_CONFIG,
         "refresh_config_root_paths": run.step("refresh"),
         "maybe_re_exec_update_core": fake_re_exec,
+        "load_unpins": run.unpins,
+        "prepare_unpins": run.step("prepare-unpins"),
         "generate_flake": run.step("genflake"),
         "prepare_lock": run.step("lock"),
         "build": fake_build,
@@ -125,7 +131,16 @@ class MainFlowTest(unittest.TestCase):
     def test_raw_mode_only_generates_locks_and_builds(self):
         run = _main([], None)
         self.assertEqual(
-            run.calls, ["refresh", "self-update", "genflake", "lock", "build"]
+            run.calls,
+            [
+                "refresh",
+                "self-update",
+                "unpins",
+                "prepare-unpins",
+                "genflake",
+                "lock",
+                "build",
+            ],
         )
         self.assertEqual(run.rc, 0)
 
@@ -136,7 +151,9 @@ class MainFlowTest(unittest.TestCase):
             [
                 "refresh",
                 "self-update",
+                "unpins",
                 "preRebuild",
+                "prepare-unpins",
                 "genflake",
                 "lock",
                 "build",
@@ -154,8 +171,10 @@ class MainFlowTest(unittest.TestCase):
             [
                 "refresh",
                 "self-update",
+                "unpins",
                 "preRebuild",
                 "preUpdate",
+                "prepare-unpins",
                 "genflake",
                 "lock",
                 "build",
@@ -168,7 +187,10 @@ class MainFlowTest(unittest.TestCase):
 
     def test_dry_runs_no_hooks(self):
         run = _main(["--dry"], CTX)
-        self.assertEqual(run.calls, ["refresh", "self-update", "genflake", "lock"])
+        self.assertEqual(
+            run.calls,
+            ["refresh", "self-update", "unpins", "prepare-unpins", "genflake", "lock"],
+        )
         self.assertIn("dry run — generating flake...", run.out)
         self.assertIn(
             "dry run — flake generated and inputs locked (module eval not checked)",
@@ -177,7 +199,10 @@ class MainFlowTest(unittest.TestCase):
 
     def test_genflake_only_runs_no_hooks_and_prints_nothing(self):
         run = _main(["--genflake-only"], CTX)
-        self.assertEqual(run.calls, ["refresh", "self-update", "genflake", "lock"])
+        self.assertEqual(
+            run.calls,
+            ["refresh", "self-update", "unpins", "prepare-unpins", "genflake", "lock"],
+        )
         self.assertEqual(run.out, "")
 
     def test_update_hooks_skips_everything_else(self):
@@ -222,7 +247,7 @@ class MainFlowTest(unittest.TestCase):
 
     def test_failing_pre_rebuild_hook_stops_before_the_build(self):
         run = _main(["--update"], CTX, run=_Run(failing_hook="preRebuild"))
-        self.assertEqual(run.calls, ["refresh", "self-update", "preRebuild"])
+        self.assertEqual(run.calls, ["refresh", "self-update", "unpins", "preRebuild"])
         self.assertEqual(run.rc, 4)
         self.assertNotIn("build failed", run.out)
 

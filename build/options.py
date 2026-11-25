@@ -25,6 +25,8 @@ class Options:
     update_repos: bool = False
     update_repos_inputs: bool = False
     state_inputs: list[str] = field(default_factory=list)
+    unpin: bool = False
+    unpin_names: list[str] = field(default_factory=list)
     update_except: list[str] = field(default_factory=list)
     freeze_inputs: list[str] = field(default_factory=list)
     cache_pinned: list[str] = field(default_factory=list)
@@ -52,6 +54,10 @@ error: --update-state-inputs requires a space-separated list of input names
 _ERR_UPDATE_EXCEPT = """\
 error: --update-except requires a space-separated list of input names
   usage: --update-except "nixpkgs home-manager\""""
+
+_ERR_UNPIN_SELECT = """\
+error: --unpin-select requires a space-separated list of cache-pinned input names
+  usage: --unpin-select "nixpkgs home-manager\""""
 
 
 def _die(message: str) -> NoReturn:
@@ -140,6 +146,14 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
                 _die(_ERR_STATE_INPUTS)
             opts.state_inputs.extend(_take_list(arg, argv[i + 1]))
             i += 2
+        elif arg == "--unpin":
+            opts.unpin = True
+            i += 1
+        elif arg == "--unpin-select":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                _die(_ERR_UNPIN_SELECT)
+            opts.unpin_names.extend(_take_list(arg, argv[i + 1]))
+            i += 2
         elif arg == "--update-except":
             if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
                 _die(_ERR_UPDATE_EXCEPT)
@@ -214,6 +228,8 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
             or opts.update_repos_inputs
             or bool(opts.repos_select)
             or bool(opts.state_inputs)
+            or opts.unpin
+            or bool(opts.unpin_names)
         )
         if not updating:
             _die("error: --lock-only needs an update flag, e.g. icedos rebuild --update --lock-only")
@@ -223,8 +239,13 @@ def parse_args(argv: list[str]) -> tuple[Options, list[str]]:
                 "--boot/--build/--build-vm/--run-vm/--ask/--builder/--target/--nh-args/--build-args"
             )
 
-    if opts.update_except and not (opts.update_all or opts.update_core):
-        _die("error: --update-except only applies with --update or --update-core")
+    if opts.update_except and not (
+        opts.update_all or opts.update_core or opts.unpin or opts.unpin_names
+    ):
+        _die(
+            "error: --update-except only applies with an --update flag "
+            "or --unpin/--unpin-select"
+        )
     overlap = set(opts.update_except) & set(opts.state_inputs)
     if overlap:
         _die(f"error: '{sorted(overlap)[0]}' is both selected and excluded")

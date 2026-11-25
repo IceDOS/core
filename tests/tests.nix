@@ -630,6 +630,37 @@ let
       ];
     }).config.icedos.test;
 
+  # Mirror of genflake's `cacheUnpinInfo` (tests do not import genflake.nix):
+  # pinned roots only, nixpkgs only on the default channel, leaves only while the
+  # cache tracks them.
+  cacheUnpinInfoMirror =
+    {
+      nixpkgsChannel ? "github:nixos/nixpkgs/nixos-unstable",
+      defaultNixpkgsChannel ? "github:nixos/nixpkgs/nixos-unstable",
+      nixpkgsCacheRev ? "aaaa",
+      nixpkgsCacheLastModified ? 10,
+      homeManagerCacheRev ? "",
+      homeManagerCacheLastModified ? null,
+      leaves ? { },
+    }:
+    (lib.optionalAttrs (nixpkgsChannel == defaultNixpkgsChannel && nixpkgsCacheRev != "") {
+      nixpkgs = {
+        url = "github:nixos/nixpkgs";
+        latestUrl = nixpkgsChannel;
+        cacheRev = nixpkgsCacheRev;
+        cacheLastModified = nixpkgsCacheLastModified;
+      };
+    })
+    // (lib.optionalAttrs (homeManagerCacheRev != "") {
+      "home-manager" = {
+        url = "github:nix-community/home-manager";
+        latestUrl = "github:nix-community/home-manager";
+        cacheRev = homeManagerCacheRev;
+        cacheLastModified = homeManagerCacheLastModified;
+      };
+    })
+    // (lib.filterAttrs (_: info: info.cacheRev != "") leaves);
+
 in
 {
   intHappy = expectOk (
@@ -1762,6 +1793,399 @@ in
     expectEq "github:nixos/nixpkgs/bbbb" (
       if nixpkgsFrozenRev != "" && nixpkgsChannel == defaultNixpkgsChannel then
         "github:nixos/nixpkgs/${nixpkgsFrozenRev}"
+      else if nixpkgsCacheRev != "" then
+        "github:nixos/nixpkgs/${nixpkgsCacheRev}"
+      else
+        nixpkgsChannel
+    );
+
+  # genflake's `cacheUnpinInfo` (mirrored expression): roots only while pinned
+  # (nixpkgs only on the default channel), leaves only while the cache tracks
+  # them; `cacheLastModified` is null when nothing publishes a timestamp.
+  genflakeCacheUnpinInfoShape =
+    expectEq
+      {
+        nixpkgs = {
+          url = "github:nixos/nixpkgs";
+          latestUrl = "github:nixos/nixpkgs/nixos-unstable";
+          cacheRev = "aaaa";
+          cacheLastModified = 10;
+        };
+        "sub/jovian" = {
+          url = "github:o/jovian";
+          latestUrl = "github:o/jovian/main";
+          cacheRev = "bbbb";
+          cacheLastModified = null;
+        };
+      }
+      (cacheUnpinInfoMirror {
+        leaves = {
+          "sub/jovian" = {
+            url = "github:o/jovian";
+            latestUrl = "github:o/jovian/main";
+            cacheRev = "bbbb";
+            cacheLastModified = null;
+          };
+          "sub/untracked" = {
+            url = "github:o/untracked";
+            latestUrl = "github:o/untracked";
+            cacheRev = "";
+            cacheLastModified = null;
+          };
+        };
+      });
+
+  # A custom channel is not what the cache follows, so nixpkgs is never unpinnable.
+  genflakeCacheUnpinInfoCustomChannel = expectEq { } (cacheUnpinInfoMirror {
+    nixpkgsChannel = "github:nixos/nixpkgs/nixos-24.05";
+    nixpkgsCacheRev = "aaaa";
+  });
+
+  # No home-manager pin (pins off, or a channel lock without the node).
+  genflakeCacheUnpinInfoNoHomeManager =
+    expectEq
+      {
+        nixpkgs = {
+          url = "github:nixos/nixpkgs";
+          latestUrl = "github:nixos/nixpkgs/nixos-unstable";
+          cacheRev = "aaaa";
+          cacheLastModified = 10;
+        };
+      }
+      (cacheUnpinInfoMirror {
+        homeManagerCacheRev = "";
+      });
+
+  # --- cache unpins (inputs.nix) -----------------------------------------
+  cacheUnpinEntryObject =
+    expectEq
+      {
+        rev = "aaaa";
+        lastModified = 5;
+      }
+      (
+        helpers._cacheUnpinEntry {
+          rev = "aaaa";
+          lastModified = 5;
+        }
+      );
+
+  cacheUnpinEntryBareString = expectEq {
+    rev = "aaaa";
+    lastModified = null;
+  } (helpers._cacheUnpinEntry "aaaa");
+
+  cacheUnpinEntryMalformed =
+    expectEq
+      {
+        rev = "";
+        lastModified = null;
+      }
+      (
+        helpers._cacheUnpinEntry {
+          rev = 5;
+          lastModified = "soon";
+        }
+      );
+
+  cacheUnpinRevAbsent = expectEq "" (
+    helpers._cacheUnpinRev {
+      name = "nixpkgs";
+      unpins = { };
+    }
+  );
+
+  cacheUnpinRevLeaf = expectEq "bbbb" (
+    helpers._cacheUnpinRev {
+      name = "icedos-github_icedos_apps-steam/jovian";
+      unpins."icedos-github_icedos_apps-steam/jovian" = {
+        rev = "bbbb";
+        lastModified = 7;
+      };
+    }
+  );
+
+  # --- _cacheRevChoice (cache-unpin rev precedence, inputs.nix) -----------
+  revChoiceFrozenWins =
+    expectEq
+      {
+        source = "lock";
+        rev = "/aaaa";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins.nixpkgs = {
+            rev = "bbbb";
+            lastModified = 10;
+          };
+          frozen = true;
+          lockRev = "/aaaa";
+          cacheRev = "cccc";
+          inlineRef = "main";
+        }
+      );
+
+  revChoiceUnpinBeatsCacheAndLock =
+    expectEq
+      {
+        source = "unpin";
+        rev = "bbbb";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins.nixpkgs = {
+            rev = "bbbb";
+            lastModified = 10;
+          };
+          frozen = false;
+          lockRev = "/aaaa";
+          cacheRev = "cccc";
+          inlineRef = "main";
+        }
+      );
+
+  revChoiceCacheBeatsLock =
+    expectEq
+      {
+        source = "cache";
+        rev = "cccc";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins = { };
+          frozen = false;
+          lockRev = "/aaaa";
+          cacheRev = "cccc";
+          inlineRef = "main";
+        }
+      );
+
+  revChoiceLockWithoutPin =
+    expectEq
+      {
+        source = "lock";
+        rev = "/aaaa";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins = { };
+          frozen = false;
+          lockRev = "/aaaa";
+          cacheRev = "";
+          inlineRef = "main";
+        }
+      );
+
+  revChoiceAuthorRefLast =
+    expectEq
+      {
+        source = "ref";
+        rev = "main";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins = { };
+          frozen = false;
+          lockRev = "";
+          cacheRev = "";
+          inlineRef = "main";
+        }
+      );
+
+  # Frozen without a locked rev has nothing to keep, so the unpin still applies.
+  revChoiceFrozenUnlockedFallsThrough =
+    expectEq
+      {
+        source = "unpin";
+        rev = "bbbb";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins.nixpkgs = "bbbb";
+          frozen = true;
+          lockRev = "";
+          cacheRev = "cccc";
+        }
+      );
+
+  # An unpin on an input the cache no longer pins pins nothing: the orchestrator
+  # prunes it, and Nix would otherwise bake a rev nothing checks.
+  revChoiceUnpinIgnoredWhenNotPinned =
+    expectEq
+      {
+        source = "lock";
+        rev = "/aaaa";
+      }
+      (
+        helpers._cacheRevChoice {
+          name = "nixpkgs";
+          unpins.nixpkgs = {
+            rev = "bbbb";
+            lastModified = 10;
+          };
+          frozen = false;
+          lockRev = "/aaaa";
+          cacheRev = "";
+          inlineRef = "main";
+        }
+      );
+
+  # --- _unpinLatestUrl (cache-unpin "latest", inputs.nix) -----------------
+  unpinLatestUrlNoRef = expectEq "github:o/r" (helpers._unpinLatestUrl "github:o/r");
+
+  # An author branch is what "latest" means for that input, so it survives.
+  unpinLatestUrlBranchRef = expectEq "github:o/r/main" (helpers._unpinLatestUrl "github:o/r/main");
+
+  # A commit hash is not a branch: only the default branch is left to ask.
+  unpinLatestUrlRevRef = expectEq "github:o/r" (
+    helpers._unpinLatestUrl "github:o/r/0123456789abcdef0123456789abcdef01234567"
+  );
+
+  unpinLatestUrlQueryKept = expectEq "github:o/r?dir=sub" (
+    helpers._unpinLatestUrl "github:o/r?dir=sub"
+  );
+
+  unpinLatestUrlBranchAndQuery = expectEq "github:o/r/main?dir=sub" (
+    helpers._unpinLatestUrl "github:o/r/main?dir=sub"
+  );
+
+  # `?rev=` pins exactly like the path form, so an unpin must drop it; other
+  # query parameters survive in order.
+  unpinLatestUrlRevQuery = expectEq "github:o/r" (
+    helpers._unpinLatestUrl "github:o/r?rev=0123456789abcdef0123456789abcdef01234567"
+  );
+
+  unpinLatestUrlRefAndRevQuery = expectEq "github:o/r?ref=main" (
+    helpers._unpinLatestUrl "github:o/r?ref=main&rev=0123456789abcdef0123456789abcdef01234567"
+  );
+
+  unpinLatestUrlBranchAndRevQuery = expectEq "github:o/r/main" (
+    helpers._unpinLatestUrl "github:o/r/main?rev=0123456789abcdef0123456789abcdef01234567"
+  );
+
+  unpinLatestUrlDirAndRevQuery = expectEq "github:o/r?dir=sub" (
+    helpers._unpinLatestUrl "github:o/r?dir=sub&rev=0123456789abcdef0123456789abcdef01234567"
+  );
+
+  # A `?` left with no parameters is dropped, not left trailing.
+  unpinLatestUrlEmptyQuery = expectEq "github:o/r" (helpers._unpinLatestUrl "github:o/r?");
+
+  # --- _leafFrozen (--update-except leaf spelling, inputs.nix) ------------
+  leafFrozenByPlainName = expectOk (
+    helpers._leafFrozen {
+      name = "sub/foo";
+      frozen = [ "sub/foo" ];
+    }
+  );
+
+  # A patched input's upstream node is `<input>_source`, which --update-except
+  # lists in the state lock, so that spelling has to freeze it too.
+  leafFrozenBySourceName = expectOk (
+    helpers._leafFrozen {
+      name = "sub/foo";
+      frozen = [ "sub/foo_source" ];
+    }
+  );
+
+  leafFrozenIgnoresUnrelated = expectOk (
+    !(helpers._leafFrozen {
+      name = "sub/foo";
+      frozen = [
+        "sub/bar"
+        "sub/bar_source"
+        "foo"
+      ];
+    })
+  );
+
+  # --- _lockRootLastModified (inputs.nix) --------------------------------
+  lockRootLastModifiedPresent = expectEq 1234 (
+    helpers._lockRootLastModified {
+      name = "nixpkgs";
+      lock = {
+        nodes = {
+          root.inputs.nixpkgs = "nixpkgs-node";
+          nixpkgs-node.locked.lastModified = 1234;
+        };
+      };
+    }
+  );
+
+  # The cache's own CI publishes a synthetic channel lock with revs only.
+  lockRootLastModifiedAbsent = expectEq null (
+    helpers._lockRootLastModified {
+      name = "nixpkgs";
+      lock = {
+        nodes = {
+          root.inputs.nixpkgs = "nixpkgs-node";
+          nixpkgs-node.locked.rev = "aaaa";
+        };
+      };
+    }
+  );
+
+  lockRootLastModifiedMissingNode = expectEq null (
+    helpers._lockRootLastModified {
+      name = "nixpkgs";
+      lock.nodes.root.inputs = { };
+    }
+  );
+
+  # --- _cacheRevEntry (tracked-inputs.json, inputs.nix) -------------------
+  cacheRevEntryCarriesTimestamp =
+    expectEq
+      {
+        rev = "aaaa";
+        repo = "github:o/r";
+        lastModified = 99;
+      }
+      (
+        helpers._cacheRevEntry {
+          name = "jovian";
+          url = "github:o/r";
+          revs.jovian = {
+            rev = "aaaa";
+            repo = "github:o/r";
+            lastModified = 99;
+          };
+        }
+      );
+
+  cacheRevEntryBareString =
+    expectEq
+      {
+        rev = "aaaa";
+        repo = "";
+        lastModified = null;
+      }
+      (
+        helpers._cacheRevEntry {
+          name = "jovian";
+          url = "github:o/r";
+          revs.jovian = "aaaa";
+        }
+      );
+
+  # The nixpkgs chain, with an unpin between the freeze and the cache pin.
+  genflakeNixpkgsUrlUnpinnedChain =
+    let
+      nixpkgsFrozenRev = "";
+      nixpkgsUnpinRev = "cccc";
+      nixpkgsCacheRev = "bbbb";
+      nixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+      defaultNixpkgsChannel = "github:nixos/nixpkgs/nixos-unstable";
+    in
+    expectEq "github:nixos/nixpkgs/cccc" (
+      if nixpkgsFrozenRev != "" && nixpkgsChannel == defaultNixpkgsChannel then
+        "github:nixos/nixpkgs/${nixpkgsFrozenRev}"
+      else if nixpkgsUnpinRev != "" && nixpkgsCacheRev != "" then
+        "github:nixos/nixpkgs/${nixpkgsUnpinRev}"
       else if nixpkgsCacheRev != "" then
         "github:nixos/nixpkgs/${nixpkgsCacheRev}"
       else

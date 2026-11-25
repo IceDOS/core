@@ -98,6 +98,18 @@ rec {
     in
     if locked == null then "" else locked.rev or "";
 
+  # Locked `lastModified` of a root input, null when absent or unrevisioned (a
+  # synthetic channel lock carries revs only).
+  _lockRootLastModified =
+    { lock, name }:
+    let
+      locked = _lockChainLocked {
+        inherit lock;
+        chain = [ name ];
+      };
+    in
+    if locked == null then null else locked.lastModified or null;
+
   # Input names Python asked genflake to keep at their locked rev; empty when unset.
   _frozenInputs =
     let
@@ -127,6 +139,114 @@ rec {
     }:
     lib.optional (nixpkgsCacheRev != "") "nixpkgs"
     ++ lib.optional (homeManagerCacheRev != "") "home-manager";
+
+  # `cache-unpin.json` value as `{ rev; lastModified; }`: a bare string is the
+  # rev-only spelling, a malformed value pins nothing.
+  _cacheUnpinEntry =
+    value:
+    if builtins.isString value then
+      {
+        rev = value;
+        lastModified = null;
+      }
+    else if builtins.isAttrs value then
+      {
+        rev = if builtins.isString (value.rev or null) then value.rev else "";
+        lastModified = if builtins.isInt (value.lastModified or null) then value.lastModified else null;
+      }
+    else
+      {
+        rev = "";
+        lastModified = null;
+      };
+
+  # Bare rev a live unpin entry pins `name` to, "" when there is none.
+  _cacheUnpinRev =
+    { name, unpins }:
+    (_cacheUnpinEntry (unpins.${name} or null)).rev;
+
+  # Url whose tip is "latest upstream" for an unpin: the author's declared ref,
+  # minus anything that pins a revision (`/rev`, `?rev=`). A ref that is itself
+  # a commit hash is dropped too (only the default branch is left to ask); every
+  # other query parameter (`ref=`, `dir=`, ...) survives. The cache-pin url keeps
+  # the rev-less base instead, since Python appends /<cacheRev> to it.
+  _unpinLatestUrl =
+    url:
+    let
+      inherit (builtins)
+        filter
+        head
+        length
+        match
+        ;
+      # lib.splitString splits on a literal, unlike builtins.split's regex.
+      parts = lib.splitString "?" url;
+      parsed = _parseFlakeUrl (head parts);
+      # `?rev=<hash>` pins exactly like the path form, so it must go; `?` with no
+      # parameters left is dropped rather than trailing.
+      params = filter (part: part != "" && !(lib.hasPrefix "rev=" part)) (
+        lib.splitString "&" (if length parts > 1 then builtins.elemAt parts 1 else "")
+      );
+      pathRef = parsed.ref;
+      base =
+        if pathRef != null && match "[0-9a-f]{40}|[0-9a-f]{64}" pathRef == null then
+          "${parsed.baseUrl}/${pathRef}"
+        else
+          parsed.baseUrl;
+    in
+    if params == [ ] then base else "${base}?${lib.concatStringsSep "&" params}";
+
+  # `--update-except` freezes a module leaf by either spelling: `<sub>/<input>`,
+  # or `<sub>/<input>_source` for the upstream node of a patched input.
+  _leafFrozen =
+    { name, frozen }:
+    lib.elem name frozen || lib.elem "${name}_source" frozen;
+
+  # Where a cache-controlled input's rev comes from, in precedence order:
+  # frozen (--update-except) > live unpin entry > cache rev > locked rev > the
+  # author's ref. `source` keeps the url shape right: "lock"/"ref" may already
+  # be a pre-formed suffix, "unpin"/"cache" are bare revs.
+  #
+  # An unpin only applies to an input the cache still pins (`cacheRev != ""`,
+  # i.e. the name is in genflake's `cacheUnpinInfo`); the orchestrator prunes
+  # everything else from the file, so a stale entry pins nothing here.
+  _cacheRevChoice =
+    {
+      name,
+      unpins,
+      frozen,
+      lockRev ? "",
+      cacheRev ? "",
+      inlineRef ? "",
+    }:
+    let
+      unpinRev = _cacheUnpinRev { inherit name unpins; };
+    in
+    if frozen && lockRev != "" then
+      {
+        source = "lock";
+        rev = lockRev;
+      }
+    else if unpinRev != "" && cacheRev != "" then
+      {
+        source = "unpin";
+        rev = unpinRev;
+      }
+    else if cacheRev != "" then
+      {
+        source = "cache";
+        rev = cacheRev;
+      }
+    else if lockRev != "" then
+      {
+        source = "lock";
+        rev = lockRev;
+      }
+    else
+      {
+        source = "ref";
+        rev = inlineRef;
+      };
 
   # Repo urls from --update-repos-select; empty when unset.
   _selectedRepos =
@@ -292,9 +412,11 @@ rec {
           ;
       };
 
-  # Rev cache-server last built for this leaf input, "" when untracked. Key match mirrors tracked-revs.py:
-  # exact node key or a "-<name>" suffix; the optional repo guard must equal the url's host repo, older string entries pin on the name alone.
-  _cacheRevLookup =
+  # Resolved tracked-inputs.json entry for a leaf input: `{ rev; repo; lastModified; }`,
+  # rev "" when untracked or ambiguous. Key match mirrors tracked-revs.py:
+  # exact node key or a "-<name>" suffix; the optional repo guard must equal the
+  # url's host repo, older string entries pin on the name alone.
+  _cacheRevEntry =
     {
       name,
       url,
@@ -316,11 +438,15 @@ rec {
           {
             rev = value;
             repo = "";
+            lastModified = null;
           }
         else
           {
             rev = value.rev or "";
             repo = value.repo or "";
+            # Not published today (tracked-revs.py emits key/rev/repo only); read
+            # when it is, so the unpin expiry needs no fetch.
+            lastModified = if builtins.isInt (value.lastModified or null) then value.lastModified else null;
           };
 
       keys = filter (k: k == name || lib.hasSuffix "-${name}" k) (attrNames revs);
@@ -359,11 +485,28 @@ rec {
           {
             rev = "";
             repo = "";
+            lastModified = null;
           }
         else
           _entryOf revs.${key};
     in
-    if entry.rev == "" || (entry.repo != "" && entry.repo != urlRepo) then "" else entry.rev;
+    if entry.rev == "" || (entry.repo != "" && entry.repo != urlRepo) then
+      {
+        rev = "";
+        repo = "";
+        lastModified = null;
+      }
+    else
+      entry;
+
+  # Rev cache-server last built for this leaf input, "" when untracked.
+  _cacheRevLookup =
+    {
+      name,
+      url,
+      revs,
+    }:
+    (_cacheRevEntry { inherit name url revs; }).rev;
 
   # Splice a PRE-FORMED revision suffix onto a url that may already carry a query:
   # a path segment goes before the query, a query param joins it with `&`.

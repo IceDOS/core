@@ -17,8 +17,10 @@ from .term import RED, clr_line, log_ok, log_step, log_warn, paint
 from .transaction import Transaction
 from .update import (
     ReExecExited,
+    load_unpins,
     maybe_re_exec_update_core,
     prepare_lock,
+    prepare_unpins,
     refresh_config_root_paths,
     update_cache_pin,
     validate_update_except,
@@ -155,7 +157,13 @@ def _rebuild(
                 "expect fewer cache hits and more local builds"
             )
 
-    pinned_freeze = update_cache_pin(env, opts, pinned)
+    # A live unpin stays out of the cache-pin path; the file read is cheap, the
+    # cacheUnpinInfo eval (which forces module resolution) is not, so it waits
+    # until it is actually needed below.
+    # (entries, dirty): one read here, handed to prepare_unpins, so a malformed
+    # file warns once and is rewritten before genflake reads it.
+    unpins = load_unpins(env)
+    pinned_freeze = update_cache_pin(env, opts, pinned, unpins[0])
     opts.freeze_inputs = list(opts.update_except) + pinned_freeze
 
     # Hooks and the post-build phases need the shim's context and a real build.
@@ -171,6 +179,10 @@ def _rebuild(
         run_hooks(wrapped, "preRebuild", cwd=env.state_dir)
         if update_hooks:
             run_hooks(wrapped, "preUpdate", cwd=env.state_dir)
+
+    # Prune, then merge the requested revs, then write once: genflake applies
+    # every entry in the file as-is, with no expiry check of its own.
+    prepare_unpins(env, opts, trace, unpins)
 
     generate_flake(
         env,

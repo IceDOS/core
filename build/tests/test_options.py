@@ -45,6 +45,8 @@ _DOCUMENTED_FLAGS = [
     "--update-repos-only",
     "--update-repos-select",
     "--update-state-inputs",
+    "--unpin",
+    "--unpin-select",
 ]
 
 
@@ -232,6 +234,58 @@ class ParseArgsTest(unittest.TestCase):
             _parse(["--update", "--update-except", "   "])
         with self.assertRaises(SystemExit):
             _parse(["--update-except", "nixpkgs"])
+
+    def test_unpin_parsing(self):
+        opts, _ = _parse(["--unpin"])
+        self.assertTrue(opts.unpin)
+        self.assertEqual(opts.unpin_names, [])
+
+    def test_unpin_names_splits_and_concatenates(self):
+        opts, _ = _parse(
+            [
+                "--unpin-select",
+                "nixpkgs sub/foo",
+                "--unpin-select",
+                "home-manager",
+            ]
+        )
+        self.assertEqual(opts.unpin_names, ["nixpkgs", "sub/foo", "home-manager"])
+
+    def test_unpin_names_bad_args_exit(self):
+        with self.assertRaises(SystemExit):
+            _parse(["--unpin-select", "--logs"])
+        with self.assertRaises(SystemExit):
+            _parse(["--unpin-select", "   "])
+
+    def test_unpin_combines_with_any_update_flag(self):
+        opts, _ = _parse(["--update", "--unpin-select", "nixpkgs"])
+        self.assertTrue(opts.update_all)
+        self.assertEqual(opts.unpin_names, ["nixpkgs"])
+
+        opts2, _ = _parse(["--update-core", "--unpin"])
+        self.assertTrue(opts2.update_core)
+        self.assertTrue(opts2.unpin)
+
+        opts3, _ = _parse(["--update-state-inputs", "home-manager", "--unpin"])
+        self.assertEqual(opts3.state_inputs, ["home-manager"])
+        self.assertTrue(opts3.unpin)
+
+        opts4, _ = _parse(["--update-repos", "--unpin-select", "nixpkgs"])
+        self.assertTrue(opts4.update_repos)
+        self.assertEqual(opts4.unpin_names, ["nixpkgs"])
+
+    def test_update_except_applies_to_unpin_flags(self):
+        opts, _ = _parse(["--unpin", "--update-except", "nixpkgs"])
+        self.assertTrue(opts.unpin)
+        self.assertEqual(opts.update_except, ["nixpkgs"])
+
+        opts2, _ = _parse(["--unpin-select", "nixpkgs", "--update-except", "nixpkgs"])
+        self.assertEqual(opts2.unpin_names, ["nixpkgs"])
+
+    def test_unpin_lock_only(self):
+        opts, _ = _parse(["--unpin", "--lock-only"])
+        self.assertTrue(opts.lock_only)
+        self.assertTrue(opts.unpin)
 
     def test_update_core_update_except(self):
         opts, _ = _parse(["--update-core", "--update-except", "icedos"])
