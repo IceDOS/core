@@ -56,6 +56,8 @@ class Transaction:
             files.append(env.config_root / "flake.lock")
         files.append(env.state_dir / "flake.nix")
         files.append(env.state_dir / "flake.lock")
+        # Genflake reads it, so it must roll back and be kept with the locks.
+        files.append(env.state_dir / "cache-unpin.json")
         return cls(
             store=env.state_dir / ".txn",
             lock_path=env.state_dir / ".txn.lock",

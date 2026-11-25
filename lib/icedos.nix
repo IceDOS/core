@@ -139,6 +139,38 @@ let
       else
         "";
 
+    # `lastModified` of the cache's rev for a root input, null when the channel
+    # lock carries none (the cache's own CI publishes revs only).
+    _cacheRootLastModified =
+      name:
+      if _cacheChannel != null && pathExists "${_cacheChannel}/state.lock" then
+        icedosLib._lockRootLastModified {
+          lock = builtins.fromJSON (builtins.readFile "${_cacheChannel}/state.lock");
+          inherit name;
+        }
+      else
+        null;
+
+    # Live cache unpins: `${ICEDOS_STATE_DIR}/cache-unpin.json`, name -> { rev; lastModified; }.
+    # Written by `icedos rebuild --unpin`; a missing or malformed file
+    # pins nothing, so a torn write can only fall back to the cache pins.
+    _cacheUnpins =
+      let
+        path = "${icedosLib.ICEDOS_STATE_DIR}/cache-unpin.json";
+        parsed =
+          if pathExists path then
+            builtins.tryEval (builtins.fromJSON (builtins.readFile path))
+          else
+            {
+              success = true;
+              value = { };
+            };
+      in
+      if parsed.success && builtins.isAttrs parsed.value then
+        parsed.value
+      else
+        builtins.trace "warning: ${path} is not a JSON object; ignoring every cache unpin" { };
+
     # Patch a flake source into a realised, context-free store path usable as a
     # locked `path:` input (readDir realises it; --raw genflake forbids context).
     _mkPatchedSource =
@@ -448,20 +480,28 @@ let
                 inputName = "${i}_source";
               };
 
+              # `<sub-flake>/<input>`: the spelling --update-except and the unpin
+              # file use. A patched input is also reachable as `<input>_source`.
+              _leafName = icedosLib.moduleInputName {
+                repo = _repoInfo.url;
+                module = meta.name;
+                input = i;
+              };
+
+              # Cache-server's tracked entry for this leaf: the rev it built and,
+              # when published, that rev's timestamp.
+              _cacheEntry = icedosLib._cacheRevEntry {
+                url = inputs.${i}.url or "";
+                name = i;
+                revs = _cacheTrackedRevs;
+              };
+
               # Bare rev cache-server last built for this leaf input, "" when
               # untracked or not a forge url (git-scheme revs are out of scope).
               _cachePin =
-                let
-                  url = inputs.${i}.url or "";
-                  rev = icedosLib._cacheRevLookup {
-                    inherit url;
-                    name = i;
-                    revs = _cacheTrackedRevs;
-                  };
-                in
                 if
-                  rev == ""
-                  || !(builtins.elem (head (lib.splitString ":" url)) [
+                  _cacheEntry.rev == ""
+                  || !(builtins.elem (head (lib.splitString ":" (inputs.${i}.url or ""))) [
                     "github"
                     "gitlab"
                     "sourcehut"
@@ -469,17 +509,46 @@ let
                 then
                   ""
                 else
-                  rev;
+                  _cacheEntry.rev;
 
-              # Lock rev wins, then the cache pin, then the author's ref; only the
-              # lock hands back a pre-formed suffix, the other two are bare revs.
+              # Live unpin rev (--unpin), "" when the input is not unpinned.
+              _cacheUnpinRev = icedosLib._cacheUnpinRev {
+                name = _leafName;
+                unpins = _cacheUnpins;
+              };
+
+              # `--update-except` freezes either spelling of a patched input.
+              _leafFrozen = icedosLib._leafFrozen {
+                name = _leafName;
+                frozen = icedosLib._frozenInputs;
+              };
+
+              # frozen > live unpin > cache rev > locked rev > author's ref. The
+              # cache pin outranking the lock is what hands an input back after
+              # its unpin expires: the lock then still holds the unpinned rev.
+              _patchSrcChoice = icedosLib._cacheRevChoice {
+                name = _leafName;
+                unpins = _cacheUnpins;
+                frozen = _leafFrozen;
+                lockRev = _patchSrcLockRev;
+                cacheRev = _cachePin;
+                inlineRef = _patchSrcInlineRef;
+              };
+
+              # Unpatched inputs have no `_source` lock rev, so they keep baking
+              # the cache pin; a live unpin overrides it unless frozen or the
+              # cache dropped the input.
+              _leafPinRev =
+                if !_leafFrozen && _cachePin != "" && _cacheUnpinRev != "" then _cacheUnpinRev else _cachePin;
+
+              # Only the lock hands back a pre-formed suffix, the rest are bare revs.
               _patchSrcUrl =
-                if _patchSrcLockRev != "" then
-                  icedosLib._appendRevSuffix _patchSrcParsed.baseUrl _patchSrcLockRev
+                if _patchSrcChoice.source == "lock" then
+                  icedosLib._appendRevSuffix _patchSrcParsed.baseUrl _patchSrcChoice.rev
                 else
                   icedosLib._appendRev {
                     inherit (_patchSrcParsed) baseUrl;
-                    rev = if _cachePin != "" then _cachePin else _patchSrcInlineRef;
+                    rev = _patchSrcChoice.rev;
                   };
 
               patchedInputSource = _mkPatchedSource {
@@ -511,14 +580,14 @@ let
                     {
                       name = i;
                       value =
-                        if _cachePin == "" then
+                        if _leafPinRev == "" then
                           decl
                         else
                           decl
                           // {
                             url = icedosLib._appendRev {
                               inherit (_patchSrcParsed) baseUrl;
-                              rev = _cachePin;
+                              rev = _leafPinRev;
                             };
                           };
                     }
@@ -553,6 +622,15 @@ let
                 hasPatches
                 maskedEntries
                 ;
+
+              # Cache-unpin data for genflake's `cacheUnpinInfo`: the rev-less
+              # base url (`url`), the url whose tip is "latest" (`latestUrl`),
+              # the cache's rev for this leaf, and that rev's commit time when
+              # tracked-inputs.json publishes one (it does not today).
+              url = _patchSrcParsed.baseUrl;
+              latestUrl = icedosLib._unpinLatestUrl (inputs.${i}.url or "");
+              cacheRev = _cachePin;
+              cacheLastModified = if _cachePin == "" then null else _cacheEntry.lastModified;
             };
         in
         let
@@ -597,6 +675,26 @@ let
         in
         {
           inherit subFlakeName text url;
+
+          # `<sub>/<input>` -> `{ url; latestUrl; cacheRev; cacheLastModified; }`,
+          # flattened by genflake into its `cacheUnpinInfo` export.
+          cacheUnpin = listToAttrs (
+            map (i: {
+              name = icedosLib.moduleInputName {
+                repo = _repoInfo.url;
+                module = meta.name;
+                input = i;
+              };
+              value = {
+                inherit (perInput i)
+                  url
+                  latestUrl
+                  cacheRev
+                  cacheLastModified
+                  ;
+              };
+            }) inputNames
+          );
 
           # Root input decl: the sub-flake as a `path:` input, its slots rewired
           # to the parent's own inputs. Only genflake forces `value.url` (IFD).
@@ -1098,9 +1196,14 @@ let
             value = r.text;
           }) moduleSubFlakes
         );
+
+        # `<sub>/<input>` -> cache-unpin data, flat over every declaring module
+        # (sub-flake names are unique, so the merge cannot collide).
+        cacheUnpin = lib.foldl' (acc: r: acc // r.cacheUnpin) { } moduleSubFlakes;
       in
       {
         inherit
+          cacheUnpin
           inputs
           nixosModules
           nixosModulesText
@@ -1665,6 +1768,7 @@ let
 
           # Names are unique per declaring module, so a plain merge is exact.
           subFlakes = externalOutputs.subFlakes // extraOutputs.subFlakes;
+          cacheUnpin = externalOutputs.cacheUnpin // extraOutputs.cacheUnpin;
           options = externalOutputs.options ++ extraOutputs.options;
           nixosModulesText = externalOutputs.nixosModulesText ++ extraOutputs.nixosModulesText;
         };

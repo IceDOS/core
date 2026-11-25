@@ -155,6 +155,33 @@ class TransactionTest(unittest.TestCase):
 
         self.assertFalse(state_lock.exists())
 
+    def test_cache_unpin_file_rolls_back_with_the_locks(self) -> None:
+        unpin = self.state_dir / "cache-unpin.json"
+
+        txn = Transaction.for_env(self.env, profile_path=str(self.profile))
+        txn.begin()
+        unpin.write_text('{"nixpkgs": {"rev": "a", "lastModified": 1}}')
+        txn.finish(ok=False, action="build", remote_target=False)
+        self.assertFalse(unpin.exists())
+
+        unpin.write_text('{"nixpkgs": {"rev": "old", "lastModified": 1}}')
+        txn = Transaction.for_env(self.env, profile_path=str(self.profile))
+        txn.begin()
+        unpin.write_text('{"nixpkgs": {"rev": "new", "lastModified": 2}}')
+        txn.finish(ok=False, action="build", remote_target=False)
+        self.assertEqual(
+            unpin.read_text(), '{"nixpkgs": {"rev": "old", "lastModified": 1}}'
+        )
+
+    def test_keep_locks_keeps_the_cache_unpin_file(self) -> None:
+        unpin = self.state_dir / "cache-unpin.json"
+
+        txn = self._txn(keep_on_failure=True)
+        txn.begin()
+        unpin.write_text('{"nixpkgs": {"rev": "a", "lastModified": 1}}')
+        txn.finish(ok=False, action="build", remote_target=False)
+        self.assertTrue(unpin.exists())
+
     def test_commit_keeps_new_contents_and_removes_txn(self) -> None:
         state_nix = self.state_dir / "flake.nix"
         state_nix.write_text("old")

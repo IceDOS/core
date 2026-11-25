@@ -543,8 +543,10 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 | `--update` | Update everything (core, nixpkgs, module repos, and module-declared inputs) in one blanket bump. The rebuild restarts on the updated core before any hook runs. | Full update. |
 | `--update-core` | Update all config flake inputs, then restart the rebuild on the updated core, hooks included. | Update IceDOS itself plus all dependencies. |
 | `--update-core-only` | Update only the `icedos` input in the config flake, then restart the rebuild on the updated core. | Update IceDOS core without touching other inputs. |
-| `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). With `pinInputs = true`, `nixpkgs` and `home-manager` follow the cache-server pin. Naming one updates the pin and keeps the other unless you name it too. | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
-| `--update-except "..."` | With `--update` or `--update-core`, keep these inputs (state, config or `<sub>/<input>`) at their locked revs. | Exclude inputs like `nixpkgs` from updating. |
+| `--update-state-inputs "..."` | Update specific declared inputs in the state flake (space-separated names). Skips pinned repos (those managed by genflake). With `pinInputs = true`, `nixpkgs` and `home-manager` follow the cache-server pin. Naming one updates the pin and keeps the other unless you name it too. An unpinned input keeps its rev until the cache catches up, even though the pin moves. | Target specific state inputs like `nixpkgs`, `home-manager`, etc. |
+| `--unpin` | Move every cache-pinned input (`nixpkgs`, `home-manager`, module patch sources) to its latest upstream rev and keep it there. Combine it with any `--update*` flag (or use it alone). Plain `--update`/`--update-core` no longer bumps it; as soon as the binary cache is at or past that rev, the unpin is dropped and the cache pin takes over again. | Get a fresh `nixpkgs` now instead of waiting for the cache rebuild. |
+| `--unpin-select "..."` | Same as `--unpin`, for the named inputs only (space-separated; `<sub>/<input>` for a module leaf pin). Unknown names list the valid ones. | Unpin just `nixpkgs`, or one module patch source. |
+| `--update-except "..."` | With `--update`, `--update-core` or an unpin flag, keep these inputs (state, config or `<sub>/<input>`) at their locked revs. | Exclude inputs like `nixpkgs` from updating. |
 | `--update-repos` | Pull new revisions of the IceDOS module repos **and** re-lock their declared inputs. | Get latest modules and bump their dependencies. |
 | `--update-repos-only` | Pull new revisions of the IceDOS module repos only. Does **not** re-lock inputs declared *inside* those modules — the sub-flake texts are generated before the repo bump in the same run, so if the bumped rev changes a module's declared inputs, those land on the **next** build (one-build lag, self-healing). | Get latest modules without bumping their dependencies. |
 | `--update-repos-select "..."` | Pull new revisions of only the named repos (space-separated `[[icedos.repositories]].url` values), without re-locking inputs declared *inside* those modules. Same one-build lag as `--update-repos-only` for the selected repos. | Get latest modules for one or a few repos without bumping everything. |
@@ -575,7 +577,7 @@ Rebuilds can pass a GitHub token to nix as a `github.com` access token (higher A
 - **`--nh-args` swallows args until `--build-args`** — place it after your other IceDOS flags. To pass both, use `--nh-args … --build-args …`.
 - **Unknown flags fail fast** — an unsupported flag prints `Unknown arg: …` and exits `1`.
 - **A failed build changes nothing** — your current system keeps running until a switch actually succeeds.
-- A failed `icedos rebuild` restores `flake.lock` and `.state/flake.{nix,lock}` to their state before the run. It keeps them if the system had already switched to the new generation, if you passed `--keep-locks`, or if `icedos.system.toolset.rebuild.rollbackLocks` is `false`.
+- A failed `icedos rebuild` restores `flake.lock`, `.state/flake.{nix,lock}` and `.state/cache-unpin.json` to their state before the run. It keeps them if the system had already switched to the new generation, if you passed `--keep-locks`, or if `icedos.system.toolset.rebuild.rollbackLocks` is `false`.
 
 ### Examples
 
@@ -594,6 +596,9 @@ icedos rebuild --update
 
 # Full update, but keep nixpkgs and the matching home-manager where they are
 icedos rebuild --update --update-except "nixpkgs home-manager"
+
+# Fresh nixpkgs now, without waiting for the cache to rebuild it
+icedos rebuild --unpin-select "nixpkgs"
 
 # Update and keep the new inputs without building, then build (and retry) against them
 icedos rebuild --update --lock-only

@@ -13,12 +13,14 @@ Flags:
   --boot                    build and set as boot entry
   --update-core             update all config flake inputs, then rerun on the updated core
   --update-core-only        update only the icedos input, then rerun on the updated core
-  --update-state-inputs <list> update specific state flake inputs (cache-pinned ones update the cache pin)
+  --update-state-inputs <list> update specific state flake inputs (cache-pinned ones update the cache pin, unless unpinned)
+  --unpin                   move every cache-pinned input to its latest upstream rev (combine with any --update flag)
+  --unpin-select <list>     unpin only these cache-pinned inputs (space-separated names; combine with any --update flag)
   --update-repos            update repos + their inputs before rebuild
   --update-repos-only       update repos only before rebuild
   --update-repos-select <list> update specific repos (space-separated urls) before rebuild
   --update-repo-inputs-only update repo inputs only before rebuild
-  --update-except <list>    with --update/--update-core, keep these inputs (state, config or <sub>/<input>) at their locked revs
+  --update-except <list>    with any --update or unpin flag, keep these inputs (state, config or <sub>/<input>) at their locked revs
   --lock-only               with an --update* flag: update and keep the locks, do not build
   --build-vm                build a VM test image
   --run-vm                  build and run a VM test image
